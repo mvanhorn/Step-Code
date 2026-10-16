@@ -1,0 +1,566 @@
+/**
+ * Create or edit one custom model provider.
+ *
+ * The form is the one the settings design calls for: Provider ID, display name,
+ * API address, API protocol, API key, then the model catalog. The catalog can be
+ * typed by hand or filled from the endpoint through 获取可用模型, which asks the
+ * address and protocol *currently in the form* — so a provider can be added in
+ * one pass instead of saving it first and coming back.
+ *
+ * A stored key is never sent to the browser, so the key field starts empty on an
+ * existing provider and a blank field means "keep the stored key". Removing one
+ * is the explicit action next to it.
+ */
+
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { useT } from "../../i18n";
+import { apiSend, errorMessage } from "../../lib/api";
+import { showError } from "../../state/session";
+import type { SettingsEditor } from "../../state/store";
+import type { DiscoveredModelEntry, SettingsModelProvider } from "../../state/types";
+import { Icon, IconButton, Modal, SearchInput, Spinner } from "../../ui";
+import { SettingsSelect } from "./parts";
+
+const MODELS_PATH = "/api/v1/settings/models";
+
+/**
+ * The protocols the form offers, by the identifier `models.json` stores.
+ *
+ * Anthropic Messages is listed with its own placeholder because its SDK appends
+ * `/v1/messages`, so the address it wants is the API root rather than the `/v1`
+ * one the OpenAI-shaped protocols use. That difference is exactly what the
+ * listing-path normalization also handles.
+ */
+const API_CHOICES: ReadonlyArray<{ readonly value: string; readonly label: string; readonly placeholder: string }> = [
+	{ value: "openai-completions", label: "OpenAI Chat Completions", placeholder: "https://gateway.example/v1" },
+	{ value: "openai-responses", label: "OpenAI Responses", placeholder: "https://gateway.example/v1" },
+	{ value: "anthropic-messages", label: "Anthropic Messages", placeholder: "https://gateway.example" },
+];
+
+/** One editable catalog row. Numbers stay strings while the user types them. */
+interface ModelRowState {
+	readonly key: string;
+	readonly id: string;
+	readonly name: string;
+	readonly contextWindow: string;
+	readonly maxTokens: string;
+	readonly input: readonly ("text" | "image")[];
+}
+
+interface FormState {
+	readonly id: string;
+	readonly name: string;
+	readonly baseUrl: string;
+	readonly api: string;
+	readonly apiKey: string;
+	readonly models: readonly ModelRowState[];
+}
+
+const EMPTY_FORM: FormState = {
+	id: "",
+	name: "",
+	baseUrl: "",
+	api: API_CHOICES[0]?.value ?? "openai-completions",
+	apiKey: "",
+	models: [],
+};
+
+let rowSeq = 0;
+
+function newRow(entry?: Partial<ModelRowState>): ModelRowState {
+	rowSeq += 1;
+	return {
+		key: `row-${String(rowSeq)}`,
+		id: entry?.id ?? "",
+		name: entry?.name ?? "",
+		contextWindow: entry?.contextWindow ?? "",
+		maxTokens: entry?.maxTokens ?? "",
+		input: entry?.input ?? ["text"],
+	};
+}
+
+function formFromProvider(provider: SettingsModelProvider | undefined): FormState {
+	if (!provider) return EMPTY_FORM;
+	return {
+		id: provider.id,
+		name: provider.name === provider.id ? "" : provider.name,
+		baseUrl: provider.baseUrl,
+		api: provider.api || EMPTY_FORM.api,
+		// Write-only: the stored key never reaches the browser.
+		apiKey: "",
+		models: provider.models.map((model) =>
+			newRow({
+				id: model.id,
+				name: model.name ?? "",
+				contextWindow: model.contextWindow?.toString() ?? "",
+				maxTokens: model.maxTokens?.toString() ?? "",
+				input: (model.input ?? ["text"]).filter(
+					(value): value is "text" | "image" => value === "text" || value === "image",
+				),
+			}),
+		),
+	};
+}
+
+/** The request body: rows without an id are dropped rather than rejected. */
+function modelsPayload(rows: readonly ModelRowState[]): Array<Record<string, unknown>> {
+	return rows
+		.filter((row) => row.id.trim())
+		.map((row) => ({
+			id: row.id.trim(),
+			...(row.name.trim() ? { name: row.name.trim() } : {}),
+			...(Number(row.contextWindow) > 0 ? { contextWindow: Number(row.contextWindow) } : {}),
+			...(Number(row.maxTokens) > 0 ? { maxTokens: Number(row.maxTokens) } : {}),
+			...(row.input.length > 0 ? { input: row.input } : {}),
+		}));
+}
+
+/**
+ * The candidate picker 获取可用模型 opens.
+ *
+ * It is a picker rather than a direct write because the reply is a guess about
+ * what the endpoint serves, not a decision: the user sees the ids and their
+ * capabilities, chooses, and only then does anything reach the catalog. Already
+ * present rows are shown as such and keep the values the user set.
+ */
+function DiscoverDialog({
+	open,
+	loading,
+	error,
+	models,
+	selected,
+	onToggle,
+	onSelectAll,
+	onClearAll,
+	onAdd,
+	onClose,
+}: {
+	readonly open: boolean;
+	readonly loading: boolean;
+	readonly error: string | undefined;
+	readonly models: readonly DiscoveredModelEntry[];
+	readonly selected: ReadonlySet<string>;
+	readonly onToggle: (id: string) => void;
+	readonly onSelectAll: () => void;
+	readonly onClearAll: () => void;
+	readonly onAdd: () => void;
+	readonly onClose: () => void;
+}) {
+	const t = useT();
+	const [query, setQuery] = useState("");
+	const visible = useMemo(() => {
+		const needle = query.trim().toLowerCase();
+		return needle ? models.filter((model) => `${model.id} ${model.name}`.toLowerCase().includes(needle)) : models;
+	}, [models, query]);
+	return (
+		<Modal
+			open={open}
+			onClose={onClose}
+			id="settingsModelDiscover"
+			className="settings-dialog"
+			labelledBy="settingsModelDiscoverTitle"
+		>
+			<div className="settings-dialog-head">
+				<h2 id="settingsModelDiscoverTitle">{t("settingsModelsDiscover")}</h2>
+				<IconButton icon="close" iconSize="sm" aria-label={t("close")} onClick={onClose} />
+			</div>
+			{loading ? (
+				<div className="settings-loading">
+					<Spinner />
+					<span>{t("settingsModelsDiscoverLoading")}</span>
+				</div>
+			) : error ? (
+				<div className="settings-alert danger" role="alert">
+					{error}
+				</div>
+			) : models.length === 0 ? (
+				<p className="settings-dialog-desc">{t("settingsModelsDiscoverEmpty")}</p>
+			) : (
+				<>
+					<div className="settings-modal-tools">
+						<SearchInput
+							wrapperClassName="settings-search"
+							placeholder={t("settingsModelsDiscoverSearch")}
+							aria-label={t("settingsModelsDiscoverSearch")}
+							value={query}
+							onChange={(event) => setQuery(event.target.value)}
+						/>
+						<button type="button" className="settings-btn subtle" onClick={onSelectAll}>
+							{t("settingsModelsSelectAll")}
+						</button>
+						<button type="button" className="settings-btn subtle" onClick={onClearAll}>
+							{t("settingsModelsClearAll")}
+						</button>
+					</div>
+					<ul className="settings-model-options">
+						{visible.map((model) => (
+							<li key={model.id}>
+								<label className="settings-model-option" data-discovered-model={model.id}>
+									<input
+										type="checkbox"
+										checked={selected.has(model.id)}
+										onChange={() => onToggle(model.id)}
+									/>
+									<span className="settings-model-option-id mono">{model.id}</span>
+									<span className="settings-model-option-meta">
+										{model.name !== model.id ? model.name : ""}
+										{model.contextWindow ? ` \u00b7 ${String(model.contextWindow)}` : ""}
+									</span>
+								</label>
+							</li>
+						))}
+					</ul>
+				</>
+			)}
+			<div className="settings-dialog-footer">
+				<button type="button" className="settings-btn" onClick={onClose}>
+					{t("cancel")}
+				</button>
+				<button
+					type="button"
+					className="settings-btn primary"
+					id="settingsModelDiscoverAdd"
+					disabled={selected.size === 0}
+					onClick={onAdd}
+				>
+					{t("settingsModelsAddSelected", { count: selected.size })}
+				</button>
+			</div>
+		</Modal>
+	);
+}
+
+export function ModelEditor({
+	editor,
+	existing,
+	onDone,
+}: {
+	readonly editor: Extract<SettingsEditor, { kind: "model" }>;
+	readonly existing: SettingsModelProvider | undefined;
+	readonly onDone: (saved: boolean) => void;
+}) {
+	const t = useT();
+	const editing = Boolean(editor.id);
+	const [form, setForm] = useState<FormState>(() => formFromProvider(existing));
+	const [error, setError] = useState<string>();
+	const [saving, setSaving] = useState(false);
+	const [removeKey, setRemoveKey] = useState(false);
+	const [discoverOpen, setDiscoverOpen] = useState(false);
+	const [discoverLoading, setDiscoverLoading] = useState(false);
+	const [discoverError, setDiscoverError] = useState<string>();
+	const [discovered, setDiscovered] = useState<readonly DiscoveredModelEntry[]>([]);
+	const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+	const update = (patch: Partial<FormState>) => setForm((current) => ({ ...current, ...patch }));
+	const apiChoice = API_CHOICES.find((choice) => choice.value === form.api) ?? API_CHOICES[0];
+
+	const runDiscover = useCallback(async () => {
+		setDiscoverError(undefined);
+		setDiscoverLoading(true);
+		setSelected(new Set());
+		try {
+			const reply = await apiSend<{ models: DiscoveredModelEntry[] }>(`${MODELS_PATH}/discover`, "POST", {
+				baseUrl: form.baseUrl.trim(),
+				api: form.api,
+				apiKey: form.apiKey.trim() || undefined,
+			});
+			setDiscovered(reply.models);
+		} catch (caught) {
+			setDiscovered([]);
+			setDiscoverError(errorMessage(caught));
+		} finally {
+			setDiscoverLoading(false);
+		}
+	}, [form.baseUrl, form.api, form.apiKey]);
+
+	const openDiscover = () => {
+		setDiscoverOpen(true);
+		void runDiscover();
+	};
+
+	const updateRow = (key: string, patch: Partial<ModelRowState>) =>
+		setForm((current) => ({
+			...current,
+			models: current.models.map((row) => (row.key === key ? { ...row, ...patch } : row)),
+		}));
+
+	// Selected candidates become editable rows, keeping what the endpoint said and
+	// leaving any row the user already adjusted alone.
+	const addSelected = () => {
+		const have = new Set(form.models.map((row) => row.id.trim()).filter(Boolean));
+		const additions = discovered
+			.filter((model) => selected.has(model.id) && !have.has(model.id))
+			.map((model) =>
+				newRow({
+					id: model.id,
+					name: model.name === model.id ? "" : model.name,
+					contextWindow: model.contextWindow?.toString() ?? "",
+					maxTokens: model.maxTokens?.toString() ?? "",
+				}),
+			);
+		update({ models: [...form.models, ...additions] });
+		setDiscoverOpen(false);
+	};
+
+	useEffect(() => {
+		// A dialog left mounted keeps its last reply; clearing here keeps the next
+		// open from showing a catalog the form no longer describes.
+		if (discoverOpen) return;
+		setDiscovered([]);
+		setDiscoverError(undefined);
+		setSelected(new Set());
+	}, [discoverOpen]);
+
+	const save = async (event: FormEvent) => {
+		event.preventDefault();
+		setError(undefined);
+		setSaving(true);
+		const id = editing ? (editor.id ?? "") : form.id.trim();
+		try {
+			const body = {
+				name: form.name.trim() || undefined,
+				baseUrl: form.baseUrl.trim(),
+				api: form.api,
+				apiKey: form.apiKey.trim() || undefined,
+				models: modelsPayload(form.models),
+			};
+			if (editing) await apiSend(`${MODELS_PATH}/${encodeURIComponent(id)}`, "PUT", { ...body, removeKey });
+			else await apiSend(MODELS_PATH, "POST", { id, ...body });
+			showError(t(editing ? "settingsModelsSaved" : "settingsModelsAdded", { name: form.name.trim() || id }), false);
+			onDone(true);
+		} catch (caught) {
+			setError(errorMessage(caught));
+		} finally {
+			setSaving(false);
+		}
+	};
+
+	const field = (key: string) => `settingsModel-${key}`;
+	return (
+		<>
+			<form className="settings-editor" id="settingsModelEditor" onSubmit={(event) => void save(event)}>
+				<nav className="settings-breadcrumb" aria-label={t("settingsModels")}>
+					<button type="button" onClick={() => onDone(false)}>
+						{t("settingsModels")}
+					</button>
+					<Icon name="chevronRight" size="menu" />
+					<span>{editing ? (editor.id ?? "") : t("settingsModelsNew")}</span>
+				</nav>
+				<div className="settings-editor-head">
+					<div>
+						<h1 className="settings-page-title">
+							{editing ? t("settingsModelsEditTitle") : t("settingsModelsNew")}
+						</h1>
+						<p className="settings-page-desc">{t("settingsModelsFormDesc")}</p>
+					</div>
+				</div>
+
+				<div className="settings-card settings-form">
+					<label className="settings-field" htmlFor={field("id")}>
+						<span>Provider ID</span>
+						<input
+							id={field("id")}
+							className="mono"
+							value={form.id}
+							disabled={editing}
+							placeholder="acme-gateway"
+							autoComplete="off"
+							spellCheck={false}
+							required
+							onChange={(event) => update({ id: event.target.value })}
+						/>
+						<small className="settings-field-hint">{t("settingsModelsIdHint")}</small>
+					</label>
+					<label className="settings-field" htmlFor={field("name")}>
+						<span>{t("settingsModelsDisplayName")}</span>
+						<input
+							id={field("name")}
+							value={form.name}
+							placeholder={t("settingsModelsDisplayName")}
+							autoComplete="off"
+							onChange={(event) => update({ name: event.target.value })}
+						/>
+					</label>
+					<label className="settings-field" htmlFor={field("baseUrl")}>
+						<span>{t("settingsModelsBaseUrl")}</span>
+						<input
+							id={field("baseUrl")}
+							className="mono"
+							value={form.baseUrl}
+							placeholder={apiChoice?.placeholder ?? "https://gateway.example/v1"}
+							spellCheck={false}
+							required
+							onChange={(event) => update({ baseUrl: event.target.value })}
+						/>
+					</label>
+					<div className="settings-field settings-field-narrow">
+						<span>{t("settingsModelsApi")}</span>
+						<SettingsSelect<string>
+							id={field("api")}
+							value={form.api}
+							ariaLabel={t("settingsModelsApi")}
+							options={API_CHOICES.map((choice) => ({ value: choice.value, label: choice.label }))}
+							onChange={(api) => update({ api })}
+						/>
+					</div>
+					<label className="settings-field" htmlFor={field("apiKey")}>
+						<span>{t("settingsModelsApiKey")}</span>
+						<input
+							id={field("apiKey")}
+							type="password"
+							className="mono"
+							value={form.apiKey}
+							autoComplete="new-password"
+							placeholder={
+								editing && existing?.credential !== "none"
+									? t("settingsModelsApiKeyKeep")
+									: t("settingsModelsApiKeyPlaceholder")
+							}
+							onChange={(event) => {
+								setRemoveKey(false);
+								update({ apiKey: event.target.value });
+							}}
+						/>
+						{editing && existing?.credential === "stored" ? (
+							<small className="settings-field-hint">
+								<label className="settings-inline-check">
+									<input
+										type="checkbox"
+										checked={removeKey}
+										onChange={(event) => {
+											setRemoveKey(event.target.checked);
+											if (event.target.checked) update({ apiKey: "" });
+										}}
+									/>
+									{t("settingsModelsApiKeyRemove")}
+								</label>
+							</small>
+						) : null}
+					</label>
+
+					<hr className="settings-divider" />
+					<div className="settings-field-head">
+						<span className="settings-field-title">{t("settingsModelsCatalog")}</span>
+						<button
+							type="button"
+							className="settings-btn subtle"
+							id="settingsModelDiscoverButton"
+							disabled={!form.baseUrl.trim()}
+							onClick={openDiscover}
+						>
+							<Icon name="refresh" size="xs" />
+							{t("settingsModelsDiscover")}
+						</button>
+					</div>
+					{form.models.length === 0 ? (
+						<div className="settings-dashed-note" id="settingsModelsCatalogEmpty">
+							{t("settingsModelsCatalogEmpty")}
+						</div>
+					) : (
+						<ul className="settings-model-rows">
+							{form.models.map((row) => (
+								<li className="settings-model-row" data-model-row={row.id || row.key} key={row.key}>
+									<input
+										className="mono"
+										aria-label={t("settingsModelsModelId")}
+										value={row.id}
+										placeholder="model-id"
+										spellCheck={false}
+										onChange={(event) => updateRow(row.key, { id: event.target.value })}
+									/>
+									<input
+										aria-label={t("settingsModelsModelName")}
+										value={row.name}
+										placeholder={t("settingsModelsModelName")}
+										onChange={(event) => updateRow(row.key, { name: event.target.value })}
+									/>
+									<input
+										type="number"
+										min="1"
+										aria-label={t("settingsModelsContextWindow")}
+										value={row.contextWindow}
+										placeholder="128000"
+										onChange={(event) => updateRow(row.key, { contextWindow: event.target.value })}
+									/>
+									<input
+										type="number"
+										min="1"
+										aria-label={t("settingsModelsMaxTokens")}
+										value={row.maxTokens}
+										placeholder="16384"
+										onChange={(event) => updateRow(row.key, { maxTokens: event.target.value })}
+									/>
+									<label className="settings-inline-check">
+										<input
+											type="checkbox"
+											checked={row.input.includes("image")}
+											onChange={() =>
+												updateRow(row.key, {
+													input: row.input.includes("image") ? ["text"] : ["text", "image"],
+												})
+											}
+										/>
+										{t("settingsModelsImageInput")}
+									</label>
+									<button
+										type="button"
+										className="settings-icon-action danger"
+										aria-label={t("settingsDelete")}
+										data-tooltip={t("settingsDelete")}
+										onClick={() =>
+											update({ models: form.models.filter((candidate) => candidate.key !== row.key) })
+										}
+									>
+										<Icon name="trash" size="xs" />
+									</button>
+								</li>
+							))}
+						</ul>
+					)}
+					<button
+						type="button"
+						className="settings-dashed-add"
+						id="settingsModelAddRow"
+						onClick={() => update({ models: [...form.models, newRow()] })}
+					>
+						<Icon name="plus" size="xs" />
+						{t("settingsModelsAddModel")}
+					</button>
+
+					{error ? (
+						<div className="settings-alert danger" role="alert">
+							{error}
+						</div>
+					) : null}
+					<div className="settings-form-footer">
+						<span className="settings-form-note">{t("settingsModelsFootnote")}</span>
+						<button type="button" className="settings-btn" onClick={() => onDone(false)}>
+							{t("cancel")}
+						</button>
+						<button type="submit" className="settings-btn primary" disabled={saving}>
+							{saving ? t("settingsSaving") : editing ? t("settingsSave") : t("settingsModelsCreate")}
+						</button>
+					</div>
+				</div>
+			</form>
+			<DiscoverDialog
+				open={discoverOpen}
+				loading={discoverLoading}
+				error={discoverError}
+				models={discovered}
+				selected={selected}
+				onToggle={(id) =>
+					setSelected((current) => {
+						const next = new Set(current);
+						if (next.has(id)) next.delete(id);
+						else next.add(id);
+						return next;
+					})
+				}
+				onSelectAll={() => setSelected(new Set(discovered.map((model) => model.id)))}
+				onClearAll={() => setSelected(new Set())}
+				onAdd={addSelected}
+				onClose={() => setDiscoverOpen(false)}
+			/>
+		</>
+	);
+}

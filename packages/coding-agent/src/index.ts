@@ -1,7 +1,19 @@
 // Core session management
 
 // What a session would report for a model before one exists (Web drafts).
-export { clampThinkingLevel, getSupportedThinkingLevels } from "@step-harness/providers";
+// Model discovery lives in the providers layer (protocol knowledge, and the same
+// `api` key the adapters dispatch on). Re-exported so a host can ask an endpoint
+// for its catalog without depending on that package directly.
+export {
+	clampThinkingLevel,
+	DEFAULT_DISCOVERY_API,
+	type DiscoveredModel,
+	discoverModels,
+	getSupportedThinkingLevels,
+	ModelDiscoveryError,
+	modelListingUrl,
+	readModelListing,
+} from "@step-harness/providers";
 export { type Args, type Mode, parseArgs } from "./cli/args.ts";
 // -----------------------------------------------------------------------------
 // S4-0 barrel widening: symbols consumed by the interactive UI that moved to the
@@ -43,7 +55,7 @@ export {
 	type SessionStats,
 } from "./core/agent-session.ts";
 export { SessionImportFileNotFoundError } from "./core/agent-session-runtime.ts";
-export { readStoredCredential } from "./core/auth-storage.ts";
+export { AuthStorage, readStoredCredential } from "./core/auth-storage.ts";
 export {
 	CACHE_TTL_MS,
 	type CacheMiss,
@@ -263,6 +275,13 @@ export {
 	ModelRuntime,
 	type ModelRuntimeAuthOverrides,
 } from "./core/model-runtime.ts";
+// Models
+export {
+	ModelsJsonError,
+	readModelsJson,
+	readModelsJsonProviders,
+	updateModelsJsonProvider,
+} from "./core/models-json.ts";
 export { restoreStdout } from "./core/output-guard.ts";
 export type {
 	PackageManager,

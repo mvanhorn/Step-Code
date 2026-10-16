@@ -13,6 +13,7 @@ import { AppearancePage } from "./AppearancePage";
 import { closeSettings, showSettingsPage } from "./actions";
 import { GeneralPage } from "./GeneralPage";
 import { McpPage } from "./McpPage";
+import { ModelsPage } from "./ModelsPage";
 import { PluginsPage } from "./PluginsPage";
 import { SkillsPage } from "./SkillsPage";
 
@@ -27,6 +28,7 @@ const MENU: ReadonlyArray<{ readonly title: string; readonly entries: readonly M
 		title: "settingsGroupBasics",
 		entries: [
 			{ page: "general", label: "settingsGeneral", icon: "sliders" },
+			{ page: "models", label: "settingsModels", icon: "cube" },
 			{ page: "appearance", label: "settingsAppearance", icon: "palette" },
 		],
 	},
@@ -46,6 +48,8 @@ function pageContent(page: SettingsPage): ReactNode {
 			return <GeneralPage />;
 		case "appearance":
 			return <AppearancePage />;
+		case "models":
+			return <ModelsPage />;
 		case "plugins":
 			return <PluginsPage />;
 		case "mcp":

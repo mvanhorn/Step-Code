@@ -352,6 +352,31 @@ export interface SettingsPluginCatalog {
 	readonly warnings: readonly string[];
 }
 
+/** `GET /api/v1/settings/models` entry (src/model-providers.ts `WebModelProvider`). */
+export interface SettingsModelProvider {
+	readonly id: string;
+	readonly name: string;
+	readonly baseUrl: string;
+	readonly api: string;
+	readonly models: ReadonlyArray<{
+		readonly id: string;
+		readonly name?: string;
+		readonly contextWindow?: number;
+		readonly maxTokens?: number;
+		readonly input?: readonly string[];
+	}>;
+	/** Where the key comes from; the key itself is never sent to the browser. */
+	readonly credential: "stored" | "configured" | "none";
+}
+
+/** `POST /api/v1/settings/models/discover` candidate (providers `DiscoveredModel`). */
+export interface DiscoveredModelEntry {
+	readonly id: string;
+	readonly name: string;
+	readonly contextWindow?: number;
+	readonly maxTokens?: number;
+}
+
 /** `GET /api/v1/settings/skills` entry (src/settings.ts `WebSkillEntry`). */
 export interface SettingsSkill {
 	readonly id: string;

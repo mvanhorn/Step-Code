@@ -115,7 +115,7 @@ export interface PreviewState {
 }
 
 /** Pages of the settings view, in menu order. */
-export type SettingsPage = "general" | "appearance" | "plugins" | "mcp" | "skills";
+export type SettingsPage = "general" | "appearance" | "models" | "plugins" | "mcp" | "skills";
 
 /**
  * What a settings editor edits. `mcp` with a name edits that server, without one
@@ -123,6 +123,7 @@ export type SettingsPage = "general" | "appearance" | "plugins" | "mcp" | "skill
  */
 export type SettingsEditor =
 	| { readonly kind: "mcp"; readonly name?: string; readonly json?: boolean }
+	| { readonly kind: "model"; readonly id?: string }
 	| { readonly kind: "skill" };
 
 /**
