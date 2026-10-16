@@ -5,9 +5,27 @@
 
 import { t } from "../../i18n";
 import { api, apiSend, errorMessage } from "../../lib/api";
-import { countUserMessages, createSessionIfNeeded, renderSnapshot, showError } from "../../state/session";
-import { getState, type ModeId, setState } from "../../state/store";
-import type { Attachment, ClarificationReply, ClarificationRequest, SessionSnapshot } from "../../state/types";
+import {
+	DRAFT_SELECTION_ID,
+	draftFullAccessQuestion,
+	FULL_ACCESS_PRESET,
+	FULL_ACCESS_RISK_CANCEL,
+} from "../../lib/permissions";
+import {
+	countUserMessages,
+	createSessionIfNeeded,
+	forgetSelection,
+	renderSnapshot,
+	showError,
+} from "../../state/session";
+import { type AppState, getState, type ModeId, setState } from "../../state/store";
+import type {
+	Attachment,
+	ClarificationReply,
+	ClarificationRequest,
+	SelectionRequest,
+	SessionSnapshot,
+} from "../../state/types";
 
 export async function replyToClarification(
 	request: ClarificationRequest,
@@ -29,15 +47,81 @@ export async function replyToClarification(
 
 /* ── Permission policy (legacy renderPolicies onSelect 2534-2541, `policychange` 3509-3522) ── */
 
-/** Make `preset` the draft policy and, with a session open, apply it there. */
+/**
+ * Make `preset` the draft policy and, with a session open, apply it there.
+ *
+ * Full Access needs the risk acknowledgment first. A live session's kernel
+ * asks it (the PATCH returns with the question pending and the tier
+ * unchanged). A draft has no kernel yet, so it asks the same question itself
+ * and keeps the answer for the session it creates on the first send.
+ */
 export async function selectPolicy(preset: string): Promise<void> {
+	const state = getState();
+	const current = state.current;
+	if (!current) {
+		if (preset === FULL_ACCESS_PRESET && preset !== state.draftPolicy && !state.draftModels?.fullAccessAcknowledged) {
+			setState({ draftSelection: draftFullAccessQuestion() });
+			return;
+		}
+		setState({ draftPolicy: preset, draftFullAccessAnswer: "", draftPolicyPicked: true });
+		return;
+	}
 	setState({ draftPolicy: preset });
-	const current = getState().current;
-	if (!current) return;
 	try {
 		renderSnapshot(await apiSend<SessionSnapshot>(`/api/v1/sessions/${current.id}/policy`, "PATCH", { preset }));
 	} catch (error) {
 		showError(errorMessage(error));
+	}
+}
+
+/* ── Kernel selectors (the Full Access risk question) ─────────────────────── */
+
+/** The question to show: the open session's, or the draft's own Full Access question. */
+export function pendingSelection(state: AppState): SelectionRequest | undefined {
+	return state.current ? state.current.pendingSelections?.[0] : (state.draftSelection ?? undefined);
+}
+
+const answeringSelections = new Set<string>();
+
+/**
+ * Answer a pending selection with one of its options, or `undefined` to
+ * dismiss it. The host replies once the command that asked has applied the
+ * answer, so the returned snapshot already shows the resulting permission tier.
+ * The draft's own question is answered locally.
+ */
+export async function answerSelection(request: SelectionRequest, value: string | undefined): Promise<boolean> {
+	if (request.id === DRAFT_SELECTION_ID) {
+		const granted = value !== undefined && value !== FULL_ACCESS_RISK_CANCEL;
+		setState(
+			granted
+				? {
+						draftSelection: null,
+						draftPolicy: FULL_ACCESS_PRESET,
+						draftFullAccessAnswer: value,
+						draftPolicyPicked: true,
+					}
+				: { draftSelection: null },
+		);
+		return true;
+	}
+	// Escape (ShellEffects) and the dialog's buttons can both answer; the second
+	// would only earn a "not found" error.
+	if (answeringSelections.has(request.id)) return false;
+	answeringSelections.add(request.id);
+	try {
+		const snapshot = await apiSend<SessionSnapshot>(
+			`/api/v1/sessions/${request.sessionId}/selections/response`,
+			"POST",
+			{ id: request.id, ...(value === undefined ? {} : { value }) },
+		);
+		forgetSelection(request.id);
+		renderSnapshot(snapshot);
+		return true;
+	} catch (error) {
+		showError(errorMessage(error));
+		return false;
+	} finally {
+		answeringSelections.delete(request.id);
 	}
 }
 

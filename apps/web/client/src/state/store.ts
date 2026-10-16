@@ -8,6 +8,7 @@ import type {
 	DraftModels,
 	LoginReport,
 	PolicyPreset,
+	SelectionRequest,
 	SessionSnapshot,
 	SessionStatus,
 	SessionSummary,
@@ -208,6 +209,23 @@ export interface AppState {
 	readonly bootstrapCwd: string;
 	readonly draftCwd: string;
 	readonly draftPolicy: string;
+	/**
+	 * The Full Access risk question a draft asks itself when Full Access is
+	 * picked before its session exists (the host can only ask a live session).
+	 */
+	readonly draftSelection: SelectionRequest | null;
+	/**
+	 * The answer the user gave `draftSelection`, verbatim. The new session's
+	 * kernel asks the same question when the draft's tier is applied, and
+	 * receives this answer instead of a second dialog.
+	 */
+	readonly draftFullAccessAnswer: string;
+	/**
+	 * The user picked a tier in this draft. Until then the draft follows the
+	 * tier the Step settings name for its folder (`draftModels.permissionPreset`),
+	 * so the first send does not overwrite a tier chosen elsewhere (the CLI).
+	 */
+	readonly draftPolicyPicked: boolean;
 	/** `${provider}\u0000${modelId}` the user picked for a new session, or "" for the server's default. */
 	readonly draftModel: string;
 	/** Thinking level the user picked for a new session, or "" for the server's default. */
@@ -284,6 +302,9 @@ export function createInitialState(): AppState {
 		bootstrapCwd: "",
 		draftCwd: "",
 		draftPolicy: "ask",
+		draftSelection: null,
+		draftFullAccessAnswer: "",
+		draftPolicyPicked: false,
 		draftModel: "",
 		draftThinking: "",
 		draftModels: null,

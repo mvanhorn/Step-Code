@@ -32,6 +32,12 @@ export interface DraftModels {
 	readonly thinkingLevel?: string;
 	readonly availableThinkingLevels: readonly string[];
 	readonly models: readonly ModelInfo[];
+	/** The tier the Step settings name for this folder; a new session starts on it. */
+	readonly permissionPreset?: string;
+	/** The presets the picker offers, so a draft lists them before any session exists. */
+	readonly policies?: readonly PolicyPreset[];
+	/** Full Access was granted with "don't ask again"; picking it needs no confirmation. */
+	readonly fullAccessAcknowledged?: boolean;
 }
 
 export interface PolicyPreset {
@@ -107,6 +113,8 @@ export interface SessionSnapshot extends SessionSummary {
 	/** Tool calls still waiting for a verdict; the stream only announces each one once. */
 	readonly pendingApprovals?: readonly ApprovalRequest[];
 	readonly pendingClarifications?: readonly ClarificationRequest[];
+	/** Kernel selectors waiting for an answer (src/selection.ts), e.g. the Full Access risk question. */
+	readonly pendingSelections?: readonly SelectionRequest[];
 	/** User entry ids of turns whose file changes were reverted (runtime.ts `revertTurn`). */
 	readonly revertedTurns?: readonly string[];
 }
@@ -118,6 +126,14 @@ export interface ClarificationQuestion {
 	readonly reason?: string;
 	readonly options: readonly { readonly label: string; readonly value: string; readonly description?: string }[];
 	readonly allowFreeform: boolean;
+}
+
+/** A kernel `ui.select` dialog (src/selection.ts). Options are the kernel's own labels, echoed back verbatim. */
+export interface SelectionRequest {
+	readonly id: string;
+	readonly sessionId: string;
+	readonly title: string;
+	readonly options: readonly string[];
 }
 
 export interface ClarificationRequest {

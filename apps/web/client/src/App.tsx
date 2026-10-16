@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { Composer } from "./features/composer";
+import { Composer, SelectionDialog } from "./features/composer";
 import { ConversationStream, FeedbackModal, TaskBanner } from "./features/conversation";
 import { FileTreePanel, PreviewPanel, PreviewShowButton } from "./features/files";
 import { LoginGate } from "./features/login";
@@ -22,11 +22,12 @@ import { IconSprite } from "./ui";
  *     aside.sidebar      sidebar nav | files tree | shell user area (account, remote control, settings gear)
  *     #sidebarResizer    sidebar
  *     main.main          shell show button | files show button | conversation banner | market cron/market views | stream
- *                        | .composer-zone > composer form (+ workspace control) | sidebar session menu
+ *                        | .composer-zone > composer form (workspace pill above the card) | sidebar session menu
  *                        | shell toast + auth banner
  *     aside#previewPanel files
  *   #settingsView      settings: full-window settings page (menu + page) over the workspace
- *   #tagPicker, #feedbackModal, #searchModal, #workspaceBrowserModal, #removeWorkspaceModal, #loggedOutOverlay
+ *   #tagPicker, #feedbackModal, #searchModal, #workspaceBrowserModal, #removeWorkspaceModal, #selectionDialog,
+ *   #loggedOutOverlay
  *   #loginGate         login: Desktop sign-in, above everything while no credential exists
  */
 export function App() {
@@ -83,6 +84,7 @@ export function App() {
 			<SearchModal />
 			<WorkspaceBrowserModal />
 			<RemoveWorkspaceModal />
+			<SelectionDialog />
 			<LoggedOutOverlay />
 			<LoginGate />
 			<ShellEffects />

@@ -20,11 +20,13 @@ import { PromptInput, resizePrompt } from "./PromptInput";
 import { type SlashItem, SlashMenu, type SlashMenuHandle, slashQuery } from "./SlashMenu";
 import { UsageMenu } from "./UsageMenu";
 
+export { SelectionDialog } from "./SelectionDialog";
+
 export interface ComposerProps {
 	/**
-	 * `#workspaceControl` from the workspace feature. Legacy markup nests it in
-	 * the form after `.composer-card` (index.html 979-1006); App passes it in so
-	 * the composer does not import the workspace feature.
+	 * `#workspaceControl` from the workspace feature: a compact folder pill just
+	 * above `.composer-card`, outside it. App passes it in so the composer does
+	 * not import the workspace feature.
 	 */
 	readonly workspaceControl?: ReactNode;
 }
@@ -64,8 +66,9 @@ export function Composer({ workspaceControl }: ComposerProps) {
 			textarea.value = "";
 			setUi({ slashMenu: "mcp" });
 		} else {
-			// The kernel expands `/skill:<name> [request]` into the skill's instructions on send.
-			textarea.value = `/skill:${item.key} `;
+			// The kernel runs `/<command> [args]` and expands `/skill:<name> [request]`
+			// into the skill's instructions on send.
+			textarea.value = item.kind === "command" ? `/${item.key} ` : `/skill:${item.key} `;
 			setUi({ slashMenu: null });
 		}
 		resizePrompt(textarea);
@@ -94,6 +97,7 @@ export function Composer({ workspaceControl }: ComposerProps) {
 		<form className="composer" id="composer" ref={form} onSubmit={submit}>
 			<SlashMenu handle={slash} query={query} promptRef={prompt} onPick={pickSlash} />
 			<ClarificationPanel />
+			{workspaceControl}
 			<div className="composer-card">
 				<PromptInput
 					promptRef={prompt}
@@ -132,7 +136,6 @@ export function Composer({ workspaceControl }: ComposerProps) {
 					</div>
 				</div>
 			</div>
-			{workspaceControl}
 		</form>
 	);
 }

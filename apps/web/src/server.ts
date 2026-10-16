@@ -601,6 +601,16 @@ const server = createServer(async (request, response) => {
 				}
 				return json(response, 200, { ok: true });
 			}
+			if (parts[4] === "selections" && parts[5] === "response" && parts.length === 6 && method === "POST") {
+				const input = await body(request);
+				if (typeof input.id !== "string") return error(response, 400, "Selection id is required");
+				// An absent value means the user dismissed the dialog.
+				if (input.value !== undefined && typeof input.value !== "string")
+					return error(response, 400, "value must be a string");
+				if (!(await session.respondSelection(input.id, input.value)))
+					return error(response, 404, "Selection not found");
+				return json(response, 200, session.snapshot());
+			}
 			if (parts[4] === "approvals" && parts[5] === "decision" && method === "POST") {
 				const input = await body(request);
 				const verdict = input.verdict;
@@ -642,8 +652,8 @@ const server = createServer(async (request, response) => {
 				try {
 					await session.setPolicy(input.preset as StepPermissionPresetId);
 				} catch (caught) {
-					// Both "unknown preset" and "the Web host refuses this tier" are the
-					// caller's problem, not a server fault.
+					// An unknown preset, or a switch while a permission dialog is
+					// still open, is the caller's problem, not a server fault.
 					return error(response, 400, caught instanceof Error ? caught.message : String(caught));
 				}
 				return json(response, 200, session.snapshot());

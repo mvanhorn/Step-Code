@@ -237,6 +237,17 @@ paths:
                   thinkingLevel: { type: string }
                   availableThinkingLevels: { type: array, items: { type: string } }
                   models: { type: array, items: { type: object } }
+                  permissionPreset:
+                    type: string
+                    enum: [ask, approve-for-me, full-access]
+                    description: The tier the Step settings name for `cwd`; a new session starts on it.
+                  policies:
+                    type: array
+                    description: The permission presets the picker offers, labelled by the kernel.
+                    items: { $ref: "#/components/schemas/PolicyPreset" }
+                  fullAccessAcknowledged:
+                    type: boolean
+                    description: Full Access was granted with "don't ask again", so picking it needs no confirmation.
   /api/v1/sessions:
     get:
       responses:
@@ -258,12 +269,22 @@ paths:
         - { $ref: "#/components/parameters/SessionId" }
       responses:
         "200":
-          description: Session snapshot including pendingClarifications (in-memory requests restored after page reload)
+          description: >-
+            Session snapshot including pendingClarifications and pendingSelections (in-memory requests restored after
+            page reload). `permissionPreset` is the tier the kernel enforces now, which can differ from the Step
+            settings (a "this session" Full Access grant is not persisted).
           content:
             application/json:
               schema:
                 type: object
                 properties:
+                  permissionPreset: { type: string, enum: [ask, approve-for-me, full-access] }
+                  policies:
+                    type: array
+                    items: { $ref: "#/components/schemas/PolicyPreset" }
+                  pendingSelections:
+                    type: array
+                    items: { $ref: "#/components/schemas/SelectionRequest" }
                   pendingClarifications:
                     type: array
                     items: { $ref: "#/components/schemas/ClarificationRequest" }
@@ -280,7 +301,11 @@ paths:
       parameters:
         - { $ref: "#/components/parameters/SessionId" }
       responses:
-        "200": { description: "SSE snapshot and agent/status/approval/clarification_required/clarification_resolved events. Required carries clarification; resolved carries id." }
+        "200":
+          description: >-
+            SSE snapshot and agent/status/approval/clarification_required/clarification_resolved/selection_required/
+            selection_resolved events. clarification_required carries clarification and selection_required carries
+            selection; the resolved events carry id.
   /api/v1/sessions/{id}/messages:
     post:
       parameters:
@@ -757,10 +782,49 @@ paths:
                   path: { type: string, description: The file that blocked it (missing, conflict) }
   /api/v1/sessions/{id}/policy:
     patch:
+      description: >-
+        Switch the tier through the kernel's `/permissions` command. Full Access without a remembered acknowledgment
+        makes the kernel ask the risk question: the response then returns at once with the question in
+        `pendingSelections` and the tier unchanged, and answering it through `selections/response` applies the
+        choice (a dismissed or cancelled question keeps the previous tier). While a session that started on a
+        persisted Full Access is still asking, a Full Access request adds nothing.
       parameters:
         - { $ref: "#/components/parameters/SessionId" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [preset]
+              properties:
+                preset: { type: string, enum: [ask, approve-for-me, full-access] }
       responses:
-        "200": { description: Persisted Step permission preset }
+        "200": { description: Session snapshot }
+        "400": { description: Unknown preset, or a permission question from an earlier switch is still open }
+  /api/v1/sessions/{id}/selections/response:
+    post:
+      description: >-
+        Answer a kernel selection (`ui.select`), such as the Full Access risk question. Resolves after the command
+        that asked has applied the answer.
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id]
+              properties:
+                id: { type: string }
+                value:
+                  type: string
+                  description: One of the offered options, verbatim. Omit to dismiss the question.
+      responses:
+        "200": { description: Session snapshot after the answer was applied }
+        "400": { description: Missing id or a non-string value }
+        "404": { description: Selection no longer pending, or the value was not offered; the question stays open }
   /api/v1/sessions/{id}/clarifications/response:
     post:
       parameters:
@@ -929,6 +993,24 @@ components:
             path: { type: string }
             before: { type: string }
             after: { type: string }
+    PolicyPreset:
+      type: object
+      required: [id, label, description]
+      properties:
+        id: { type: string, enum: [ask, approve-for-me, full-access] }
+        label: { type: string }
+        description: { type: string }
+    SelectionRequest:
+      type: object
+      required: [id, sessionId, title, options]
+      description: >-
+        A kernel `ui.select` question. `title` is "Title" or "Title\n\nmessage"; `options` are the kernel's labels,
+        to be sent back verbatim.
+      properties:
+        id: { type: string }
+        sessionId: { type: string }
+        title: { type: string }
+        options: { type: array, items: { type: string } }
     ClarificationRequest:
       type: object
       required: [id, sessionId, questions]

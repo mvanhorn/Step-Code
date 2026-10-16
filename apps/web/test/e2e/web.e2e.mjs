@@ -1343,6 +1343,85 @@ test("denying an approval never executes the command", { skip }, async () => {
   assert.equal(existsSync(join(workspace, "approval-denied.txt")), false);
 });
 
+test("Full Access needs the risk dialog: the host asks, cancel keeps the tier, a grant applies it", { skip }, async () => {
+  const api = await browser.run(`
+    const json = { "content-type": "application/json" };
+    const session = await (await fetch("/api/v1/sessions", { method: "POST", headers: json, body: JSON.stringify({ cwd: ${JSON.stringify(workspace)} }) })).json();
+    const base = "/api/v1/sessions/" + session.id;
+    const before = (await (await fetch(base + "/policy", { method: "PATCH", headers: json, body: JSON.stringify({ preset: "ask" }) })).json());
+    const asked = await (await fetch(base + "/policy", { method: "PATCH", headers: json, body: JSON.stringify({ preset: "full-access" }) })).json();
+    const [question] = asked.pendingSelections ?? [];
+    const busy = (await fetch(base + "/policy", { method: "PATCH", headers: json, body: JSON.stringify({ preset: "approve-for-me" }) })).status;
+    const unoffered = (await fetch(base + "/selections/response", { method: "POST", headers: json, body: JSON.stringify({ id: question.id, value: "Yes" }) })).status;
+    const cancelled = await (await fetch(base + "/selections/response", { method: "POST", headers: json, body: JSON.stringify({ id: question.id }) })).json();
+    await fetch(base + "/policy", { method: "PATCH", headers: json, body: JSON.stringify({ preset: "full-access" }) });
+    const again = (await (await fetch(base)).json()).pendingSelections[0];
+    const granted = await (await fetch(base + "/selections/response", { method: "POST", headers: json, body: JSON.stringify({ id: again.id, value: again.options[0] }) })).json();
+    return {
+      presets: before.policies.map((preset) => preset.id),
+      askedTier: asked.permissionPreset,
+      askedStatus: asked.status,
+      options: question.options.length,
+      busy,
+      unoffered,
+      cancelled: [cancelled.permissionPreset, cancelled.pendingSelections.length],
+      granted: [granted.permissionPreset, granted.pendingSelections.length, granted.status],
+    };
+  `);
+  assert.deepEqual(api, {
+    presets: ["ask", "approve-for-me", "full-access"],
+    askedTier: "ask",
+    askedStatus: "waiting",
+    options: 3,
+    busy: 400,
+    unoffered: 404,
+    cancelled: ["ask", 0],
+    granted: ["full-access", 0, "idle"],
+  });
+  // The draft has no kernel yet: it asks the same question itself.
+  await browser.goto(`${origin}/`);
+  const draft = await browser.run(`
+    (await until(() => $("#newSession"), "new chat")).click();
+    await until(() => !$("#workspaceControl").hidden, "draft composer");
+    // Above the card, not inside it.
+    const pillAboveCard = $("#workspaceControl").nextElementSibling === $(".composer-card")
+      && $("#workspaceControl").getBoundingClientRect().bottom <= $(".composer-card").getBoundingClientRect().top;
+    $("#workspaceButton").click();
+    const popover = await until(() => !$("#workspacePopover").hidden && $("#workspacePopover"), "workspace popover");
+    // Below the pill when the list fits there, otherwise above; never off screen.
+    const box = popover.getBoundingClientRect();
+    const onScreen = box.top >= 0 && box.bottom <= innerHeight;
+    document.body.click();
+    await until(() => $("#workspacePopover").hidden, "popover closed");
+    const option = (label) => $$("#policyPopover [role=option]").find((row) => row.textContent.includes(label));
+    $("#policyTrigger").click();
+    await until(() => $$("#policyPopover [role=option]").length === 3, "three presets");
+    const labels = $$("#policyPopover .control-option-title").map((row) => row.textContent.trim());
+    option("完全访问").click();
+    await until(() => !$("#selectionDialog").hidden, "risk dialog");
+    const title = $("#selectionDialogTitle").textContent;
+    const rows = $$("#selectionDialog [role=option]").length;
+    $("#selectionDialogCancel").click();
+    await until(() => $("#selectionDialog").hidden, "dialog closed");
+    const afterCancel = $("#policyLabel").textContent;
+    $("#policyTrigger").click();
+    (await until(() => option("完全访问"), "full access row")).click();
+    await until(() => !$("#selectionDialog").hidden, "risk dialog again");
+    $("#selectionDialogConfirm").click();
+    await until(() => $("#selectionDialog").hidden, "dialog confirmed");
+    return { pillAboveCard, onScreen, labels, title, rows, afterCancel, afterGrant: $("#policyLabel").textContent };
+  `);
+  assert.deepEqual(draft, {
+    pillAboveCard: true,
+    onScreen: true,
+    labels: ["逐条确认", "自动审批", "完全访问"],
+    title: "开启完全访问权限？",
+    rows: 2,
+    afterCancel: "逐条确认",
+    afterGrant: "完全访问",
+  });
+});
+
 test("workspaces with chats can be removed through the dialog, retained after reload and restored", { skip }, async () => {
   const before = await browser.run(`
     const session = $(".session-row.active").dataset.sessionId;

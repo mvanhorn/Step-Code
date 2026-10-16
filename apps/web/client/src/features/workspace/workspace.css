@@ -1,38 +1,65 @@
-/* Workspace control, recent-folders popover and in-page folder browser (legacy styles.css 1021-1144, verbatim). */
+/* Workspace pill at the top of the composer card, its recent-folders popover, and the in-page folder browser. */
 
 .workspace-control {
   position: relative;
+  z-index: 3;
   display: flex;
   align-items: center;
-  gap: 9px;
-  min-height: 54px;
-  margin: -1px 20px 0;
-  padding: 10px 14px 3px;
-  border-radius: 0 0 var(--radius-card) var(--radius-card);
-  background: var(--surface-soft);
-  color: var(--ink-2);
+  margin: 0 0 8px 6px;
 }
-.workspace-control > button {
+.workspace-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   min-width: 0;
+  max-width: 260px;
+  height: var(--control-h-xs);
+  padding: 0 2px;
   border: 0;
-  background: transparent;
-  cursor: pointer;
+  background: none;
+  color: var(--ink-2);
+  font-size: 13px;
   font-weight: 550;
+  cursor: pointer;
+  transition: color var(--fast);
+}
+.workspace-pill:hover,
+.workspace-pill[aria-expanded="true"] {
+  color: var(--ink);
+}
+.workspace-pill:focus-visible {
+  border-radius: var(--radius-row);
+  outline: 2px solid var(--accent-ring);
+}
+.workspace-pill > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspace-pill > .chevron {
+  flex: none;
+  color: var(--ink-3);
 }
 .workspace-popover {
   position: absolute;
+  top: calc(100% + 6px);
   left: 0;
-  bottom: calc(100% + 10px);
   z-index: 45;
-  width: min(360px, calc(100vw - 40px));
-  padding: 10px;
+  width: min(280px, calc(100vw - 40px));
+  max-height: min(360px, 60vh);
+  overflow: auto;
+  padding: 6px;
   border: 1px solid var(--line);
   border-radius: var(--radius-overlay);
   background: var(--surface);
   box-shadow: 0 16px 42px var(--shadow);
 }
+.workspace-popover[data-placement="above"] {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
 .workspace-popover-title {
-  padding: 4px 9px 7px;
+  padding: 4px 8px 5px;
   color: var(--ink-3);
   font-size: 11px;
   font-weight: 600;
@@ -40,54 +67,56 @@
 .workspace-recent-item {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
-  min-height: 54px;
-  padding: 7px 9px;
+  min-height: var(--control-h);
+  padding: 4px 8px;
   border-radius: var(--radius-row);
+  color: var(--ink-2);
   text-align: left;
 }
-.workspace-recent-item:hover,
-.workspace-recent-item.selected {
+.workspace-recent-item:hover {
   background: var(--hover);
 }
-.workspace-recent-item > span:nth-child(2) {
-  display: grid;
-  min-width: 0;
+.workspace-recent-item.selected {
+  color: var(--ink);
 }
-.workspace-recent-item strong,
-.workspace-recent-item small {
+.workspace-recent-item > .icon {
+  flex: none;
+  color: var(--ink-3);
+}
+.workspace-recent-item > span {
+  min-width: 0;
   overflow: hidden;
+  font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.workspace-recent-item strong {
-  font-size: 13px;
-}
-.workspace-recent-item small {
-  color: var(--ink-3);
-  font-size: 11px;
-}
 .workspace-check {
+  flex: none;
   margin-left: auto;
+  color: var(--ink);
 }
 .workspace-popover-divider {
   height: 1px;
-  margin: 7px 4px;
+  margin: 5px 4px;
   background: var(--line);
 }
 .workspace-browse-button {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
-  min-height: 40px;
-  padding: 0 9px;
-  border-radius: var(--radius-control);
+  min-height: var(--control-h);
+  padding: 0 8px;
+  border-radius: var(--radius-row);
+  color: var(--ink-2);
+  font-size: 13px;
   text-align: left;
 }
 .workspace-browse-button:hover {
   background: var(--hover);
+  color: var(--ink);
 }
 
 .workspace-browser-overlay {

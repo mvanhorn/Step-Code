@@ -13,6 +13,7 @@ import { api, apiSend, errorMessage, setUnauthorizedHandler } from "../lib/api";
 import { writeClipboard } from "../lib/clipboard";
 import { basename, clipDetail, compact, toolInputDetail, toolInputSummary } from "../lib/format";
 import { contentText, skillInvocation } from "../lib/markdown";
+import { FULL_ACCESS_PRESET, isFullAccessRisk } from "../lib/permissions";
 import { isDesktopHost } from "../platform/host";
 import { type AppState, getState, mapWith, setState, setUi } from "./store";
 import type {
@@ -24,6 +25,7 @@ import type {
 	DraftModels,
 	FileChange,
 	LoginReport,
+	SelectionRequest,
 	SessionEntry,
 	SessionSnapshot,
 	SessionStatus,
@@ -221,6 +223,13 @@ export function timelineFromEntries(entries: readonly SessionEntry[] = []): Time
 const liveApprovals = new Map<string, ApprovalRequest>();
 const liveClarifications = new Map<string, ClarificationRequest>();
 const resolvedClarifications = new Set<string>();
+/** Kernel selections already answered; ids are unique per host process. */
+const resolvedSelections = new Set<string>();
+
+/** Record an answered selection so a snapshot that raced the answer does not reopen it. */
+export function forgetSelection(id: string): void {
+	resolvedSelections.add(id);
+}
 
 /** Drop an approval once it is decided or its session is no longer waiting. */
 export function forgetApproval(id: string): void {
@@ -251,7 +260,12 @@ export function renderSnapshot(snapshot: SessionSnapshot): void {
 		if (request.sessionId === snapshot.id) pending.set(request.id, request);
 	}
 	for (const id of resolvedClarifications) pending.delete(id);
-	snapshot = { ...snapshot, pendingClarifications: [...pending.values()] };
+	snapshot = {
+		...snapshot,
+		pendingClarifications: [...pending.values()],
+		// A response that left before an answer must not reopen the dialog.
+		pendingSelections: (snapshot.pendingSelections ?? []).filter((request) => !resolvedSelections.has(request.id)),
+	};
 	setState((state) => {
 		const timelineItems = [...timelineFromEntries(snapshot.entries), ...approvalItems(snapshot)];
 		const pendingTurn =
@@ -261,6 +275,9 @@ export function renderSnapshot(snapshot: SessionSnapshot): void {
 			policiesCache: snapshot.policies ?? state.policiesCache,
 			draftCwd: snapshot.cwd,
 			draftPolicy: snapshot.permissionPreset || "ask",
+			draftSelection: null,
+			draftFullAccessAnswer: "",
+			draftPolicyPicked: false,
 			// Not the snapshot's model: a draft that inherited it would PATCH a new
 			// session back onto whatever the last opened session ran (and persist it
 			// as the global default). An explicit pick is persisted by the server.
@@ -527,6 +544,38 @@ export function connectStream(id: string): void {
 					: state.current,
 		}));
 	});
+	// Kernel selectors (the Full Access risk question). The snapshot carries
+	// them too, so a reload or a PATCH that raised one shows the same dialog.
+	source.addEventListener("selection_required", (event) => {
+		const request = JSON.parse((event as MessageEvent).data).selection as SelectionRequest;
+		if (stream !== source || request.sessionId !== id) return;
+		setState((state) => ({
+			current:
+				state.current?.id === id
+					? {
+							...state.current,
+							pendingSelections: [
+								...(state.current.pendingSelections ?? []).filter((item) => item.id !== request.id),
+								request,
+							],
+						}
+					: state.current,
+		}));
+	});
+	source.addEventListener("selection_resolved", (event) => {
+		if (stream !== source) return;
+		const requestId = JSON.parse((event as MessageEvent).data).id as string;
+		resolvedSelections.add(requestId);
+		setState((state) => ({
+			current:
+				state.current?.id === id
+					? {
+							...state.current,
+							pendingSelections: (state.current.pendingSelections ?? []).filter((item) => item.id !== requestId),
+						}
+					: state.current,
+		}));
+	});
 	source.addEventListener("web_error", (event) => {
 		setState({ pendingTurn: null });
 		showError(JSON.parse((event as MessageEvent).data).message || "运行错误");
@@ -587,6 +636,9 @@ export function startDraft(cwd: string = getState().bootstrapCwd): void {
 		const current = state.current;
 		return {
 			draftPolicy: current ? current.permissionPreset || state.draftPolicy : state.draftPolicy,
+			draftSelection: null,
+			draftFullAccessAnswer: "",
+			draftPolicyPicked: false,
 			// A new conversation starts on the server's default model and effort
 			// (see renderSnapshot); only a pick made in this draft overrides them.
 			draftModel: current ? "" : state.draftModel,
@@ -613,7 +665,14 @@ async function loadDraftModels(cwd: string): Promise<void> {
 		const draftModels = await api<DraftModels>(`/api/v1/models?cwd=${encodeURIComponent(cwd)}`);
 		// A late answer for a draft the user already left must not repaint another one.
 		const state = getState();
-		if (!state.current && state.draftCwd === cwd) setState({ draftModels });
+		if (!state.current && state.draftCwd === cwd)
+			setState({
+				draftModels,
+				policiesCache: draftModels.policies ?? state.policiesCache,
+				...(!state.draftPolicyPicked && draftModels.permissionPreset
+					? { draftPolicy: draftModels.permissionPreset, draftFullAccessAnswer: "" }
+					: {}),
+			});
 	} catch (error) {
 		showError(errorMessage(error));
 	}
@@ -630,9 +689,23 @@ export async function createSessionIfNeeded(): Promise<SessionSnapshot> {
 	let snapshot = await apiSend<SessionSnapshot>("/api/v1/sessions", "POST", {
 		cwd: state.draftCwd || state.bootstrapCwd,
 	});
-	if (state.draftPolicy && snapshot.permissionPreset !== state.draftPolicy) {
+	// A session whose settings already name Full Access asks the risk question
+	// itself at start (and runs as Approve for Me until answered). Switching
+	// tier on top of that would raise a second copy of the same question.
+	const askedAtStart = snapshot.pendingSelections?.some(isFullAccessRisk) ?? false;
+	if (!askedAtStart && state.draftPolicy && snapshot.permissionPreset !== state.draftPolicy) {
 		snapshot = await apiSend<SessionSnapshot>(`/api/v1/sessions/${snapshot.id}/policy`, "PATCH", {
 			preset: state.draftPolicy,
+		});
+	}
+	// The user already answered the risk question in the draft; hand that
+	// answer to the kernel instead of asking twice. Without one (a tier carried
+	// over from another session), the question stays open for the dialog.
+	const risk = snapshot.pendingSelections?.find(isFullAccessRisk);
+	if (risk && state.draftPolicy === FULL_ACCESS_PRESET && state.draftFullAccessAnswer) {
+		snapshot = await apiSend<SessionSnapshot>(`/api/v1/sessions/${snapshot.id}/selections/response`, "POST", {
+			id: risk.id,
+			value: state.draftFullAccessAnswer,
 		});
 	}
 	if (state.draftModel) {

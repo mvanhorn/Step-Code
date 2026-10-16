@@ -108,6 +108,23 @@ ask. Specific danger or incomplete-analysis prompts still require a verdict per
 call, even with a session grant. These presentation changes do not alter the permission policy or the
 existing verdict endpoint.
 
+Kernel selectors (`ExtensionUIContext.select`) go through the same kind of
+adapter. The Web Host's selection broker emits `selection_required` with the
+kernel's title and option labels, lists pending selections in snapshots as
+`pendingSelections`, and `POST /api/v1/sessions/{id}/selections/response`
+returns the chosen label verbatim (or nothing, for a dismissed dialog). The
+kernel parses the answer; the host never picks an option itself. This carries
+the Full Access risk acknowledgment: `PATCH .../policy` with `full-access` runs
+`/permissions full-access`, returns with the question pending and the tier
+unchanged, and the tier changes only after the user grants it. Cancel, Escape
+or the close button keeps the previous tier. A session whose settings already
+name Full Access without a remembered acknowledgment asks at start and runs as
+Approve for Me until answered. A draft (no session yet) asks the same question
+in the browser and hands the answer to the new session's kernel on the first
+send. The snapshot's `permissionPreset` is the tier the kernel enforces now,
+reported by the Step extension's `onPermissionChange` hook, because a "this
+session" grant is not persisted.
+
 Clarification uses the existing `clarify_user` tool and the optional structured
 `ExtensionUIContext.clarify(questions, signal)` capability. The coding tool owns
 normalization and tool-result text; the Web Host transports the complete question
@@ -237,14 +254,17 @@ the model does not assume its edits are still on disk; the snapshot's
 and survives a host restart.
 
 The composer's slash menu opens when the whole prompt is a single `/word`. It
-lists `MCP` and the session's skills, fuzzy-matched with the CLI's scoring (a
-client copy of `packages/tui/src/fuzzy.ts`); arrow keys move, Enter or Tab
-picks, Escape closes. Skills come from `GET /api/v1/sessions/{id}/skills`
+lists two groups, fuzzy-matched with the CLI's scoring (a client copy of
+`packages/tui/src/fuzzy.ts`): commands (`/goal`, `/init`, `/plan`, `/mcp`) and
+the session's skills; a `skill:` prefix lists skills only. Arrow keys move
+through both groups, Enter or Tab picks, Escape closes. Picking a command
+inserts `/<name> ` so arguments can follow; the kernel runs it on send.
+Skills come from `GET /api/v1/sessions/{id}/skills`
 (the session's resource loader, so plugin skills are included); a draft uses
 `GET /api/v1/workspace/skills`, which resolves the folder's skill resources
 without extensions. Picking a skill inserts `/skill:<name> `; the kernel
 expands it into the skill's instructions when the prompt is sent, and the
-conversation shows the skill as a chip above the request. Picking `MCP` shows
+conversation shows the skill as a chip above the request. Picking `/mcp` shows
 `GET /api/v1/mcp` in place: every server with its state, tool count and start
 error, including servers disabled in `config.toml`. The kernel's own `/mcp`
 command only prints through `notify`, which the Web host does not render. The
@@ -280,7 +300,7 @@ conversations in the sidebar, a conversation stream, and a centered composer
 control group. There is no main-area header, fixed right rail, or Goal HUD.
 
 The first release connects sessions, message/tool streaming, approvals, status,
-cwd file browsing, four permission presets, model selection, known-workspace
+cwd file browsing, the three CLI permission presets, model selection, known-workspace
 selection, interrupt, archive/restore, rename, and deletion. The project module
 retains the original MVP's project/group views, in-memory categories, category
 filter, file tree, and in-place new conversation. Workspace selection is

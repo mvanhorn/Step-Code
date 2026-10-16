@@ -677,6 +677,7 @@ export { resolveStepLoginProfiles, type StepLoginProfile, type StepLoginProfileI
 export {
 	AUTO_RESUME_PROMPT,
 	decideStepToolCall,
+	FULL_ACCESS_RISK_OPTIONS,
 	getStepPermissionPreset,
 	isDangerousCommand,
 	normalizeAutoResume,
