@@ -452,6 +452,33 @@ describe("Step extension", () => {
 		expect(select).not.toHaveBeenCalled();
 	});
 
+	test("reports the live tier, including an unpersisted session grant, to the host", async () => {
+		const registerCommand = vi.fn();
+		const onPermissionChange = vi.fn();
+		createStepExtension({
+			stepSettings: () => ({ getStepSettings: () => ({}), setEffectiveStepSettings: vi.fn() }),
+			onPermissionChange,
+		})({
+			registerProvider: vi.fn(),
+			on: vi.fn(),
+			registerCommand,
+			sendUserMessage: vi.fn(),
+		} as unknown as ExtensionAPI);
+		const command = registerCommand.mock.calls.find(([name]) => name === "permissions")?.[1] as {
+			handler: (args: string, ctx: ExtensionCommandContext) => Promise<void>;
+		};
+		const select = vi.fn(async (): Promise<string | undefined> => undefined);
+
+		await command.handler("approve-for-me", commandContext(true));
+		expect(onPermissionChange).toHaveBeenLastCalledWith("approve-for-me");
+		// A dismissed risk dialog changes nothing, so nothing is reported.
+		await command.handler("full-access", commandContext(true, select));
+		expect(onPermissionChange).toHaveBeenCalledTimes(1);
+		select.mockImplementation(async () => "Yes, continue anyway — apply full access for this session");
+		await command.handler("full-access", commandContext(true, select));
+		expect(onPermissionChange).toHaveBeenLastCalledWith("full-access");
+	});
+
 	test("remembers the Full Access acknowledgment when the user asks it to", async () => {
 		const on = vi.fn();
 		const registerCommand = vi.fn();

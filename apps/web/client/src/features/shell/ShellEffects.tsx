@@ -7,6 +7,7 @@
 import { useEffect } from "react";
 import { activeCwd, interruptCurrent } from "../../state/session";
 import { getState, setUi } from "../../state/store";
+import { answerSelection, pendingSelection } from "../composer/actions";
 import { openTree, setPreviewOpen } from "../files/actions";
 import { closeTopmostSettingsLayer } from "../settings/actions";
 import { closeSearch, openSearch } from "../sidebar/actions";
@@ -21,8 +22,13 @@ import { toggleSidebar, watchSystemTheme } from "./actions";
  * saw it already hidden.
  */
 function handleEscape(): void {
-	const { ui } = getState();
-	if (ui.workspaceRemoval) closeWorkspaceRemoval();
+	const state = getState();
+	const { ui } = state;
+	// A kernel question blocks its session and sits above everything else;
+	// Escape dismisses it, which the kernel reads as "cancel".
+	const selection = pendingSelection(state);
+	if (selection) void answerSelection(selection, undefined);
+	else if (ui.workspaceRemoval) closeWorkspaceRemoval();
 	else if (ui.slashMenu) setUi({ slashMenu: null });
 	else if (ui.changesMenu) setUi({ changesMenu: null });
 	else if (ui.searchOpen) closeSearch();

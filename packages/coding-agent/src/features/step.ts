@@ -24,6 +24,7 @@ import {
 	StepAutoResumeController,
 	StepPermissionController,
 	type StepPermissionControllerOptions,
+	type StepPermissionPresetId,
 	type StepPermissionState,
 } from "../step/permissions.ts";
 import { createStepPluginResourcesExtension } from "../step/plugins.ts";
@@ -57,6 +58,13 @@ export interface StepExtensionOptions {
 	/** Current account identity, resolved when `/feedback` is invoked. */
 	feedbackIdentity?: () => FeedbackIdentity;
 	traceHeaderPolicy?: TraceHeaderPolicy;
+	/**
+	 * Called with the live permission tier whenever it is (re)published: at
+	 * session start and after every switch. A host that renders its own picker
+	 * needs this because a "this session" Full Access grant is not persisted, so
+	 * the Step settings still name the previous tier.
+	 */
+	onPermissionChange?: (preset: StepPermissionPresetId) => void;
 }
 
 /**
@@ -206,6 +214,7 @@ export function createStepExtension(options: StepExtensionOptions = {}): Extensi
 		): void => {
 			syncNativeRetry(ctx, state.autoResume);
 			publishStepPermissionStatus(ctx.ui, state);
+			options.onPermissionChange?.(state.preset);
 			trackPermissionMode(options.telemetry, state.preset, apply.source === "startup" ? "command" : apply.source);
 			if (apply.persist) persistPermissionState(options.stepSettings, state);
 			ctx.ui.notify(`Permission mode: ${getStepPermissionPreset(state.preset)?.label ?? state.preset}`, "info");
@@ -333,6 +342,7 @@ export function createStepExtension(options: StepExtensionOptions = {}): Extensi
 				state = permissions.getState();
 			}
 			publishStepPermissionStatus(ctx.ui, state);
+			options.onPermissionChange?.(state.preset);
 		});
 
 		pi.on("session_shutdown", (_event, ctx) => {

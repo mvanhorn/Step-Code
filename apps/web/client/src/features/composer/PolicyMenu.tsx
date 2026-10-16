@@ -12,9 +12,8 @@ import { ControlMenu, ControlOption, PopoverHint } from "./ControlOption";
 /** Icons for each permission preset, keyed by the kernel's preset id. */
 const POLICY_ICONS: Readonly<Record<string, IconName>> = {
 	ask: "shield",
-	"read-only": "eye",
-	bypass: "zap",
-	autopilot: "loop",
+	"approve-for-me": "wand",
+	"full-access": "zap",
 };
 
 export interface ComposerMenuProps {
@@ -38,7 +37,7 @@ export function PolicyMenu({ open, onOpen, onClose }: ComposerMenuProps) {
 			id="policyMenu"
 			triggerId="policyTrigger"
 			triggerClassName="permission-control"
-			title="执行权限"
+			title={t("policyTitle")}
 			icon={POLICY_ICONS[current] ?? "shield"}
 			labelId="policyLabel"
 			label={tOr(`policy.${current}.label`, t(current))}

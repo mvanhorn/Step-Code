@@ -1,14 +1,17 @@
-import { useRef } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { useT } from "../../i18n";
 import { basename } from "../../lib/format";
 import { knownWorkspaces, startDraft } from "../../state/session";
 import { shallowEqual, useAppStore } from "../../state/store";
-import { EmptyState, Icon, LEGACY_ICONS, Popover } from "../../ui";
+import { EmptyState, Icon, Popover } from "../../ui";
 import { chooseWorkspaceFolder, closeWorkspacePopover, openWorkspacePopover } from "./actions";
 
 /**
- * `#workspaceControl` inside the composer form (legacy index.html 979-1006,
- * `renderWorkspaceOptions` 1097-1123, wiring 3461-3465 and 3596-3597).
+ * `#workspaceControl`: the draft's folder pill just above the composer card,
+ * outside it. The popover lists the known workspaces, the current one
+ * checked, then "Add workspace…". It opens downward over the prompt; when the
+ * composer sits too close to the bottom of the window for the list to fit
+ * there, it opens upward instead of running off screen.
  *
  * Hidden while a session is open. Before bootstrap there is no folder yet, and
  * `basename()` would render its "recent" placeholder as if it were a workspace
@@ -17,6 +20,8 @@ import { chooseWorkspaceFolder, closeWorkspacePopover, openWorkspacePopover } fr
 export function WorkspaceControl() {
 	const t = useT();
 	const buttonRef = useRef<HTMLButtonElement | null>(null);
+	const popoverRef = useRef<HTMLDivElement | null>(null);
+	const [placement, setPlacement] = useState<"below" | "above">("below");
 	const view = useAppStore(
 		(state) => ({
 			hidden: Boolean(state.current),
@@ -27,21 +32,35 @@ export function WorkspaceControl() {
 		shallowEqual,
 	);
 	const workspaces = useAppStore(knownWorkspaces, shallowEqual);
+	// Measured before paint, so an upward list never flashes below first.
+	useLayoutEffect(() => {
+		const button = buttonRef.current;
+		const popover = popoverRef.current;
+		if (!view.open || !button || !popover) return;
+		const trigger = button.getBoundingClientRect();
+		const below = window.innerHeight - trigger.bottom;
+		setPlacement(popover.offsetHeight + 12 <= below || below >= trigger.top ? "below" : "above");
+	}, [view.open]);
 	return (
 		<div className="workspace-control" id="workspaceControl" hidden={view.hidden}>
-			<Icon name="folder" size="md" />
 			<button
 				ref={buttonRef}
 				id="workspaceButton"
+				className="workspace-pill"
 				type="button"
+				aria-haspopup="listbox"
 				aria-expanded={view.open}
-				onClick={() => openWorkspacePopover()}
+				aria-label={`${t("workspacePickerLabel")}: ${view.cwd || "Workspace"}`}
+				onClick={() => (view.open ? closeWorkspacePopover() : openWorkspacePopover())}
 			>
+				<Icon name="folder" size="sm" />
 				<span id="workspaceButtonName">{view.cwd ? basename(view.cwd) : "Workspace"}</span>
+				<Icon name="chevronDown" size="2xs" className="chevron" />
 			</button>
-			<Icon name="chevron" size="2xs" className="chevron" />
 			<Popover
 				bare
+				ref={popoverRef}
+				data-placement={placement}
 				className="workspace-popover"
 				id="workspacePopover"
 				open={view.open}
@@ -51,7 +70,7 @@ export function WorkspaceControl() {
 				closeOnEscape={false}
 			>
 				<div className="workspace-popover-title">{t("recentFolders")}</div>
-				<div id="workspaceRecentList">
+				<div id="workspaceRecentList" role="listbox" aria-label={t("recentFolders")}>
 					{workspaces.map((path) => (
 						<RecentItem key={path} path={path} selected={path === view.draftCwd} />
 					))}
@@ -67,30 +86,31 @@ export function WorkspaceControl() {
 						void chooseWorkspaceFolder();
 					}}
 				>
-					<Icon name="folderPlus" size="md" />
-					<span>{t("chooseFolder")}</span>
+					<Icon name="plus" size="sm" />
+					<span>{t("addWorkspaceEllipsis")}</span>
 				</button>
 			</Popover>
 		</div>
 	);
 }
 
+/** One workspace: its folder name; the full path is the tooltip, for same-named folders. */
 function RecentItem({ path, selected }: { readonly path: string; readonly selected: boolean }) {
 	return (
 		<button
 			type="button"
+			role="option"
+			aria-selected={selected}
 			className={`workspace-recent-item${selected ? " selected" : ""}`}
+			title={path}
 			onClick={() => {
 				startDraft(path);
 				closeWorkspacePopover();
 			}}
 		>
-			<Icon {...LEGACY_ICONS.folder} />
-			<span>
-				<strong>{basename(path)}</strong>
-				<small>{path}</small>
-			</span>
-			{selected ? <span className="workspace-check">✓</span> : null}
+			<Icon name="folder" size="sm" />
+			<span>{basename(path)}</span>
+			{selected ? <Icon name="check" size="sm" className="workspace-check" /> : null}
 		</button>
 	);
 }

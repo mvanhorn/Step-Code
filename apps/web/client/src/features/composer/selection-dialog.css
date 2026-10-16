@@ -1,0 +1,117 @@
+/* Kernel selection dialog (#selectionDialog): the Full Access risk question and any other `ui.select`. */
+
+.selection-dialog {
+  display: grid;
+  gap: 12px;
+  width: min(440px, 100%);
+  padding: 18px 16px 14px;
+}
+.selection-dialog > header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.selection-dialog h2 {
+  flex: 1;
+  min-width: 0;
+  font-size: 17px;
+  font-weight: 650;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.selection-dialog-badge {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-control);
+  background: var(--danger-surface);
+  color: var(--danger);
+}
+.selection-dialog > p {
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-line;
+}
+.selection-dialog-options {
+  display: grid;
+  gap: 4px;
+  outline: 0;
+}
+.selection-dialog-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--surface);
+  color: var(--ink-2);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color var(--fast),
+    border-color var(--fast);
+}
+.selection-dialog-option:hover {
+  background: var(--hover);
+}
+.selection-dialog-option[aria-selected="true"] {
+  border-color: var(--focus-border);
+  background: var(--selected);
+  color: var(--ink);
+}
+.selection-dialog-option:focus-visible {
+  outline: 2px solid var(--accent-ring);
+  outline-offset: 1px;
+}
+.selection-dialog-option-body {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+}
+.selection-dialog-option-title {
+  font-size: 13px;
+  font-weight: 550;
+}
+.selection-dialog-option-desc {
+  color: var(--ink-3);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+.selection-dialog-check {
+  flex: none;
+  color: var(--accent);
+}
+.selection-dialog > footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 2px;
+}
+.selection-dialog > footer > button {
+  min-height: var(--control-h-md);
+  padding: 0 16px;
+  border-radius: var(--radius-panel);
+  font-size: 13px;
+}
+#selectionDialogCancel {
+  color: var(--ink-3);
+}
+#selectionDialogCancel:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+#selectionDialogConfirm {
+  background: var(--ink);
+  color: var(--canvas);
+  font-weight: 550;
+}
+.selection-dialog[data-risky="true"] #selectionDialogConfirm {
+  background: var(--danger);
+  color: var(--canvas);
+}

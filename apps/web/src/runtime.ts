@@ -23,6 +23,7 @@ import {
 	DEFAULT_THINKING_LEVEL,
 	DefaultResourceLoader,
 	type ExtensionUIContext,
+	FULL_ACCESS_RISK_OPTIONS,
 	findInitialModel,
 	getStepAuthPath,
 	getStepMcpStatuses,
@@ -57,6 +58,7 @@ import { ApprovalBroker, type ApprovalRequest } from "./approval.ts";
 import { type WebAttachment, withTextAttachments } from "./attachments.ts";
 import { ClarificationBroker, type ClarificationEvent } from "./clarification.ts";
 import { feedbackCategoryFor } from "./feedback.ts";
+import { SelectionBroker, type SelectionEvent, type SelectionRequest, selectionSelect } from "./selection.ts";
 import { type WebSkill, webSkills } from "./skills.ts";
 import {
 	revertedTurnIds,
@@ -73,22 +75,6 @@ export { classifyAttachment, MAX_ATTACHMENT_BYTES, type WebAttachment, withTextA
 
 /** How long a session may spend discovering the account's model catalog. */
 const MODEL_CATALOG_REFRESH_TIMEOUT_MS = 10_000;
-
-/**
- * Presets the Web host refuses to set.
- *
- * `full-access` is gated in the kernel behind an interactive risk acknowledgment:
- * `confirmFullAccessRisk` asks the user to choose between three options, and the
- * first one is "Yes, continue anyway". The Web host renders no such dialog — its
- * `webUiContext.select` returns `options[0]` — so routing the tier through the
- * normal path would grant it with no confirmation at all. Until a real browser
- * confirmation exists, the tier is not offered and cannot be set.
- *
- * This is a host-side guard, not a kernel change: the kernel's gate is correct
- * for a host that can actually ask. `approve-for-me` needs no gate and is
- * unaffected.
- */
-const WEB_BLOCKED_POLICIES: ReadonlySet<StepPermissionPresetId> = new Set<StepPermissionPresetId>(["full-access"]);
 
 /**
  * Pull the signed-in account's real model catalog from `{base}/v1/models`.
@@ -116,6 +102,7 @@ async function refreshStepModelCatalog(modelRuntime: ModelRuntime): Promise<void
 
 export type WebEvent =
 	| ClarificationEvent
+	| SelectionEvent
 	| { type: "agent"; event: AgentSessionEvent }
 	| { type: "approval_required"; approval: ApprovalRequest }
 	| { type: "status"; status: WebSessionStatus; unread: boolean }
@@ -141,11 +128,15 @@ export type WebMode = "goal" | "plan" | "ultraloop";
  * not presented as a cross-process lock: older CLI builds do not participate
  * in a shared lease protocol and must be closed before Web takes ownership.
  */
-function webUiContext(broker: ApprovalBroker, clarifications: ClarificationBroker): ExtensionUIContext {
+function webUiContext(
+	broker: ApprovalBroker,
+	clarifications: ClarificationBroker,
+	selections: SelectionBroker,
+): ExtensionUIContext {
 	const unsupported = async <T>(fallback: T): Promise<T> => fallback;
 	return {
 		clarify: (questions, signal) => clarifications.ask(questions, signal),
-		select: async (_title, options) => options[0],
+		select: selectionSelect(selections),
 		confirm: (title, message, options) =>
 			broker.confirm(title.replace(/^Approve |^Dangerous /u, ""), message, options?.signal),
 		input: async () => undefined,
@@ -179,7 +170,11 @@ function webUiContext(broker: ApprovalBroker, clarifications: ClarificationBroke
 	};
 }
 
-function makeExtensions(settingsManager: StepSettingsManager, broker: ApprovalBroker): InlineExtension[] {
+function makeExtensions(
+	settingsManager: StepSettingsManager,
+	broker: ApprovalBroker,
+	onPermissionChange: (preset: StepPermissionPresetId) => void,
+): InlineExtension[] {
 	const telemetry = NOOP_OBSERVABILITY_PROVIDER.createReporter();
 	const persisted = settingsManager.getStepSettings();
 	const permission = {
@@ -204,6 +199,7 @@ function makeExtensions(settingsManager: StepSettingsManager, broker: ApprovalBr
 			telemetry,
 			permission,
 			stepSettings: () => settingsManager,
+			onPermissionChange,
 			traceHeaderPolicy: NOOP_OBSERVABILITY_PROVIDER.traceHeaderPolicy(),
 		}),
 		createStepCapabilitiesExtensionInline({ telemetry }),
@@ -270,6 +266,35 @@ export interface WebModelSource {
 	thinkingLevel?: string;
 	availableThinkingLevels: string[];
 	models: ReturnType<typeof projectModel>[];
+}
+
+/** The kernel's Full Access risk question, recognised by its exact option list. */
+function isFullAccessRiskRequest(request: SelectionRequest): boolean {
+	return (
+		request.options.length === FULL_ACCESS_RISK_OPTIONS.length &&
+		FULL_ACCESS_RISK_OPTIONS.every((option, index) => request.options[index] === option)
+	);
+}
+
+/** The permission presets a session offers, labelled straight from the kernel so the UI never invents its own copy. */
+export function webPermissionPresets(): { id: StepPermissionPresetId; label: string; description: string }[] {
+	return STEP_PERMISSION_PRESETS.map((preset) => ({
+		id: preset.id,
+		label: preset.label,
+		description: preset.description,
+	}));
+}
+
+/**
+ * What a draft (no session yet) shows in its composer: the model it would start
+ * on, plus the permission tier the Step settings for its folder name and the
+ * presets to choose from, so the picker is complete before the first send.
+ */
+export interface WebDraftSource extends WebModelSource {
+	permissionPreset: StepPermissionPresetId;
+	policies: ReturnType<typeof webPermissionPresets>;
+	/** The user chose "don't ask again" for Full Access, so a draft need not ask either. */
+	fullAccessAcknowledged: boolean;
 }
 
 /**
@@ -348,6 +373,7 @@ function projectEntry(entry: SessionEntry): Record<string, unknown> {
 export class WebSession {
 	readonly broker: ApprovalBroker;
 	readonly clarifications: ClarificationBroker;
+	readonly selections: SelectionBroker;
 	private readonly listeners = new Set<(event: WebEvent) => void>();
 	private runtime!: AgentSessionRuntime;
 	private session!: AgentSession;
@@ -360,6 +386,19 @@ export class WebSession {
 	private writerLeasePath?: string;
 	private archived = false;
 	private readonly reverter = new TurnReverter();
+	/** Status a pending selection interrupted, restored once it is answered. */
+	private statusBeforeSelection?: WebSessionStatus;
+	/** Set while `setPolicy` waits to learn whether its command raised a dialog. */
+	private selectionRaised?: () => void;
+	/** The `/permissions` command still running behind an open dialog. */
+	private pendingPolicy?: Promise<void>;
+	/**
+	 * The tier the kernel is enforcing right now. It can differ from the Step
+	 * settings: a "this session" Full Access grant is not persisted, and a
+	 * persisted Full Access still waiting for its risk acknowledgment runs as
+	 * Approve for Me.
+	 */
+	private livePermission?: StepPermissionPresetId;
 
 	private constructor(
 		id: string,
@@ -392,6 +431,31 @@ export class WebSession {
 			if (event.type === "approval_required") this.setStatus("waiting", false);
 			this.emit(event);
 		});
+		// A kernel selector blocks whatever asked for it, so it is a wait: the
+		// session cannot proceed until the user answers. Unlike approvals it can
+		// also be raised outside a turn (a `/permissions` switch, or the Full
+		// Access gate at session start), so the status it interrupted is restored
+		// rather than assumed to be "running".
+		this.selections = new SelectionBroker(
+			() => this.id,
+			(event) => {
+				if (event.type === "selection_required" && this.status !== "waiting") {
+					this.statusBeforeSelection = this.status;
+					this.setStatus("waiting", false);
+				}
+				if (event.type === "selection_required") this.selectionRaised?.();
+				this.emit(event);
+				if (
+					event.type === "selection_resolved" &&
+					!this.selections.pendingRequests().length &&
+					!this.clarifications.pendingRequests().length &&
+					!this.broker.pendingRequests().length
+				) {
+					this.setStatus(this.statusBeforeSelection ?? "idle", false);
+					this.statusBeforeSelection = undefined;
+				}
+			},
+		);
 	}
 
 	/** Follows the live session: a fork or /new swaps the manager underneath. */
@@ -441,7 +505,6 @@ export class WebSession {
 			// After start(): building the services re-registers the Step provider,
 			// and each registration resets the catalog to the models.json baseline.
 			await refreshStepModelCatalog(modelRuntime);
-			await instance.enforceBlockedPolicies();
 			return instance;
 		} catch (error) {
 			releaseWriterLease?.();
@@ -481,7 +544,11 @@ export class WebSession {
 				configDirName: resolveStepConfigDir(),
 				settingsManager,
 				modelRuntime: this.modelRuntime,
-				resourceLoaderOptions: { extensionFactories: makeExtensions(settingsManager, this.broker) },
+				resourceLoaderOptions: {
+					extensionFactories: makeExtensions(settingsManager, this.broker, (preset) => {
+						this.livePermission = preset;
+					}),
+				},
 			});
 			// Resolve the model against a populated catalog. `models.json` is only an
 			// offline baseline and Step ships none, so an unrefreshed runtime offers
@@ -523,24 +590,12 @@ export class WebSession {
 		}
 	}
 
-	/**
-	 * Drop a blocked preset that a session was already persisted with.
-	 *
-	 * Blocking the setter only stops the tier being *chosen*. A config written by
-	 * the CLI (`~/.stepcode/config.toml`) can still carry `full-access`, and the
-	 * kernel's own migration only retires the pre-rename names, not this one — so
-	 * without this a Web session would boot straight into unrestricted operation
-	 * with nothing in the UI to explain it.
-	 */
-	private async enforceBlockedPolicies(): Promise<void> {
-		const active = (this.session.settingsManager as StepSettingsManager).getStepPermissionPreset();
-		if (!active || !WEB_BLOCKED_POLICIES.has(active)) return;
-		await this.setPolicy("ask");
-		this.publishError(`This session was set to "${active}", which the Web host does not allow. Switched to "ask".`);
-	}
-
 	private bindSession(session: AgentSession): void {
 		this.clarifications.clear();
+		// A replaced session's dialogs answer nothing: the kernel's generation
+		// guard already ignores them. Dismiss them so the new session starts clean.
+		this.selections.clear();
+		this.livePermission = undefined;
 		// Keep the advertised id in step with the session actually bound, so a
 		// fork or /new does not leave the UI pointing at the previous session.
 		this.id = session.sessionManager.getSessionId();
@@ -576,7 +631,7 @@ export class WebSession {
 		});
 		void session.bindExtensions({
 			mode: "rpc",
-			uiContext: webUiContext(this.broker, this.clarifications),
+			uiContext: webUiContext(this.broker, this.clarifications, this.selections),
 			commandContextActions: {
 				waitForIdle: () => session.waitForIdle(),
 				newSession: (options) => this.runtime.newSession(options),
@@ -673,17 +728,71 @@ export class WebSession {
 		this.session.setSessionName(trimmed);
 	}
 
+	/**
+	 * Switch the permission tier through the official `/permissions` command, so
+	 * the live permission controller, auto-resume and persistence stay in sync
+	 * (reloading the extension tree would invalidate long-lived cron callbacks).
+	 *
+	 * Full Access makes that command ask the risk question and wait for the
+	 * answer. Awaiting it here would hold the HTTP request open until the user
+	 * decides, so this resolves as soon as the command either finishes or raises
+	 * a dialog; the dialog is then in the snapshot, and `respondSelection` waits
+	 * for the command to finish before it answers.
+	 */
 	async setPolicy(preset: StepPermissionPresetId): Promise<void> {
-		if (WEB_BLOCKED_POLICIES.has(preset)) {
-			throw new Error(`Permission preset "${preset}" is not available on the Web host.`);
-		}
 		if (!STEP_PERMISSION_PRESETS.some((candidate) => candidate.id === preset)) {
 			throw new Error(`Unknown permission preset: ${preset}`);
 		}
-		// Use the official Step command path so the live permission controller,
-		// autopilot state, and persistence stay in sync. Reloading the whole
-		// extension tree would invalidate long-lived cron callbacks.
-		await this.session.prompt(`/permissions ${preset}`, { source: "rpc" });
+		if (this.pendingPolicy) throw new Error("Answer the open permission dialog first.");
+		// A session whose settings name Full Access asks the risk question itself
+		// at start. Asking for the same tier again would only stack a second copy
+		// of that dialog; its answer already decides the tier.
+		if (preset === "full-access" && this.selections.pendingRequests().some(isFullAccessRiskRequest)) return;
+		let raised = false;
+		const asked = new Promise<void>((resolve) => {
+			this.selectionRaised = () => {
+				raised = true;
+				resolve();
+			};
+		});
+		const applied = this.session.prompt(`/permissions ${preset}`, { source: "rpc" });
+		// Before a dialog opens, a failure rejects the race below and becomes this
+		// request's error. After one opens, nobody awaits the command any more, so
+		// its failure is reported on the stream instead of being lost.
+		const tracked: Promise<void> = applied
+			.then(
+				() => undefined,
+				(caught: unknown) => {
+					if (raised) this.publishError(caught instanceof Error ? caught.message : String(caught));
+				},
+			)
+			.finally(() => {
+				if (this.pendingPolicy === tracked) this.pendingPolicy = undefined;
+			});
+		this.pendingPolicy = tracked;
+		try {
+			await Promise.race([applied, asked]);
+		} finally {
+			this.selectionRaised = undefined;
+		}
+	}
+
+	/**
+	 * Answer a kernel selector. Returns false for an unknown id or an option
+	 * that was not offered. Resolves after the command that asked has applied
+	 * the answer, so the caller's next snapshot already shows the result.
+	 */
+	async respondSelection(id: string, value: string | undefined): Promise<boolean> {
+		if (!this.selections.respond(id, value)) return false;
+		if (this.pendingPolicy) {
+			// Never rejects: setPolicy reports a late failure on the stream.
+			await this.pendingPolicy;
+		} else {
+			// A dialog raised outside `/permissions` (the Full Access gate at session
+			// start) applies its answer in a promise continuation; let it run.
+			await new Promise((resolve) => setImmediate(resolve));
+		}
+		return true;
 	}
 
 	/**
@@ -819,16 +928,13 @@ export class WebSession {
 			entries: manager.getBranch().map(projectEntry),
 			pendingApprovals: this.broker.pendingRequests(),
 			pendingClarifications: this.clarifications.pendingRequests(),
+			pendingSelections: this.selections.pendingRequests(),
 			model: this.session.model ? { provider: this.session.model.provider, id: this.session.model.id } : undefined,
-			permissionPreset: (this.session.settingsManager as StepSettingsManager).getStepPermissionPreset() ?? "ask",
-			// Labelled straight from the kernel so the UI never invents its own copy.
-			// Blocked tiers are withheld rather than shown-and-rejected: offering one
-			// the host will refuse is a dead end in the UI.
-			policies: STEP_PERMISSION_PRESETS.filter((preset) => !WEB_BLOCKED_POLICIES.has(preset.id)).map((preset) => ({
-				id: preset.id,
-				label: preset.label,
-				description: preset.description,
-			})),
+			permissionPreset:
+				this.livePermission ??
+				(this.session.settingsManager as StepSettingsManager).getStepPermissionPreset() ??
+				"ask",
+			policies: webPermissionPresets(),
 			thinkingLevel: this.session.thinkingLevel,
 			availableThinkingLevels: this.session.getAvailableThinkingLevels(),
 			models: this.modelRuntime.getAvailableSnapshot().map(projectModel),
@@ -876,6 +982,7 @@ export class WebSession {
 
 	async close(): Promise<void> {
 		this.clarifications.clear();
+		this.selections.clear();
 		this.broker.clear();
 		this.unsubscribeSession?.();
 		await this.runtime.dispose();
@@ -980,7 +1087,7 @@ export class WebSessionStore {
 	 * like a session, so a sign-in or a config.toml edit shows up on the next
 	 * draft without a host restart.
 	 */
-	async draftModels(cwd: string): Promise<WebModelSource> {
+	async draftModels(cwd: string): Promise<WebDraftSource> {
 		const authPath = getStepAuthPath();
 		syncStepLoginProfileEndpoint(authPath);
 		const modelRuntime = await ModelRuntime.create({
@@ -995,7 +1102,12 @@ export class WebSessionStore {
 		const settings = createStepSettingsManager(cwd, resolveStepAgentDir(), {
 			configDirName: resolveStepConfigDir(),
 		});
-		return predictDraftModel(modelRuntime, settings, readGlobalStepDefaults());
+		return {
+			...(await predictDraftModel(modelRuntime, settings, readGlobalStepDefaults())),
+			permissionPreset: settings.getStepPermissionPreset() ?? "ask",
+			policies: webPermissionPresets(),
+			fullAccessAcknowledged: settings.getStepSettings().fullAccessAcknowledged === true,
+		};
 	}
 
 	async getOrOpen(id: string): Promise<WebSession> {
