@@ -614,6 +614,107 @@ paths:
         "201": { description: Imported, with the skill's name }
         "400": { description: No SKILL.md in that folder, or an invalid skill name }
         "409": { description: A skill with that name already exists }
+  /api/v1/settings/models:
+    get:
+      description: >-
+        The custom model providers declared in `models.json`, as the settings screen lists them. Only
+        user declarations appear; the built-in catalog is not configurable. Each row reports where its API
+        key comes from (`stored` in auth.json, `configured` in the declaration, or `none`) and never the key.
+      responses:
+        "200":
+          description: Configured providers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  providers:
+                    type: array
+                    items: { $ref: "#/components/schemas/SettingsModelProvider" }
+    post:
+      description: >-
+        Add a provider to `models.json` and store its API key, when one was given, in auth.json. An id
+        already in use is a 409; `step` is refused because that entry is the account login.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id]
+              properties:
+                id: { type: string, description: "Provider ID; lowercase letters, digits, '.', '_', '-'" }
+                name: { type: string }
+                baseUrl: { type: string }
+                api: { type: string, description: "Protocol identifier, e.g. openai-completions" }
+                apiKey: { type: string, description: "Stored in auth.json, never written to models.json" }
+                models: { type: array, items: { $ref: "#/components/schemas/ModelsJsonModelEntry" } }
+      responses:
+        "201": { description: Added }
+        "400": { description: Invalid id, address, protocol or catalog }
+        "409": { description: Id already used, or the entry is not an API-key credential }
+  /api/v1/settings/models/discover:
+    post:
+      description: >-
+        Ask one endpoint which models it advertises, for the form's "fetch available models" action. The
+        body carries the draft the user is editing rather than a saved provider, so the address, protocol
+        and key are used as given and nothing is stored. OpenAI-shaped protocols list at `{baseUrl}/models`
+        with bearer auth; Anthropic Messages at `/v1/models` with `x-api-key`. A reply over 4 MiB is refused.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [baseUrl]
+              properties:
+                baseUrl: { type: string }
+                api: { type: string }
+                apiKey: { type: string, description: "Used for this request only" }
+      responses:
+        "200":
+          description: The models the endpoint advertises, in its own order
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  models:
+                    type: array
+                    items: { $ref: "#/components/schemas/DiscoveredModel" }
+        "400": { description: Unusable address or a protocol with no readable listing }
+        "502": { description: "The endpoint refused, was unreachable, or did not answer with a model listing" }
+  /api/v1/settings/models/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    put:
+      description: >-
+        Replace one provider's declaration. A typed key is stored in auth.json; an empty `apiKey` keeps the
+        stored one, and `removeKey` removes it. The key is never sent to the browser, so a blank field means
+        "unchanged" rather than "clear".
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                baseUrl: { type: string }
+                api: { type: string }
+                apiKey: { type: string }
+                removeKey: { type: boolean, description: "Remove the stored key; ignored when apiKey is set" }
+                models: { type: array, items: { $ref: "#/components/schemas/ModelsJsonModelEntry" } }
+      responses:
+        "200": { description: Saved }
+        "400": { description: Invalid address, protocol or catalog }
+        "404": { description: No such provider }
+        "409": { description: The credential is not an API key }
+    delete:
+      description: Remove a provider, and the API key this screen stored for it.
+      responses:
+        "200": { description: Deleted }
+        "404": { description: No such provider }
   /api/v1/sessions/{id}/turns/{turnId}/revert:
     post:
       description: >-
@@ -773,6 +874,41 @@ components:
         enabled: { type: boolean }
         toggleable: { type: boolean }
         deletable: { type: boolean }
+    ModelsJsonModelEntry:
+      type: object
+      description: One catalog entry as `models.json` stores it.
+      required: [id]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        contextWindow: { type: integer }
+        maxTokens: { type: integer }
+        input:
+          type: array
+          items: { type: string, enum: [text, image] }
+    SettingsModelProvider:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        baseUrl: { type: string }
+        api: { type: string }
+        models:
+          type: array
+          items: { $ref: "#/components/schemas/ModelsJsonModelEntry" }
+        credential:
+          type: string
+          enum: [stored, configured, none]
+          description: Where the API key comes from; the key itself is never returned
+    DiscoveredModel:
+      type: object
+      description: A model an endpoint advertises, as reported by its listing route.
+      required: [id, name]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        contextWindow: { type: integer }
+        maxTokens: { type: integer }
     ApprovalRequest:
       type: object
       required: [id, sessionId, toolName, message, createdAt]

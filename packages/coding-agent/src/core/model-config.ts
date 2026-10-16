@@ -209,6 +209,19 @@ const ModelsConfigSchema = Type.Object({
 	providers: Type.Record(Type.String(), ProviderConfigSchema),
 });
 const validateModelsConfig = Compile(ModelsConfigSchema);
+const validateProviderConfig = Compile(ProviderConfigSchema);
+
+/**
+ * Schema errors of one `providers.<id>` declaration, empty when it is valid.
+ *
+ * Exported so a configuration surface validates through the same schema this
+ * loader enforces: a declaration it writes must not make the next load fail,
+ * and duplicating the schema to check it would let the two drift.
+ */
+export function validateModelsJsonProvider(value: unknown): string[] {
+	if (validateProviderConfig.Check(value)) return [];
+	return validateProviderConfig.Errors(value).map((error) => `${formatValidationPath(error)}: ${error.message}`);
+}
 
 export type ModelsJsonModel = Static<typeof ModelDefinitionSchema>;
 export type ModelsJsonModelOverride = Static<typeof ModelOverrideSchema>;

@@ -1034,3 +1034,159 @@
 		grid-template-columns: minmax(0, 1fr);
 	}
 }
+
+/* ── Model providers ─────────────────────────────────────────────────── */
+
+/* The dashed "add" row: one look for the list footer and the catalog's
+   add-model action, both of which add something in place. */
+.settings-dashed-add {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	width: 100%;
+	min-height: var(--control-h-md);
+	margin-top: 10px;
+	padding: 8px 14px;
+	border: 1px dashed var(--line-strong);
+	border-radius: var(--radius-panel);
+	background: transparent;
+	color: var(--ink-3);
+	font: inherit;
+	font-size: 13px;
+	cursor: pointer;
+}
+.settings-dashed-add:hover {
+	border-color: var(--focus-border);
+	color: var(--ink);
+}
+.settings-dashed-add:disabled {
+	cursor: not-allowed;
+	opacity: 0.45;
+}
+
+/* The note the reference mockup shows inside a dashed box when the catalog is
+   empty; it is information, not an action, so it does not get the hover state. */
+.settings-dashed-note {
+	padding: 14px;
+	border: 1px dashed var(--line-strong);
+	border-radius: var(--radius-panel);
+	color: var(--ink-3);
+	font-size: 12.5px;
+	text-align: center;
+}
+
+.settings-divider {
+	height: 1px;
+	margin: 4px 0;
+	border: 0;
+	background: var(--line);
+}
+
+.settings-field-title {
+	color: var(--ink);
+	font-size: 13px;
+	font-weight: 500;
+}
+.settings-field-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	margin-top: 6px;
+}
+.settings-field-hint {
+	color: var(--ink-3);
+	font-size: 12px;
+	line-height: 1.5;
+}
+/* The protocol picker is narrower than the text fields, as in the design. */
+.settings-field-narrow {
+	max-width: 320px;
+}
+
+.settings-inline-check {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	color: var(--ink-3);
+	font-size: 12.5px;
+	cursor: pointer;
+}
+.settings-inline-check input {
+	cursor: pointer;
+}
+
+/* One catalog row: id, name, the two capacities, image input, remove. */
+.settings-model-rows {
+	display: grid;
+	gap: 8px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+.settings-model-row {
+	display: grid;
+	grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) 110px 110px auto auto;
+	align-items: center;
+	gap: 8px;
+}
+.settings-model-row input[type="text"],
+.settings-model-row input:not([type]) {
+	min-width: 0;
+}
+.settings-model-row input[type="number"] {
+	width: 100%;
+	min-width: 0;
+}
+
+/* The candidate picker 获取可用模型 opens. It is the shared `ui/Modal`; only the
+   tool row and the option list are the picker's own. */
+.settings-modal-tools {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+.settings-modal-tools .settings-search {
+	flex: 1;
+}
+.settings-model-options {
+	flex: 1;
+	min-height: 0;
+	margin: 0;
+	padding: 0;
+	overflow-y: auto;
+	list-style: none;
+}
+.settings-model-option {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 7px 8px;
+	border-radius: var(--radius-tiny);
+	cursor: pointer;
+}
+.settings-model-option:hover {
+	background: var(--hover);
+}
+.settings-model-option-id {
+	flex: 0 0 auto;
+	font-size: 12.5px;
+}
+.settings-model-option-meta {
+	overflow: hidden;
+	color: var(--ink-3);
+	font-size: 12px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.settings-models-footnote {
+	margin-top: 12px;
+}
+
+@media (max-width: 900px) {
+	.settings-model-row {
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+	}
+}

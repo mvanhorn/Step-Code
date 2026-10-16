@@ -260,6 +260,8 @@ let origin
 let pickerResult
 let authPath
 let provider
+/** Base URL of the stand-in provider, so a test can point a model provider at it. */
+let providerUrl
 let pickerArgs
 
 before(async () => {
@@ -359,7 +361,7 @@ before(async () => {
   await new Promise((resolve) =>
     provider.listen(providerPort, "127.0.0.1", resolve),
   )
-  const providerUrl = `http://127.0.0.1:${providerPort}/v1`
+  providerUrl = `http://127.0.0.1:${providerPort}/v1`
 
   pickerResult = join(base, "picker-result")
   pickerArgs = join(base, "picker-args")
@@ -657,6 +659,76 @@ test(
     assert.ok(plugins.marketplaces.includes("builtin"), "the built-in marketplace is listed")
     assert.equal(plugins.installed, 0)
     assert.equal(plugins.builtinKind, true)
+  },
+)
+
+test(
+  "the models page manages custom providers and can fetch a provider's models",
+  { skip },
+  async () => {
+    // Create through the host, then confirm the page lists it: the same shape the
+    // MCP case above uses, so the test drives real state rather than the form's
+    // controlled inputs, which a non-bubbling event does not reach.
+    const created = await browser.run(`
+		const post = (path, body) => fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+		const reserved = await post("/api/v1/settings/models", { id: "step", baseUrl: "https://x.example/v1", api: "openai-completions" });
+		const bad = await post("/api/v1/settings/models", { id: "e2e-gw", baseUrl: "not a url", api: "openai-completions" });
+		const added = await post("/api/v1/settings/models", {
+			id: "e2e-gw",
+			name: "E2E Gateway",
+			baseUrl: ${JSON.stringify(providerUrl)},
+			api: "openai-completions",
+			apiKey: "e2e-not-a-real-token",
+			models: [{ id: "e2e-model-large", contextWindow: 128000 }],
+		});
+		const list = await (await fetch("/api/v1/settings/models")).json();
+		const provider = list.providers.find((entry) => entry.id === "e2e-gw");
+		return { reserved: reserved.status, bad: bad.status, added: added.status, provider, count: list.providers.length };
+	`)
+    assert.equal(created.reserved, 400, "'step' is the account provider and cannot be redefined")
+    assert.equal(created.bad, 400, "the address must be an http(s) URL")
+    assert.equal(created.added, 201)
+    assert.equal(created.provider.credential, "stored", "the typed key is stored in auth.json")
+    assert.deepEqual(created.provider.models, [{ id: "e2e-model-large", contextWindow: 128000 }])
+
+    // The page lists the row with its badge and key state.
+    const listed = await browser.run(`
+		$("[data-settings-page='models']").click();
+		await until(() => $("[data-model-provider='e2e-gw']"), "the provider row");
+		const row = $("[data-model-provider='e2e-gw']");
+		return {
+			name: row.textContent.includes("E2E Gateway"),
+			custom: row.textContent.includes("自定义"),
+			keyed: row.textContent.includes("已配置密钥"),
+			addRow: !!$("#settingsModelNew"),
+		};
+	`)
+    assert.equal(listed.name, true)
+    assert.equal(listed.custom, true)
+    assert.equal(listed.keyed, true)
+    assert.equal(listed.addRow, true, "the add row sits at the bottom of the list")
+
+    // Discovery asks the provider's endpoint, and the endpoint's refusal is reported.
+    const discovered = await browser.run(`
+		const post = (body) => fetch("/api/v1/settings/models/discover", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+		const ok = await (await post({ baseUrl: ${JSON.stringify(providerUrl)}, api: "openai-completions", apiKey: "e2e-not-a-real-token" })).json();
+		const wrongKey = await post({ baseUrl: ${JSON.stringify(providerUrl)}, api: "openai-completions", apiKey: "nope" });
+		const unsupported = await post({ baseUrl: ${JSON.stringify(providerUrl)}, api: "google-generative-ai" });
+		return { ids: ok.models.map((model) => model.id), wrongKey: wrongKey.status, unsupported: unsupported.status };
+	`)
+    assert.deepEqual(discovered.ids, ["e2e-model-large", "e2e-model-small"])
+    assert.equal(discovered.wrongKey, 502, "the endpoint said 401; the key is the thing to fix")
+    assert.equal(discovered.unsupported, 400)
+
+    // Delete removes the row and the stored key.
+    const removed = await browser.run(`
+		window.confirm = () => true;
+		$("[data-model-provider='e2e-gw'] button[aria-label='删除']").click();
+		await until(() => !$("[data-model-provider='e2e-gw']"), "the provider row to go");
+		const after = await (await fetch("/api/v1/settings/models")).json();
+		return { gone: !after.providers.some((entry) => entry.id === "e2e-gw") };
+	`)
+    assert.equal(removed.gone, true)
   },
 )
 

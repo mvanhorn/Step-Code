@@ -28,6 +28,7 @@ export { resolveModelApiDialect } from "./dialect/resolve.ts";
 export * from "./dialect/types.ts";
 export * from "./metadata/lookup.ts";
 export * from "./metadata/types.ts";
+export * from "./model-discovery.ts";
 export * from "./models.ts";
 export * from "./models-store.ts";
 export * from "./provider/declaration.ts";

@@ -25,6 +25,12 @@ import {
 } from "./files.ts";
 import { buildLoginReport, type LoginReport, loginMethods, WebLoginController } from "./login.ts";
 import {
+	deleteModelProvider,
+	discoverProviderModels,
+	listModelProviders,
+	saveModelProvider,
+} from "./model-providers.ts";
+import {
 	classifyAttachment,
 	defaultWorkspace,
 	MAX_ATTACHMENT_BYTES,
@@ -373,6 +379,30 @@ async function settingsRoute(
 			}
 			if (!name && method === "DELETE") {
 				await deleteSkill(url.searchParams.get("id") ?? "");
+				return json(response, 200, { ok: true });
+			}
+		}
+		if (area === "models") {
+			if (!name && method === "GET") return json(response, 200, { providers: await listModelProviders() });
+			if (!name && method === "POST") {
+				const input = await body(request);
+				if (typeof input.id !== "string") return error(response, 400, "id is required");
+				await saveModelProvider(input.id.trim(), input, { replace: false });
+				return json(response, 201, { ok: true });
+			}
+			// Discovery answers for the draft in the form, so it takes the address,
+			// protocol and key from the body rather than from a saved provider.
+			if (name === "discover" && !action && method === "POST") {
+				return json(response, 200, { models: await discoverProviderModels(await body(request)) });
+			}
+			if (name && !action && method === "PUT") {
+				// A blank key field keeps the stored key; only an explicit flag removes it.
+				const input = await body(request);
+				await saveModelProvider(name, input, { replace: true, removeKey: input.removeKey === true });
+				return json(response, 200, { ok: true });
+			}
+			if (name && !action && method === "DELETE") {
+				await deleteModelProvider(name);
 				return json(response, 200, { ok: true });
 			}
 		}

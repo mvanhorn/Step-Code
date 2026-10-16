@@ -4,6 +4,7 @@ Add custom providers and models (Ollama, vLLM, LM Studio, proxies) via `~/.stepc
 
 ## Table of Contents
 
+- [Adding Models from a Settings Page](#adding-models-from-a-settings-page)
 - [Minimal Example](#minimal-example)
 - [Full Example](#full-example)
 - [Supported APIs](#supported-apis)
@@ -13,6 +14,39 @@ Add custom providers and models (Ollama, vLLM, LM Studio, proxies) via `~/.stepc
 - [Per-model Overrides](#per-model-overrides)
 - [Anthropic Messages Compatibility](#anthropic-messages-compatibility)
 - [OpenAI Compatibility](#openai-compatibility)
+
+## Adding Models from a Settings Page
+
+StepCode Web and Desktop have a **模型** settings page that writes this file for you: one row per provider,
+with its API address, protocol, and model catalog. It is the same `models.json` a hand edit changes, and the
+two can be mixed — the page reads, edits, and writes one entry at a time, so everything else in the file,
+including keys and comments it does not own, is left alone.
+
+The page keeps declarations and secrets apart, because `models.json` is a file people copy between machines
+and paste into bug reports:
+
+- The declaration (`baseUrl`, `api`, `name`, `models`) goes into `models.json`.
+- The API key goes into `auth.json` under the provider's id, the same place `/login` stores credentials and
+  the same entry a request resolves. It is never sent back to the browser: the page reports whether a key is
+  configured, not what it is. Editing with the key field blank keeps the stored key.
+- A literal `apiKey` written into `models.json` by hand stays there and still wins for the page's key status.
+- The provider id `step` is reserved for the account and cannot be defined here.
+
+**获取可用模型** asks the endpoint which models it advertises, so a provider can be filled in before it is
+saved. It reads one of two native listing routes, chosen by `api`:
+
+| `api` | Listing request | Auth headers |
+|---|---|---|
+| `openai-completions`, `openai-responses` | `GET {baseUrl}/models` | `Authorization: Bearer <key>` |
+| `anthropic-messages` | `GET {root}/v1/models?limit=1000` | `x-api-key`, `anthropic-version: 2023-06-01` |
+
+`{root}` is `baseUrl` without one trailing `/v1` segment, because both spellings name the same root. The reply
+may be the standard `data` array or an enriched `models` map (whose keys are the ids requests accept), and
+`id`, `name`, `contextWindow` and `maxTokens` are read from their usual spellings. Any other `api` reports
+that it has no readable listing rather than guessing, and a reply over 4 MiB is refused.
+
+Discovery is a probe, not a refresh: nothing is stored, and the candidates are offered for selection. What
+finally reaches `models.json` is what the user accepts.
 
 ## Minimal Example
 
