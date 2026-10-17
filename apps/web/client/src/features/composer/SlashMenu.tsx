@@ -315,22 +315,16 @@ export function SlashMenu({ handle, promptRef, query, onPick }: SlashMenuProps) 
 			{view === "mcp" ? (
 				<McpServers />
 			) : (
-				<>
-					<div className="slash-list" role="listbox" aria-label={t("slashCommands")} ref={listRef}>
-						{sections.map((section) => (
-							<Fragment key={section.id}>
-								<div className="slash-group" role="presentation">
-									{section.label}
-								</div>
-								{section.items.map((item, index) => renderItem(item, section.offset + index))}
-							</Fragment>
-						))}
-					</div>
-					<div className="slash-hint">
-						<Icon name="search" size="sm" />
-						<span>{t("slashHint")}</span>
-					</div>
-				</>
+				<div className="slash-list" role="listbox" aria-label={t("slashCommands")} ref={listRef}>
+					{sections.map((section) => (
+						<Fragment key={section.id}>
+							<div className="slash-group" role="presentation">
+								{section.label}
+							</div>
+							{section.items.map((item, index) => renderItem(item, section.offset + index))}
+						</Fragment>
+					))}
+				</div>
 			)}
 		</div>
 	);

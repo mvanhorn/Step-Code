@@ -998,6 +998,13 @@
 
 /* ── Desktop host and narrow windows ───────────────────────────────── */
 
+/*
+ * Electron drag regions ignore stacking: the workspace's `.brand-row` drag strip underneath this view would still
+ * swallow clicks on the back button. Opt the whole view out; its own `::before` strip re-enables dragging on top.
+ */
+[data-host="desktop"] .settings-view {
+	-webkit-app-region: no-drag;
+}
 /* The macOS title bar overlays the window's top strip: inset the menu and let the strip drag the window. */
 [data-host="desktop"][data-platform="darwin"] .settings-nav {
 	padding-top: calc(16px + var(--titlebar-inset));
