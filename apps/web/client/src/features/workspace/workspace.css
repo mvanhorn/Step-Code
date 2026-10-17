@@ -1,11 +1,20 @@
-/* Workspace pill at the top of the composer card, its recent-folders popover, and the in-page folder browser. */
+/* Workspace pill above the composer card, its recent-folders popover, and the in-page folder browser. */
 
+/*
+ * `.composer-card` is a stacking context (z-index 2), so the composer's own
+ * popovers (permissions, mode, model) rise only as high as the card. The pill
+ * stays below it so those popovers cover it, and rises above the card only
+ * while its own folder list is open and has to overlay the prompt.
+ */
 .workspace-control {
   position: relative;
-  z-index: 3;
+  z-index: 1;
   display: flex;
   align-items: center;
   margin: 0 0 8px 6px;
+}
+.workspace-control:has(> .workspace-popover:not([hidden])) {
+  z-index: 3;
 }
 .workspace-pill {
   display: inline-flex;
