@@ -16,6 +16,11 @@ export interface StepCapabilitiesExtensionOptions {
 	telemetry?: StepTelemetryReporter;
 	/** Workflow registers by default (Claude Code parity); `enabled: false` or STEP_DISABLE_WORKFLOW=1 turns it off. */
 	workflow?: StepWorkflowExtensionOptions;
+	/**
+	 * Step CLI entry for subagent and workflow children. Hosts whose own entry is
+	 * not the Step CLI (the Web server) must set it; the CLI can omit it.
+	 */
+	cliPath?: string;
 }
 
 /** Compose Pi's native UI examples behind one Step-owned inline extension. */
@@ -23,11 +28,13 @@ export function createStepCapabilitiesExtension(options: StepCapabilitiesExtensi
 	const plan = createStepPlanExtension({ telemetry: options.telemetry });
 	const tasks = createStepTasksExtension();
 	const subagent = createStepSubagentExtension({
+		cliPath: options.cliPath,
 		...options.subagent,
 		telemetry: options.telemetry,
 	});
 	const workflowTurnState: UltraloopTurnState = {};
 	const workflow = createStepWorkflowExtension({
+		cliPath: options.cliPath,
 		...options.workflow,
 		telemetry: options.workflow?.telemetry ?? options.telemetry,
 		turnState: workflowTurnState,

@@ -13,6 +13,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { redactSecretString } from "../../step/secret-redaction.ts";
 import { waitForChildProcess } from "../../utils/child-process.ts";
 import {
 	CHILD_MARKER,
@@ -30,6 +31,21 @@ import { WORKFLOW_ACL_ENV } from "../workflow/acl-extension.ts";
 import { liveSubagentSessions } from "./lane-lifecycle.ts";
 
 const MAX_STDERR_CHARS = 32_000;
+const EXIT_STDERR_TAIL_CHARS = 2_000;
+
+/**
+ * Error text for a child that exited nonzero without a structured error. A
+ * bare exit code hides startup failures (bad loader config, missing entry),
+ * so include the last stderr lines. Redacted because the message is shown to
+ * the model and persisted in the transcript.
+ */
+export function exitErrorMessage(code: number, stderr: string): string {
+	const base = `Subagent exited with code ${code}`;
+	const trimmed = stderr.trim();
+	if (!trimmed) return base;
+	const tail = trimmed.length > EXIT_STDERR_TAIL_CHARS ? `…${trimmed.slice(-EXIT_STDERR_TAIL_CHARS)}` : trimmed;
+	return `${base}:\n${redactSecretString(tail)}`;
+}
 
 /**
  * Handlers for one child stdout line in rpc mode. Lines are routed by JSON
@@ -195,10 +211,17 @@ export function resolveSubagentTurnIdleTimeoutMs(
  * `WORKFLOW_ACL_ENV` stays conditional and is explicitly set to `undefined` when
  * there is no ACL: Node's `spawn` drops `undefined` values, which clears a value
  * inherited from `process.env` instead of leaking the parent's ACL to the child.
+ *
+ * A relative `TSX_TSCONFIG_PATH` (source hosts such as `pnpm web` set
+ * `../../tsconfig.json`) is resolved against the parent's cwd. The child runs
+ * in `input.cwd`, where the same relative path points elsewhere and tsx exits
+ * before the CLI starts ("Cannot resolve tsconfig at path").
  */
 export function buildSubagentChildEnv(input: StepSubagentRunInput): NodeJS.ProcessEnv {
+	const tsconfigPath = process.env.TSX_TSCONFIG_PATH;
 	return {
 		...process.env,
+		...(tsconfigPath && !path.isAbsolute(tsconfigPath) ? { TSX_TSCONFIG_PATH: path.resolve(tsconfigPath) } : {}),
 		[CHILD_MARKER]: "1",
 		STEPCODE_USAGE_PARENT_CWD: input.parentCwd ?? input.workflowAcl?.baseCwd,
 		STEPCODE_USAGE_PARENT_SESSION_ID: input.parentSessionId,
@@ -229,7 +252,7 @@ export async function createSubagentRpcSession(
 		args.push("--append-system-prompt", promptPath);
 	}
 
-	const invocation = currentStepInvocation(args);
+	const invocation = currentStepInvocation(args, input.cliPath);
 	const child = spawn(invocation.command, invocation.args, {
 		cwd: input.cwd,
 		env: buildSubagentChildEnv(input),
@@ -444,7 +467,7 @@ export async function createSubagentRpcSession(
 				current.errorMessage = processError;
 			} else if ((code ?? 1) !== 0 && current.stopReason === undefined) {
 				current.stopReason = "error";
-				current.errorMessage = current.errorMessage ?? `Subagent exited with code ${code ?? 1}`;
+				current.errorMessage = current.errorMessage ?? exitErrorMessage(code ?? 1, current.stderr);
 			}
 		});
 		void rm(tempDir, { recursive: true, force: true });

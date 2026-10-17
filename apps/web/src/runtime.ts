@@ -64,6 +64,7 @@ import { ClarificationBroker, type ClarificationEvent } from "./clarification.ts
 import { feedbackCategoryFor } from "./feedback.ts";
 import { SelectionBroker, type SelectionEvent, type SelectionRequest, selectionSelect } from "./selection.ts";
 import { type WebSkill, webSkills } from "./skills.ts";
+import { resolveSubagentCliPath } from "./subagent-cli.ts";
 import {
 	revertedTurnIds,
 	type SkippedChange,
@@ -206,7 +207,7 @@ function makeExtensions(
 			onPermissionChange,
 			traceHeaderPolicy: NOOP_OBSERVABILITY_PROVIDER.traceHeaderPolicy(),
 		}),
-		createStepCapabilitiesExtensionInline({ telemetry }),
+		createStepCapabilitiesExtensionInline({ telemetry, cliPath: resolveSubagentCliPath() }),
 		createStepCronExtension({ telemetry }),
 		createStepGoalExtension({ telemetry }),
 		createStepPlanExtension({ telemetry }),

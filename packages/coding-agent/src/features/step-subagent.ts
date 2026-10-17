@@ -159,6 +159,12 @@ export interface StepSubagentRunInput {
 		readOnly?: string[];
 		writable?: string[];
 	};
+	/**
+	 * Step CLI entry script for the child. Defaults to the current process's
+	 * `argv[1]`, which is right for the CLI but not for a host such as the Web
+	 * server, whose own entry does not accept `--mode rpc`.
+	 */
+	cliPath?: string;
 }
 
 /** Injectable runner used by embedders and tests. The default runner launches
@@ -221,6 +227,8 @@ export interface StepSubagentExtensionOptions {
 	worktreeManager?: StepWorktreeManager;
 	/** Optional child runner, primarily useful for embedded hosts/tests. */
 	runner?: StepSubagentRunner;
+	/** CLI entry the default runner launches; see `StepSubagentRunInput.cliPath`. Ignored with a custom runner. */
+	cliPath?: string;
 	/** Optional process reporter; telemetry never owns child execution. */
 	telemetry?: StepTelemetryReporter;
 }
@@ -579,7 +587,11 @@ export function createStepSubagentExtension(options: StepSubagentExtensionOption
 		worktreeManager: options.worktreeManager ?? {
 			allocate: allocateStepWorktree,
 		},
-		runner: options.runner ?? runStepSubagentProcess,
+		runner:
+			options.runner ??
+			(options.cliPath === undefined
+				? runStepSubagentProcess
+				: (input: StepSubagentRunInput) => runStepSubagentProcess({ ...input, cliPath: options.cliPath })),
 	};
 	return (pi: ExtensionAPI): void => {
 		// The child process inherits this marker. It still gets Step's provider and

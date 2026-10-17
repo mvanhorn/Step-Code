@@ -54,6 +54,8 @@ export interface StepWorkflowExtensionOptions {
 	telemetry?: StepTelemetryReporter;
 	enabled?: boolean;
 	runner?: WorkflowAgentRunner;
+	/** CLI entry the default agent runner launches. Ignored with a custom runner. */
+	cliPath?: string;
 	vmExecutor?: typeof runInQuickJs;
 	maxConcurrency?: number;
 	maxAgents?: number;
@@ -136,7 +138,7 @@ export function createStepWorkflowExtension(options: StepWorkflowExtensionOption
 	return (pi: ExtensionAPI): void => {
 		if (!resolveWorkflowRegistration(options).enabled) return;
 		const activeRuns = new Set<AbortController>();
-		const runner = options.runner ?? createDefaultWorkflowAgentRunner();
+		const runner = options.runner ?? createDefaultWorkflowAgentRunner({ cliPath: options.cliPath });
 		const homeRoot = options.homeRoot ?? resolveStepStorageRoot();
 
 		pi.registerTool<typeof WorkflowParams, WorkflowProgress | WorkflowRunResult, WorkflowRenderState>({

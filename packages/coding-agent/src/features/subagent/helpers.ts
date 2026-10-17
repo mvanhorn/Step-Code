@@ -11,8 +11,10 @@ import { execFile as execFileCallback } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import type { StepSubagentUsage, StepWorktreeLease } from "../step-subagent.ts";
 
@@ -100,11 +102,17 @@ export async function allocateStepWorktree(baseCwd: string, label: string): Prom
 	};
 }
 
-export function currentStepInvocation(args: string[]): {
+export function currentStepInvocation(
+	args: string[],
+	cliPath?: string,
+): {
 	command: string;
 	args: string[];
 } {
-	const script = process.argv[1];
+	const script = cliPath === undefined ? process.argv[1] : path.resolve(cliPath);
+	if (cliPath !== undefined && (!script || !existsSync(script))) {
+		throw new Error(`Subagent CLI entry does not exist: ${script}`);
+	}
 	const virtualScript = script?.startsWith("/$bunfs/") || script?.includes("$bunfs");
 	if (script && !virtualScript && existsSync(script) && /\.(?:[cm]?js|[cm]?ts)$/iu.test(script)) {
 		// Source launches need tsx's preflight and ESM loader as well as argv[1].
@@ -116,11 +124,15 @@ export function currentStepInvocation(args: string[]): {
 			if (/^(?:--require|--import|--loader|--experimental-loader|-r)$/u.test(arg)) {
 				const value = process.execArgv[index + 1];
 				if (value !== undefined) {
-					loaderArgs.push(arg, value);
+					loaderArgs.push(arg, absoluteLoaderSpecifier(arg, value));
 					index += 1;
 				}
-			} else if (/^(?:--require|--import|--loader|--experimental-loader)=/u.test(arg) || /^-r.+/u.test(arg)) {
-				loaderArgs.push(arg);
+			} else if (/^(?:--require|--import|--loader|--experimental-loader)=/u.test(arg)) {
+				const separator = arg.indexOf("=");
+				const flag = arg.slice(0, separator);
+				loaderArgs.push(`${flag}=${absoluteLoaderSpecifier(flag, arg.slice(separator + 1))}`);
+			} else if (/^-r.+/u.test(arg)) {
+				loaderArgs.push(`-r${absoluteLoaderSpecifier("-r", arg.slice(2))}`);
 			}
 		}
 		return { command: process.execPath, args: [...loaderArgs, script, ...args] };
@@ -131,6 +143,32 @@ export function currentStepInvocation(args: string[]): {
 		return { command: process.execPath, args };
 	}
 	return { command: "step", args };
+}
+
+/**
+ * Node resolves `--import tsx` or `--require ./hook.cjs` against the process cwd
+ * at startup. A subagent starts in the task's cwd, where the same specifier may
+ * not resolve (`node --import tsx` from the repo, child in a scratch folder), so
+ * forward the location the parent's cwd resolves to. A specifier that cannot be
+ * resolved here is forwarded unchanged and fails in the child as before.
+ */
+export function absoluteLoaderSpecifier(flag: string, value: string, cwd = process.cwd()): string {
+	if (/^(?:node|data|file|https?):/u.test(value) || path.isAbsolute(value)) return value;
+	const require = flag === "--require" || flag === "-r";
+	if (value.startsWith("./") || value.startsWith("../")) {
+		const absolute = path.resolve(cwd, value);
+		return require ? absolute : pathToFileURL(absolute).href;
+	}
+	try {
+		return require
+			? createRequire(path.join(cwd, "noop.js")).resolve(value)
+			: // ESM resolution from an arbitrary parent URL is still flagged in Node,
+				// so bare ESM loaders resolve from this module. Source launches share
+				// one dependency tree, which holds the parent's loader.
+				import.meta.resolve(value);
+	} catch {
+		return value;
+	}
 }
 
 export function isRecordValue(value: unknown): value is Record<string, unknown> {

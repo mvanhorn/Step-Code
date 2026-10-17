@@ -13,6 +13,7 @@ import { liveSubagentSessions } from "../src/features/subagent/lane-lifecycle.ts
 import {
 	buildSubagentChildEnv,
 	createSubagentRpcSession,
+	exitErrorMessage,
 	resolveSubagentTurnIdleTimeoutMs,
 } from "../src/features/subagent/rpc-adapter.ts";
 import { WORKFLOW_ACL_ENV } from "../src/features/workflow/acl-extension.ts";
@@ -127,6 +128,34 @@ test("a workflow ACL is forwarded, and a stale inherited one is cleared", () => 
 	// Node's spawn drops undefined env values, so this clears the parent's ACL
 	// instead of leaking it to a child that was not spawned by a workflow.
 	expect(buildSubagentChildEnv(runInput())[WORKFLOW_ACL_ENV]).toBeUndefined();
+});
+
+// Regression: `pnpm web` runs the host with TSX_TSCONFIG_PATH=../../tsconfig.json
+// relative to apps/web. The child runs in the session cwd, where tsx could not
+// find that file and exited 1 before the CLI started.
+test("a relative tsx tsconfig path is anchored to the parent cwd; absolute and unset stay as they are", () => {
+	vi.stubEnv("TSX_TSCONFIG_PATH", "../../tsconfig.json");
+	expect(buildSubagentChildEnv(runInput()).TSX_TSCONFIG_PATH).toBe(path.resolve("../../tsconfig.json"));
+
+	vi.stubEnv("TSX_TSCONFIG_PATH", "/abs/tsconfig.json");
+	expect(buildSubagentChildEnv(runInput()).TSX_TSCONFIG_PATH).toBe("/abs/tsconfig.json");
+
+	vi.stubEnv("TSX_TSCONFIG_PATH", "");
+	expect(buildSubagentChildEnv(runInput()).TSX_TSCONFIG_PATH).toBe("");
+});
+
+test("an exit-code error carries a bounded, redacted stderr tail", () => {
+	expect(exitErrorMessage(1, "  \n")).toBe("Subagent exited with code 1");
+
+	const message = exitErrorMessage(1, "Error: Cannot resolve tsconfig at path: /x/tsconfig.json\n");
+	expect(message).toBe("Subagent exited with code 1:\nError: Cannot resolve tsconfig at path: /x/tsconfig.json");
+
+	const long = exitErrorMessage(2, `${"a".repeat(5_000)}LAST LINE`);
+	expect(long.endsWith("LAST LINE")).toBe(true);
+	expect(long.length).toBeLessThan(2_100);
+
+	const secret = exitErrorMessage(1, "Authorization: Bearer sk-abcdefghijklmnopqrstuvwxyz0123456789");
+	expect(secret).not.toContain("sk-abcdefghijklmnopqrstuvwxyz0123456789");
 });
 
 test("turn idle timeout honors the env override and rejects junk", () => {
