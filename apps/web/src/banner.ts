@@ -23,8 +23,16 @@ function row(label: string, value: string): string {
 	return `${INDENT}${label.padEnd(LABEL_WIDTH)} ${value}`;
 }
 
+/**
+ * The URL that signs a browser in. The token is single-use — the page trades it
+ * for a cookie — so this is the only way a fresh browser gets in.
+ */
+export function launchUrl(port: number, token: string): string {
+	return `http://127.0.0.1:${port}/#token=${token}`;
+}
+
 export function formatStartupBanner({ port, token, version }: StartupBannerInput): string {
-	const url = `http://127.0.0.1:${port}/#token=${token}`;
+	const url = launchUrl(port, token);
 	return [
 		`${INDENT}StepCode Web ready  ${version}`,
 		`${INDENT}Local web UI is available from this machine.`,

@@ -18,6 +18,8 @@ const child = spawn(process.execPath, ["apps/web/dist/server.js"], {
 		STEPCODE_WEB_PORT: String(port),
 		STEPCODE_WEB_CWD: cwd,
 		STEP_CODING_AGENT_DIR: agentDir,
+		// A check must never open a window, even when the caller exported the flag.
+		STEPCODE_WEB_OPEN: "0",
 	},
 	stdio: ["ignore", "pipe", "pipe"],
 });

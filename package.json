@@ -44,7 +44,7 @@
 		"profile:tui": "node scripts/profile-coding-agent-node.mjs --mode tui",
 		"profile:rpc": "node scripts/profile-coding-agent-node.mjs --mode rpc",
 		"step": "tsx --tsconfig tsconfig.json apps/cli/src/main.ts",
-		"web": "pnpm --filter @step-harness/web build:client && STEPCODE_WEB_CWD=\"$PWD\" pnpm --filter @step-harness/web dev",
+		"web": "pnpm --filter @step-harness/web build:client && STEPCODE_WEB_CWD=\"$PWD\" STEPCODE_WEB_OPEN=\"${STEPCODE_WEB_OPEN:-1}\" pnpm --filter @step-harness/web dev",
 		"desktop": "pnpm --filter @step-harness/desktop start",
 		"web:watch": "node scripts/web-watch.mjs",
 		"web:build": "pnpm --filter @step-harness/web build",

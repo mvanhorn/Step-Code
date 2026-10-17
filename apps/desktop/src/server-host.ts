@@ -145,6 +145,10 @@ export async function launchWebServer(options: WebServerLaunchOptions): Promise<
 		...options.environment,
 		STEPCODE_WEB_PORT: String(port),
 		STEPCODE_WEB_CWD: options.workspace,
+		// This shell shows the client in its own window, so a browser tab would be a
+		// second copy. Forced off rather than left unset: the command that launched
+		// the app may have exported it.
+		STEPCODE_WEB_OPEN: "0",
 	};
 	if (options.node.electron) environment.ELECTRON_RUN_AS_NODE = "1";
 	else delete environment.ELECTRON_RUN_AS_NODE;

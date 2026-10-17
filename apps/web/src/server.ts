@@ -9,12 +9,14 @@ import type { StepPermissionPresetId } from "@step-harness/coding-agent";
 import {
 	getStepAuthPath,
 	getStepLoginStatus,
+	openBrowser,
 	resolveStepAgentDir,
 	resolveStepCodeVersion,
 	resolveStepConfigRoot,
 } from "@step-harness/coding-agent";
 import { WebAuth } from "./auth.ts";
-import { formatStartupBanner } from "./banner.ts";
+import { formatStartupBanner, launchUrl } from "./banner.ts";
+import { recordBrowserOpened, shouldOpenBrowser } from "./browser-open.ts";
 import { type DirectoryPickerMode, pickNativeDirectory, resolveDirectoryPickerMode } from "./directory-picker.ts";
 import {
 	containedWorkspacePath,
@@ -737,6 +739,10 @@ const server = createServer(async (request, response) => {
 
 server.listen(port, bindHost, () => {
 	console.log(formatStartupBanner({ port, token: auth.getLaunchToken(), version: resolveStepCodeVersion().value }));
+	// Opt-in: the dev commands ask for it; desktop and the tests must not open a window.
+	if (!shouldOpenBrowser(process.env, existsSync)) return;
+	openBrowser(launchUrl(port, auth.getLaunchToken()));
+	recordBrowserOpened(process.env);
 });
 
 // Installing signal handlers replaces Node's default exit, so shutdown must end

@@ -21,7 +21,8 @@ What the shell adds on top of the browser version:
 ```
 Electron main (src/main.ts)
  ├─ server-host.ts ── spawn ──▶ <electron as node> apps/web/dist/server.js
- │     env: STEPCODE_WEB_PORT=<free loopback port>, STEPCODE_WEB_CWD=<workspace>, ELECTRON_RUN_AS_NODE=1
+ │     env: STEPCODE_WEB_PORT=<free loopback port>, STEPCODE_WEB_CWD=<workspace>, STEPCODE_WEB_OPEN=0, ELECTRON_RUN_AS_NODE=1
+ │          (STEPCODE_WEB_OPEN=0: the window shows the client, so the server must not open a browser tab too)
  │     stdout "Local: http://127.0.0.1:<port>/#token=<launch token>"  ──▶ parsed (redacted in the log)
  │     stdout/stderr ──▶ <logs>/web-server.log
  ├─ window.ts ── BrowserWindow (contextIsolation, sandbox, no nodeIntegration)
