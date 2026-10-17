@@ -670,7 +670,11 @@ paths:
               properties:
                 id: { type: string, description: "Provider ID; lowercase letters, digits, '.', '_', '-'" }
                 name: { type: string }
-                baseUrl: { type: string }
+                baseUrl:
+                  type: string
+                  description: >-
+                    Service root, with or without `/v1`. Stored normalized for `api`: OpenAI protocols give a
+                    bare root `/v1`; Anthropic Messages drops one trailing `/v1`. Any other path is kept.
                 api: { type: string, description: "Protocol identifier, e.g. openai-completions" }
                 apiKey: { type: string, description: "Stored in auth.json, never written to models.json" }
                 models: { type: array, items: { $ref: "#/components/schemas/ModelsJsonModelEntry" } }
@@ -683,8 +687,9 @@ paths:
       description: >-
         Ask one endpoint which models it advertises, for the form's "fetch available models" action. The
         body carries the draft the user is editing rather than a saved provider, so the address, protocol
-        and key are used as given and nothing is stored. OpenAI-shaped protocols list at `{baseUrl}/models`
-        with bearer auth; Anthropic Messages at `/v1/models` with `x-api-key`. A reply over 4 MiB is refused.
+        and key are used as given and nothing is stored. The address is normalized as on save, then
+        OpenAI-shaped protocols list at `{baseUrl}/models` with bearer auth; Anthropic Messages at
+        `{baseUrl}/v1/models` with `x-api-key`. A reply over 4 MiB is refused.
       requestBody:
         required: true
         content:
@@ -725,7 +730,7 @@ paths:
               type: object
               properties:
                 name: { type: string }
-                baseUrl: { type: string }
+                baseUrl: { type: string, description: "Normalized for `api` as on create" }
                 api: { type: string }
                 apiKey: { type: string }
                 removeKey: { type: boolean, description: "Remove the stored key; ignored when apiKey is set" }
