@@ -1080,6 +1080,13 @@ components:
         input:
           type: array
           items: { type: string, enum: [text, image] }
+        reasoning: { type: boolean, description: Whether the model takes a thinking effort }
+        thinkingLevelMap:
+          type: object
+          description: >-
+            Effort value sent for each thinking level; `null` hides the level. Keys are off, minimal, low,
+            medium, high, xhigh and max.
+          additionalProperties: { type: [string, "null"] }
     SettingsModelProvider:
       type: object
       properties:

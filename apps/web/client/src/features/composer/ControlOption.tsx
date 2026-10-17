@@ -103,7 +103,7 @@ export interface ControlMenuProps {
 	readonly title: string;
 	readonly icon: IconName;
 	readonly labelId: string;
-	readonly label: string;
+	readonly label: ReactNode;
 	readonly popoverId: string;
 	readonly open: boolean;
 	/** Trigger clicked while closed (legacy `open()`: render, then show). */

@@ -150,6 +150,38 @@ test("adding a provider writes models.json and puts the key in auth.json only", 
 	await rejectsWith(() => saveModelProvider("missing", { baseUrl: "https://other/v1", api: "openai-completions" }, { replace: true }), 404);
 });
 
+test("a model's reasoning flag and thinking-level map survive a save and a read", async () => {
+	const thinkingLevelMap = { off: "off", minimal: null, low: "low", high: "high", max: "max" };
+	await saveModelProvider(
+		"gw-think",
+		{
+			baseUrl: "https://gw.example",
+			api: "openai-completions",
+			models: [{ id: "m-think", reasoning: true, thinkingLevelMap }, { id: "m-plain", reasoning: false }],
+		},
+		{ replace: false },
+	);
+	const stored = (await onDisk()).providers as Record<string, { models: unknown }>;
+	assert.deepEqual(stored["gw-think"]?.models, [
+		{ id: "m-think", reasoning: true, thinkingLevelMap },
+		{ id: "m-plain", reasoning: false },
+	]);
+	const provider = (await listModelProviders()).find((entry) => entry.id === "gw-think");
+	assert.deepEqual(provider?.models, [
+		{ id: "m-think", reasoning: true, thinkingLevelMap },
+		{ id: "m-plain", reasoning: false },
+	]);
+	for (const bad of [
+		{ id: "x", reasoning: "yes" },
+		{ id: "x", thinkingLevelMap: { turbo: "turbo" } },
+		{ id: "x", thinkingLevelMap: { high: 3 } },
+		{ id: "x", thinkingLevelMap: ["high"] },
+	]) {
+		assert.throws(() => parseModelProvider({ baseUrl: "https://gw.example", api: "openai-completions", models: [bad] }), SettingsError);
+	}
+	await deleteModelProvider("gw-think");
+});
+
 test("the account provider and non-API-key credentials are refused", async () => {
 	await rejectsWith(() => saveModelProvider("step", { baseUrl: "https://x/v1", api: "openai-completions" }, { replace: false }), 400);
 	await rejectsWith(() => saveModelProvider("Bad_Id", { baseUrl: "https://x/v1", api: "openai-completions" }, { replace: false }), 400);

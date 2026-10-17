@@ -427,6 +427,8 @@ export interface SettingsModelProvider {
 		readonly contextWindow?: number;
 		readonly maxTokens?: number;
 		readonly input?: readonly string[];
+		readonly reasoning?: boolean;
+		readonly thinkingLevelMap?: Readonly<Record<string, string | null>>;
 	}>;
 	/** Where the key comes from; the key itself is never sent to the browser. */
 	readonly credential: "stored" | "configured" | "none";

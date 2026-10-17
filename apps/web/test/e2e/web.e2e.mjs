@@ -392,6 +392,9 @@ before(async () => {
       STEP_LOGIN_PROFILE_AUTH_URL: providerUrl,
       STEPCODE_WEB_AUTH_SECRET: join(base, "web-auth-secret"),
       STEPCODE_WEB_DIRECTORY_PICKER: nativePickerSkip ? "browse" : "native",
+      // Headless run: never open a browser, even when the developer's shell
+      // exports the flag for `pnpm web`.
+      STEPCODE_WEB_OPEN: "0",
       PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
       PICKER_RESULT_FILE: pickerResult,
       PICKER_ARGS_FILE: pickerArgs,
