@@ -274,7 +274,7 @@ export function renderSnapshot(snapshot: SessionSnapshot): void {
 			current: snapshot,
 			policiesCache: snapshot.policies ?? state.policiesCache,
 			draftCwd: snapshot.cwd,
-			draftPolicy: snapshot.permissionPreset || "ask",
+			draftPolicy: snapshot.permissionPreset || "approve-for-me",
 			draftSelection: null,
 			draftFullAccessAnswer: "",
 			draftPolicyPicked: false,

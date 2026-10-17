@@ -13,7 +13,7 @@
  */
 
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { useT } from "../../i18n";
+import { type MessageKey, useT } from "../../i18n";
 import { apiSend, errorMessage } from "../../lib/api";
 import { showError } from "../../state/session";
 import type { SettingsEditor } from "../../state/store";
@@ -113,6 +113,54 @@ function modelsPayload(rows: readonly ModelRowState[]): Array<Record<string, unk
 			...(Number(row.maxTokens) > 0 ? { maxTokens: Number(row.maxTokens) } : {}),
 			...(row.input.length > 0 ? { input: row.input } : {}),
 		}));
+}
+
+/**
+ * Provider ids the host accepts; mirrors `checkProviderId` in
+ * `src/model-providers.ts` so the form can say what is wrong before a round trip.
+ * The host still validates, and its reply is shown if the two ever drift.
+ */
+const PROVIDER_ID = /^[a-z0-9][a-z0-9._-]*$/u;
+const MAX_PROVIDER_ID = 64;
+const RESERVED_PROVIDER_ID = "step";
+
+type CheckedField = "id" | "baseUrl";
+type FieldErrors = Partial<Record<CheckedField, MessageKey>>;
+
+function isHttpUrl(value: string): boolean {
+	try {
+		const { protocol } = new URL(value);
+		return protocol === "http:" || protocol === "https:";
+	} catch {
+		return false;
+	}
+}
+
+/** The fields the form checks itself, each with the message to show under it. */
+function validateForm(form: FormState, editing: boolean): FieldErrors {
+	const errors: FieldErrors = {};
+	// An existing provider's id is fixed (the input is disabled), so only a new one is checked.
+	if (!editing) {
+		const id = form.id.trim();
+		if (!id) errors.id = "settingsModelsIdRequired";
+		else if (!PROVIDER_ID.test(id) || id.length > MAX_PROVIDER_ID) errors.id = "settingsModelsIdInvalid";
+		else if (id === RESERVED_PROVIDER_ID) errors.id = "settingsModelsIdReserved";
+	}
+	const baseUrl = form.baseUrl.trim();
+	if (!baseUrl) errors.baseUrl = "settingsModelsBaseUrlRequired";
+	else if (!isHttpUrl(baseUrl)) errors.baseUrl = "settingsModelsBaseUrlInvalid";
+	return errors;
+}
+
+/** A field title, with the red dot that marks a required field. */
+function FieldTitle({ text, required = false }: { readonly text: string; readonly required?: boolean }) {
+	return (
+		<span className="settings-field-label">
+			{text}
+			{/* The input carries `required`, which is what assistive technology reads. */}
+			{required ? <i className="settings-required-dot" aria-hidden="true" /> : null}
+		</span>
+	);
 }
 
 /**
@@ -250,6 +298,15 @@ export function ModelEditor({
 	const [discoverError, setDiscoverError] = useState<string>();
 	const [discovered, setDiscovered] = useState<readonly DiscoveredModelEntry[]>([]);
 	const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+	// A field's error shows once the user has left it or tried to save, so an
+	// untouched empty form does not open covered in red.
+	const [touched, setTouched] = useState<ReadonlySet<CheckedField>>(new Set());
+	const [submitted, setSubmitted] = useState(false);
+	const fieldErrors = useMemo(() => validateForm(form, editing), [form, editing]);
+	const shownError = (name: CheckedField): MessageKey | undefined =>
+		submitted || touched.has(name) ? fieldErrors[name] : undefined;
+	const touch = (name: CheckedField) =>
+		setTouched((current) => (current.has(name) ? current : new Set(current).add(name)));
 	const update = (patch: Partial<FormState>) => setForm((current) => ({ ...current, ...patch }));
 	const apiChoice = API_CHOICES.find((choice) => choice.value === form.api) ?? API_CHOICES[0];
 
@@ -310,9 +367,16 @@ export function ModelEditor({
 		setSelected(new Set());
 	}, [discoverOpen]);
 
+	const field = (key: string) => `settingsModel-${key}`;
 	const save = async (event: FormEvent) => {
 		event.preventDefault();
 		setError(undefined);
+		setSubmitted(true);
+		const firstInvalid = (["id", "baseUrl"] as const).find((name) => fieldErrors[name]);
+		if (firstInvalid) {
+			document.getElementById(field(firstInvalid))?.focus();
+			return;
+		}
 		setSaving(true);
 		const id = editing ? (editor.id ?? "") : form.id.trim();
 		try {
@@ -334,10 +398,12 @@ export function ModelEditor({
 		}
 	};
 
-	const field = (key: string) => `settingsModel-${key}`;
+	const idError = shownError("id");
+	const baseUrlError = shownError("baseUrl");
 	return (
 		<>
-			<form className="settings-editor" id="settingsModelEditor" onSubmit={(event) => void save(event)}>
+			{/* noValidate: the fields show their own messages instead of the browser's bubble. */}
+			<form className="settings-editor" id="settingsModelEditor" noValidate onSubmit={(event) => void save(event)}>
 				<nav className="settings-breadcrumb" aria-label={t("settingsModels")}>
 					<button type="button" onClick={() => onDone(false)}>
 						{t("settingsModels")}
@@ -356,22 +422,27 @@ export function ModelEditor({
 
 				<div className="settings-card settings-form">
 					<label className="settings-field" htmlFor={field("id")}>
-						<span>Provider ID</span>
+						<FieldTitle text="Provider ID" required={!editing} />
 						<input
 							id={field("id")}
 							className="mono"
 							value={form.id}
 							disabled={editing}
-							placeholder="acme-gateway"
+							placeholder="model-proxy"
 							autoComplete="off"
 							spellCheck={false}
 							required
+							aria-invalid={idError ? true : undefined}
+							aria-describedby={field("id-message")}
+							onBlur={() => touch("id")}
 							onChange={(event) => update({ id: event.target.value })}
 						/>
-						<small className="settings-field-hint">{t("settingsModelsIdHint")}</small>
+						<small id={field("id-message")} className={idError ? "settings-field-error" : "settings-field-hint"}>
+							{t(idError ?? "settingsModelsIdHint")}
+						</small>
 					</label>
 					<label className="settings-field" htmlFor={field("name")}>
-						<span>{t("settingsModelsDisplayName")}</span>
+						<FieldTitle text={t("settingsModelsDisplayName")} />
 						<input
 							id={field("name")}
 							value={form.name}
@@ -381,7 +452,7 @@ export function ModelEditor({
 						/>
 					</label>
 					<label className="settings-field" htmlFor={field("baseUrl")}>
-						<span>{t("settingsModelsBaseUrl")}</span>
+						<FieldTitle text={t("settingsModelsBaseUrl")} required />
 						<input
 							id={field("baseUrl")}
 							className="mono"
@@ -389,11 +460,19 @@ export function ModelEditor({
 							placeholder={apiChoice?.placeholder ?? "https://gateway.example/v1"}
 							spellCheck={false}
 							required
+							aria-invalid={baseUrlError ? true : undefined}
+							aria-describedby={baseUrlError ? field("baseUrl-message") : undefined}
+							onBlur={() => touch("baseUrl")}
 							onChange={(event) => update({ baseUrl: event.target.value })}
 						/>
+						{baseUrlError ? (
+							<small id={field("baseUrl-message")} className="settings-field-error">
+								{t(baseUrlError)}
+							</small>
+						) : null}
 					</label>
 					<div className="settings-field settings-field-narrow">
-						<span>{t("settingsModelsApi")}</span>
+						<FieldTitle text={t("settingsModelsApi")} required />
 						<SettingsSelect<string>
 							id={field("api")}
 							value={form.api}
@@ -403,7 +482,7 @@ export function ModelEditor({
 						/>
 					</div>
 					<label className="settings-field" htmlFor={field("apiKey")}>
-						<span>{t("settingsModelsApiKey")}</span>
+						<FieldTitle text={t("settingsModelsApiKey")} required />
 						<input
 							id={field("apiKey")}
 							type="password"
