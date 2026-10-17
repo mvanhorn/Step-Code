@@ -211,6 +211,43 @@
 	font-weight: 550;
 }
 /*
+ * The model trigger is the one control whose label has no fixed length: a
+ * gateway model id can be 40 characters. It may shrink, and only the name part
+ * is cut, so the effort suffix and the controls on its left keep their room.
+ */
+.composer-controls > .control-menu,
+.composer-controls .control-select {
+	flex: none;
+	white-space: nowrap;
+}
+.composer-right {
+	min-width: 0;
+}
+.composer-right > #modelMenu {
+	flex: 0 1 auto;
+	min-width: 0;
+}
+/* The model trigger sits at the composer's right edge and its width varies
+   with the name, so its panel opens from the trigger's right edge rather than
+   its left one, which would push the panel past the window. */
+.composer-right > #modelMenu > .control-popover {
+	right: 0;
+	left: auto;
+}
+.model-control {
+	max-width: 100%;
+	min-width: 0;
+}
+.model-control #modelLabel {
+	display: flex;
+	min-width: 0;
+}
+.model-control-name {
+	overflow: hidden;
+	max-width: var(--control-select-max-w);
+	text-overflow: ellipsis;
+}
+/*
  * Thinking effort as a segmented control rather than a list: there are at most
  * seven options and they are a single choice, so a row of buttons reads faster
  * than a stack of rows.
