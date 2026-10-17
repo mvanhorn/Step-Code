@@ -1,15 +1,18 @@
 /**
- * The composer's slash menu. Typing `/word` as the whole prompt lists the
- * commands that fuzzy-match it, scored like the CLI's autocomplete:
+ * The composer's slash menu. Typing `/word` as the whole prompt lists, in two
+ * groups, the commands and the skills that fuzzy-match it, scored like the
+ * CLI's autocomplete:
  *
- * - `MCP` opens the MCP server list in place (the kernel's `/mcp` only prints
+ * - a command inserts `/<name> ` so the user can add arguments; the kernel
+ *   runs it when the prompt is sent;
+ * - `/mcp` opens the MCP server list in place (the kernel's `/mcp` only prints
  *   through a terminal notification, which the Web host does not have);
  * - each skill inserts `/skill:<name> `, which the kernel expands into the
  *   skill's instructions when the prompt is sent.
  */
 
-import { type ReactNode, type RefObject, useEffect, useImperativeHandle, useRef, useState } from "react";
-import { useT } from "../../i18n";
+import { Fragment, type ReactNode, type RefObject, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { type MessageKey, type TranslateFn, useT } from "../../i18n";
 import { api, errorMessage, workspaceApi } from "../../lib/api";
 import { cx } from "../../lib/format";
 import { fuzzyFilter } from "../../lib/fuzzy";
@@ -18,9 +21,21 @@ import { setUi, useAppStore } from "../../state/store";
 import type { McpServerStatus, WebSkill } from "../../state/types";
 import { Icon, useDismiss } from "../../ui";
 
-export type SlashItem =
-	| { readonly kind: "mcp"; readonly key: string; readonly title: string; readonly description: string }
-	| { readonly kind: "skill"; readonly key: string; readonly title: string; readonly description: string };
+export interface SlashItem {
+	/** `command` inserts `/<key> `, `mcp` opens the MCP view, `skill` inserts `/skill:<key> `. */
+	readonly kind: "command" | "mcp" | "skill";
+	readonly key: string;
+	readonly title: string;
+	readonly description: string;
+}
+
+/** The commands the menu offers, in display order. */
+const SLASH_COMMANDS: readonly { readonly name: string; readonly description: MessageKey }[] = [
+	{ name: "goal", description: "goalCommandDesc" },
+	{ name: "init", description: "initCommandDesc" },
+	{ name: "plan", description: "planCommandDesc" },
+	{ name: "mcp", description: "mcpCommandDesc" },
+];
 
 /** `find-skills` -> `Find Skills`. */
 function skillTitle(name: string): string {
@@ -31,26 +46,50 @@ function skillTitle(name: string): string {
 		.join(" ");
 }
 
-/** The query of a prompt that is a single `/word` (with an optional `skill:` prefix), or null. */
+/** The word of a prompt that is a single `/word` (including a `skill:` prefix), or null. */
 export function slashQuery(value: string): string | null {
 	const match = /^\/(\S*)$/.exec(value);
-	return match ? match[1].replace(/^skill:/i, "") : null;
+	return match ? match[1] : null;
 }
 
-/** Commands matching `query`, best first; MCP first when the query is empty. */
-export function slashItems(query: string, skills: readonly WebSkill[], mcpDescription: string): SlashItem[] {
-	const items: SlashItem[] = [
-		{ kind: "mcp", key: "mcp", title: "MCP", description: mcpDescription },
-		...skills.map(
-			(skill): SlashItem => ({
-				kind: "skill",
-				key: skill.name,
-				title: skillTitle(skill.name),
-				description: skill.description,
-			}),
-		),
-	];
-	return fuzzyFilter(items, query, (item) => item.key);
+/** The part of a slash query the items are matched against. */
+function matchText(query: string): string {
+	return query.replace(/^skill:/i, "");
+}
+
+export interface SlashGroups {
+	readonly commands: readonly SlashItem[];
+	readonly skills: readonly SlashItem[];
+}
+
+/**
+ * Commands and skills matching `query`, each group best first and in display
+ * order when the query is empty. A `skill:` prefix asks for skills only.
+ */
+export function slashGroups(query: string, skills: readonly WebSkill[], t: TranslateFn): SlashGroups {
+	const wanted = matchText(query);
+	const commands = /^skill:/i.test(query)
+		? []
+		: SLASH_COMMANDS.map(
+				(command): SlashItem => ({
+					kind: command.name === "mcp" ? "mcp" : "command",
+					key: command.name,
+					title: `/${command.name}`,
+					description: t(command.description),
+				}),
+			);
+	const skillItems = skills.map(
+		(skill): SlashItem => ({
+			kind: "skill",
+			key: skill.name,
+			title: skillTitle(skill.name),
+			description: skill.description,
+		}),
+	);
+	return {
+		commands: fuzzyFilter(commands, wanted, (item) => item.key),
+		skills: fuzzyFilter(skillItems, wanted, (item) => item.key),
+	};
 }
 
 /** The title with the characters the query matched in order shown strong. */
@@ -200,11 +239,14 @@ export function SlashMenu({ handle, promptRef, query, onPick }: SlashMenuProps) 
 	const t = useT();
 	const view = useAppStore((state) => state.ui.slashMenu);
 	const skills = useSkills(view === "commands");
-	const items = view === "commands" && query !== null ? slashItems(query, skills, t("mcpCommandDesc")) : [];
+	const groups = view === "commands" && query !== null ? slashGroups(query, skills, t) : null;
+	// Keyboard selection runs through both groups as one list.
+	const items = groups ? [...groups.commands, ...groups.skills] : [];
 	const [active, setActive] = useState(0);
 	const listRef = useRef<HTMLDivElement>(null);
 	const rootRef = useRef<HTMLDivElement>(null);
 	const selected = Math.min(active, Math.max(0, items.length - 1));
+	const highlight = matchText(query ?? "");
 
 	// A new query starts from the best match.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the query is the trigger.
@@ -241,32 +283,54 @@ export function SlashMenu({ handle, promptRef, query, onPick }: SlashMenuProps) 
 		escape: false,
 		onDismiss: () => setUi({ slashMenu: null }),
 	});
+	const renderItem = (item: SlashItem, index: number) => (
+		<div
+			key={`${item.kind}:${item.key}`}
+			role="option"
+			tabIndex={-1}
+			aria-selected={index === selected}
+			className={cx("slash-item", item.kind, index === selected && "active")}
+			onMouseEnter={() => setActive(index)}
+			// Keep focus in the prompt.
+			onMouseDown={(event) => event.preventDefault()}
+			onClick={() => onPick(item)}
+			onKeyDown={() => {}}
+		>
+			{item.kind === "skill" ? <Icon name="cube" size="sm" /> : null}
+			<Highlighted text={item.title} query={highlight} />
+			<span className="slash-item-desc">{item.description}</span>
+			{item.kind === "mcp" ? <Icon className="slash-item-more" name="chevronRight" size="sm" /> : null}
+		</div>
+	);
+	const commandCount = groups?.commands.length ?? 0;
+	const sections = groups
+		? [
+				{ id: "commands", label: t("slashCommands"), items: groups.commands, offset: 0 },
+				{ id: "skills", label: t("slashSkills"), items: groups.skills, offset: commandCount },
+			].filter((section) => section.items.length > 0)
+		: [];
+
 	return (
 		<div className="slash-menu" id="slashMenu" ref={rootRef} hidden={!open}>
 			{view === "mcp" ? (
 				<McpServers />
 			) : (
-				<div className="slash-list" role="listbox" aria-label={t("slashCommands")} ref={listRef}>
-					{items.map((item, index) => (
-						<div
-							key={`${item.kind}:${item.key}`}
-							role="option"
-							tabIndex={-1}
-							aria-selected={index === selected}
-							className={cx("slash-item", item.kind, index === selected && "active")}
-							onMouseEnter={() => setActive(index)}
-							// Keep focus in the prompt.
-							onMouseDown={(event) => event.preventDefault()}
-							onClick={() => onPick(item)}
-							onKeyDown={() => {}}
-						>
-							<Icon name={item.kind === "mcp" ? "mcp" : "cube"} size="sm" />
-							<Highlighted text={item.title} query={query ?? ""} />
-							<span className="slash-item-desc">{item.description}</span>
-							{item.kind === "mcp" ? <Icon className="slash-item-more" name="chevronRight" size="sm" /> : null}
-						</div>
-					))}
-				</div>
+				<>
+					<div className="slash-list" role="listbox" aria-label={t("slashCommands")} ref={listRef}>
+						{sections.map((section) => (
+							<Fragment key={section.id}>
+								<div className="slash-group" role="presentation">
+									{section.label}
+								</div>
+								{section.items.map((item, index) => renderItem(item, section.offset + index))}
+							</Fragment>
+						))}
+					</div>
+					<div className="slash-hint">
+						<Icon name="search" size="sm" />
+						<span>{t("slashHint")}</span>
+					</div>
+				</>
 			)}
 		</div>
 	);
