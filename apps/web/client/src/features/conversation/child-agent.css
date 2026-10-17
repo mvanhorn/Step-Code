@@ -1,0 +1,120 @@
+/* Child-agent links under a subagent / workflow call, and the read-only transcript view. */
+.tool-children {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin: -4px 0 4px 22px;
+}
+.tool-child-link {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	max-width: 100%;
+	height: 24px;
+	padding: 0 10px;
+	border: 1px solid var(--line);
+	border-radius: 999px;
+	background: var(--surface);
+	color: var(--ink-2);
+	font-size: 12px;
+	cursor: pointer;
+}
+.tool-child-link span {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.tool-child-link:hover {
+	border-color: var(--line-strong);
+	background: var(--surface-soft);
+	color: var(--ink);
+}
+.tool-child-link:focus-visible {
+	outline: 2px solid var(--focus-border);
+	outline-offset: 1px;
+}
+
+.child-agent-view {
+	position: absolute;
+	inset: 0;
+	z-index: 16;
+	display: none;
+	flex-direction: column;
+	background: var(--canvas);
+}
+.child-agent-view.open {
+	display: flex;
+}
+.child-agent-header {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 10px;
+	padding: 12px 20px;
+	border-bottom: 1px solid var(--line);
+	color: var(--ink-2);
+}
+.child-agent-title {
+	min-width: 0;
+	overflow: hidden;
+	color: var(--ink);
+	font-size: 14px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.child-agent-badge {
+	flex: none;
+	padding: 1px 8px;
+	border: 1px solid var(--line);
+	border-radius: 999px;
+	color: var(--ink-3);
+	font-size: 11px;
+}
+.child-agent-tabs {
+	display: flex;
+	flex: none;
+	gap: 6px;
+	padding: 8px 20px;
+	overflow-x: auto;
+	border-bottom: 1px solid var(--line);
+}
+.child-agent-tab {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	gap: 6px;
+	max-width: 260px;
+	height: 26px;
+	padding: 0 10px;
+	border: 1px solid transparent;
+	border-radius: var(--radius-control);
+	background: transparent;
+	color: var(--ink-2);
+	font-size: 12px;
+	cursor: pointer;
+}
+.child-agent-tab span:last-child {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.child-agent-tab:hover {
+	background: var(--surface-soft);
+}
+.child-agent-tab.active {
+	border-color: var(--line);
+	background: var(--surface-soft);
+	color: var(--ink);
+}
+.child-agent-tab-index {
+	color: var(--ink-3);
+	font-family: var(--mono);
+}
+.child-agent-stream {
+	flex: 1;
+	min-height: 0;
+}
+.child-agent-empty {
+	color: var(--ink-3);
+	text-align: center;
+}

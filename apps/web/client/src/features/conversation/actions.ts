@@ -20,6 +20,25 @@ export async function openSessionAtEntry(sessionId: string, entryId: string | nu
 	await openSession(sessionId);
 }
 
+/**
+ * Show a child agent of the current session over its conversation. The
+ * session stays selected in the sidebar; the child is only read.
+ */
+export function openChildAgent(sessionId: string, label: string): void {
+	const parentId = getState().current?.id;
+	if (parentId) setUi({ childView: { parentId, childId: sessionId, label } });
+}
+
+/** Show the agents of workflow run `runId`, the first one selected once the list loads. */
+export function openWorkflowAgents(runId: string, label: string): void {
+	const parentId = getState().current?.id;
+	if (parentId) setUi({ childView: { parentId, childId: null, workflowRun: runId, label } });
+}
+
+export function closeChildAgent(): void {
+	setUi({ childView: null });
+}
+
 /** Branch the current session at `entryId` (or at its end) and follow the fork (legacy `forkAtEntry`). */
 export async function forkAtEntry(entryId: string | undefined): Promise<void> {
 	const current = getState().current;

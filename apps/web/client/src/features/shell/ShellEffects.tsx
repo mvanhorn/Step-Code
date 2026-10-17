@@ -39,6 +39,7 @@ function handleEscape(): void {
 	else if (ui.sessionMenu) setUi({ sessionMenu: null });
 	else if (ui.fileTreeOpen) setUi({ fileTreeOpen: false });
 	else if (ui.midView) setUi({ midView: null });
+	else if (ui.childView) setUi({ childView: null });
 	else void interruptCurrent();
 }
 

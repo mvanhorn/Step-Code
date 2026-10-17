@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import { Composer, SelectionDialog } from "./features/composer";
-import { ConversationStream, FeedbackModal, TaskBanner } from "./features/conversation";
+import { ChildAgentView, ConversationStream, FeedbackModal, TaskBanner } from "./features/conversation";
 import { FileTreePanel, PreviewPanel, PreviewShowButton } from "./features/files";
 import { LoginGate } from "./features/login";
 import { CronView, MarketView } from "./features/market";
@@ -21,7 +21,8 @@ import { IconSprite } from "./ui";
  *   div.app[.sidebar-hidden][.preview-open][.resizing]  (--sidebar-width, --preview-width)
  *     aside.sidebar      sidebar nav | files tree | shell user area (account, remote control, settings gear)
  *     #sidebarResizer    sidebar
- *     main.main          shell show button | files show button | conversation banner | market cron/market views | stream
+ *     main.main          shell show button | files show button | conversation banner | market cron/market views
+ *                        | conversation #childAgentView (read-only child transcript over stream and composer) | stream
  *                        | .composer-zone > composer form (workspace pill above the card) | sidebar session menu
  *                        | shell toast + auth banner
  *     aside#previewPanel files
@@ -68,6 +69,7 @@ export function App() {
 					<TaskBanner />
 					<CronView />
 					<MarketView />
+					<ChildAgentView />
 					<ConversationStream />
 					<div className="composer-zone">
 						<Composer workspaceControl={<WorkspaceControl />} />

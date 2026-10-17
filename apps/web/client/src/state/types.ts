@@ -210,6 +210,34 @@ export interface ToolTimelineItem {
 	readonly outputDetail?: string;
 	/** A successful edit/write: its path argument and the unified patch from the result `details.patch`. */
 	readonly change?: FileChange;
+	/** Subagents this call started, from the result `details.results[].sessionId`. */
+	readonly children?: readonly ChildAgentLink[];
+	/** A workflow call's run id; its agents come from `GET /sessions/{id}/children?workflowRun=`. */
+	readonly workflowRun?: string;
+}
+
+/** A child agent a tool call started. Its transcript is read-only. */
+export interface ChildAgentLink {
+	readonly sessionId: string;
+	readonly label: string;
+}
+
+/** GET /api/v1/sessions/{id}/children/{childId} (child-sessions.ts `ChildTranscript`). */
+export interface ChildSessionSnapshot {
+	readonly id: string;
+	readonly parentId: string;
+	readonly cwd: string;
+	readonly modified: string;
+	readonly readOnly: true;
+	readonly entries: readonly SessionEntry[];
+}
+
+/** A row of GET /api/v1/sessions/{id}/children?workflowRun= (child-sessions.ts `ChildSummary`). */
+export interface ChildAgentSummary {
+	readonly id: string;
+	readonly title: string;
+	readonly messageCount: number;
+	readonly modified: string;
 }
 
 /** Why an edit/write has no patch (host `SkippedChange.reason`). */

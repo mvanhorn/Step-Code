@@ -352,6 +352,61 @@ paths:
         - { $ref: "#/components/parameters/SessionId" }
       responses:
         "200": { description: Session deleted }
+  /api/v1/sessions/{id}/children:
+    get:
+      summary: Agents of one workflow run started by this session
+      description: >-
+        Workflow agents' sessions are `workflow-<runId>-<agentId>`, written next to the parent's. Children that record
+        a different parentSessionId are left out. Ordered by agent number.
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+        - { name: workflowRun, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: The run's agents; empty when none are found.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [children]
+                properties:
+                  children:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, title, messageCount, modified]
+                      properties:
+                        id: { type: string }
+                        title: { type: string, description: The agent's task, its first user message cut short }
+                        messageCount: { type: integer }
+                        modified: { type: string, format: date-time }
+        "400": { description: workflowRun is missing }
+  /api/v1/sessions/{id}/children/{childId}:
+    get:
+      summary: A child agent's transcript, read-only
+      description: >-
+        The current branch of a child-agent session (subagent or workflow agent) that this session spawned. The file
+        is only read, never opened as a session, so a child still running is not disturbed and cannot be prompted.
+        A child naming another parentSessionId, or a session that is not a child agent, is 404.
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+        - { name: childId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: The child's entries, projected like a session snapshot's.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, parentId, cwd, modified, readOnly, entries]
+                properties:
+                  id: { type: string }
+                  parentId: { type: string }
+                  cwd: { type: string }
+                  modified: { type: string, format: date-time }
+                  readOnly: { type: boolean, enum: [true] }
+                  entries: { type: array, items: { type: object } }
+        "404": { description: Not a child agent of this session }
   /api/v1/sessions/{id}/events:
     get:
       parameters:

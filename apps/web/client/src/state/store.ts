@@ -183,6 +183,17 @@ export interface UiState {
 	readonly slashMenu: "commands" | "mcp" | null;
 	/** A search hit to scroll to once its session is shown; cleared when done. */
 	readonly revealEntry: { readonly sessionId: string; readonly entryId: string } | null;
+	/** `#childAgentView`: a child agent's read-only transcript covering the conversation of `parentId`. */
+	readonly childView: ChildView | null;
+}
+
+export interface ChildView {
+	readonly parentId: string;
+	/** The child shown; null until a workflow run's agent list has loaded. */
+	readonly childId: string | null;
+	/** Set when opened from a workflow call: the view lists that run's agents. */
+	readonly workflowRun?: string;
+	readonly label: string;
 }
 
 export interface ToastState {
@@ -363,6 +374,7 @@ export function createInitialState(): AppState {
 			changesMenu: null,
 			slashMenu: null,
 			revealEntry: null,
+			childView: null,
 		},
 		toast: null,
 	};

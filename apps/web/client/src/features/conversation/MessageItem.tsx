@@ -14,7 +14,14 @@ import { ThinkingIndicator } from "./ThinkingIndicator";
  * One chat message (legacy `renderTimeline` message branch, app.js 2253-2261).
  * `data-content` and `data-entry-id` are kept from the legacy markup.
  */
-export const MessageItem = memo(function MessageItem({ item }: { readonly item: MessageTimelineItem }) {
+export const MessageItem = memo(function MessageItem({
+	item,
+	readOnly = false,
+}: {
+	readonly item: MessageTimelineItem;
+	/** A child agent's transcript: no voting or forking, which act on the current session. */
+	readonly readOnly?: boolean;
+}) {
 	const t = useT();
 	const role = item.role === "user" ? "user" : "assistant";
 	const live = item.itemId === "message-live";
@@ -50,7 +57,7 @@ export const MessageItem = memo(function MessageItem({ item }: { readonly item: 
 					onCopyCode={(code) => void copyText(code)}
 				/>
 			) : null}
-			{item.role === "assistant" ? <MessageActions item={item} /> : null}
+			{item.role === "assistant" && !readOnly ? <MessageActions item={item} /> : null}
 		</article>
 	);
 });

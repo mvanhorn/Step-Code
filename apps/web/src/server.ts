@@ -16,6 +16,7 @@ import {
 } from "@step-harness/coding-agent";
 import { WebAuth } from "./auth.ts";
 import { formatStartupBanner } from "./banner.ts";
+import { listWorkflowChildren, readChildTranscript } from "./child-sessions.ts";
 import { type DirectoryPickerMode, pickNativeDirectory, resolveDirectoryPickerMode } from "./directory-picker.ts";
 import {
 	containedWorkspacePath,
@@ -36,6 +37,7 @@ import {
 	defaultWorkspace,
 	MAX_ATTACHMENT_BYTES,
 	mcpStatuses,
+	projectEntry,
 	type WebAttachment,
 	WebSessionStore,
 } from "./runtime.ts";
@@ -571,6 +573,26 @@ const server = createServer(async (request, response) => {
 			}
 			const session = await store.getOrOpen(parts[3]);
 			if (parts.length === 4 && method === "GET") return json(response, 200, session.snapshot());
+			if (parts[4] === "children" && method === "GET") {
+				if (parts.length === 6) {
+					const childId = decodeURIComponent(parts[5]);
+					const child = await readChildTranscript(session.id, session.sessionFile(), childId);
+					if (!child) return error(response, 404, "Child session not found");
+					return json(response, 200, {
+						...child,
+						parentId: session.id,
+						readOnly: true,
+						entries: child.entries.map(projectEntry),
+					});
+				}
+				if (parts.length === 5) {
+					const runId = url.searchParams.get("workflowRun");
+					if (!runId) return error(response, 400, "workflowRun is required");
+					return json(response, 200, {
+						children: await listWorkflowChildren(session.id, session.sessionFile(), runId),
+					});
+				}
+			}
 			if (parts[4] === "events" && method === "GET") {
 				response.writeHead(200, {
 					"content-type": "text/event-stream; charset=utf-8",

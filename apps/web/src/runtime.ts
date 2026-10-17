@@ -359,7 +359,7 @@ function modelsMatch(left: { provider: string; id: string }, right: { provider: 
 	return left.provider === right.provider && left.id === right.id;
 }
 
-function projectEntry(entry: SessionEntry): Record<string, unknown> {
+export function projectEntry(entry: SessionEntry): Record<string, unknown> {
 	// Only assistant turns carry usage; other message kinds have none to report.
 	const usage = entry.type === "message" && entry.message.role === "assistant" ? entry.message.usage : undefined;
 	return {

@@ -1550,3 +1550,88 @@ test("conversation search finds message content written outside the page and ope
   `)
   assert.deepEqual(listed, [sessionId])
 })
+
+test("a subagent or workflow call opens its child agents' transcripts read-only over the conversation", { skip }, async () => {
+  const now = new Date().toISOString()
+  const stamp = now.replace(/[:.]/g, "-")
+  const parentId = "e2e-parent-session"
+  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }
+  const reply = (id, parentEntry, text) => ({
+    type: "message", id, parentId: parentEntry, timestamp: now,
+    message: { role: "assistant", content: [{ type: "text", text }], api: "openai-completions", provider: "e2e", model: "e2e", usage, stopReason: "stop", timestamp: Date.now() },
+  })
+  const user = (id, parentEntry, text) => ({ type: "message", id, parentId: parentEntry, timestamp: now, message: { role: "user", content: text, timestamp: Date.now() } })
+  const call = (id, parentEntry, toolId, name) => ({
+    type: "message", id, parentId: parentEntry, timestamp: now,
+    message: { role: "assistant", content: [{ type: "toolCall", id: toolId, name, arguments: {} }], api: "openai-completions", provider: "e2e", model: "e2e", usage, stopReason: "toolUse", timestamp: Date.now() },
+  })
+  const result = (id, parentEntry, toolId, name, details) => ({
+    type: "message", id, parentId: parentEntry, timestamp: now,
+    message: { role: "toolResult", toolCallId: toolId, toolName: name, content: [{ type: "text", text: "done" }], details, isError: false, timestamp: Date.now() },
+  })
+  const run = "wf_e2e0001"
+  const subagentId = "subagent-e2e-linked"
+  const parent = [
+    { type: "session", version: 3, id: parentId, timestamp: now, cwd: workspace },
+    user("p1", null, "delegate the wombat audit"),
+    call("p2", "p1", "t1", "subagent"),
+    result("p3", "p2", "t1", "subagent", { mode: "single", results: [{ agent: "explore", task: "audit wombat", sessionId: subagentId }] }),
+    call("p4", "p3", "t2", "workflow"),
+    result("p5", "p4", "t2", "workflow", { schemaVersion: 1, runId: run, name: "e2e" }),
+    reply("p6", "p5", "All delegated."),
+  ]
+  const childLines = (id, task, answer) => [
+    { type: "session", version: 3, id, timestamp: now, cwd: workspace, origin: "subagent", parentSessionId: parentId },
+    user(`${id}-u`, null, task),
+    reply(`${id}-a`, `${id}-u`, answer),
+  ]
+  const dir = join(base, "agent", "sessions", "--e2e-children--")
+  await mkdir(dir, { recursive: true })
+  const write = (id, lines) => writeFile(join(dir, `${stamp}_${id}.jsonl`), lines.map((line) => JSON.stringify(line)).join("\n") + "\n")
+  await write(parentId, parent)
+  await write(subagentId, childLines(subagentId, "audit wombat", "Wombat audit finished."))
+  await write(`workflow-${run}-${run}-1`, childLines(`workflow-${run}-${run}-1`, "first workflow agent", "First agent answer."))
+  await write(`workflow-${run}-${run}-2`, childLines(`workflow-${run}-${run}-2`, "second workflow agent", "Second agent answer."))
+
+  await browser.goto(`${origin}/`)
+  const seen = await browser.run(`
+    const row = await until(() => $('.session-row[data-session-id="${parentId}"]'), "parent session row");
+    const listedChildren = $$(".session-row").filter((item) => /^(subagent|workflow)-/.test(item.dataset.sessionId)).length;
+    row.click();
+    const link = await until(() => $('.tool-child-link[data-child-session-id="${subagentId}"]'), "subagent link");
+    link.click();
+    const view = $("#childAgentView");
+    await until(() => !view.hidden && view.textContent.includes("Wombat audit finished."), "child transcript");
+    const single = {
+      listedChildren,
+      readOnlyBadge: Boolean(view.querySelector(".child-agent-badge")),
+      actions: view.querySelectorAll(".message-actions, textarea, input").length,
+      activeRow: $(".session-row.active")?.dataset.sessionId,
+    };
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await until(() => view.hidden, "child view closed by Escape");
+
+    $('.tool-child-link[data-workflow-run="${run}"]').click();
+    await until(() => !view.hidden && view.textContent.includes("First agent answer."), "first workflow agent");
+    const agentTabs = $$(".child-agent-tab").map((tab) => tab.textContent);
+    $$(".child-agent-tab")[1].click();
+    await until(() => view.textContent.includes("Second agent answer."), "second workflow agent");
+    $("#childAgentBack").click();
+    await until(() => view.hidden, "child view closed");
+    return { ...single, tabs: agentTabs };
+  `)
+  assert.deepEqual(seen, {
+    listedChildren: 0,
+    readOnlyBadge: true,
+    actions: 0,
+    activeRow: parentId,
+    tabs: ["#1first workflow agent", "#2second workflow agent"],
+  })
+
+  const refused = await browser.run(`
+    const other = await fetch("/api/v1/sessions/${parentId}/children/${encodeURIComponent("../etc")}");
+    const notChild = await fetch("/api/v1/sessions/${parentId}/children/e2e-search-session");
+    return [other.status, notChild.status];
+  `)
+  assert.deepEqual(refused, [404, 404])
+})

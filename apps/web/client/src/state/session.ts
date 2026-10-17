@@ -20,6 +20,7 @@ import type {
 	AgentMessage,
 	ApprovalRequest,
 	BootstrapPayload,
+	ChildAgentLink,
 	ClarificationRequest,
 	ContentPart,
 	DraftModels,
@@ -31,6 +32,7 @@ import type {
 	SessionStatus,
 	SessionSummary,
 	TimelineItem,
+	ToolTimelineItem,
 	WebWorkspace,
 } from "./types";
 
@@ -152,6 +154,28 @@ function fileChange(name: string, args: unknown, result: AgentMessage | undefine
 	};
 }
 
+/**
+ * The child agents a tool result points at. A subagent call lists each child's
+ * session id in `details.results`; a workflow call names its run, whose agents
+ * the host looks up. Both are structured fields, never parsed from text.
+ */
+export function childAgents(name: string, details: unknown): Pick<ToolTimelineItem, "children" | "workflowRun"> {
+	if (!details || typeof details !== "object") return {};
+	const value = details as { results?: unknown; runId?: unknown; schemaVersion?: unknown };
+	if (name === "workflow" && typeof value.runId === "string" && value.schemaVersion === 1) {
+		return { workflowRun: value.runId };
+	}
+	if (!Array.isArray(value.results)) return {};
+	const children = (value.results as readonly unknown[]).flatMap((result): ChildAgentLink[] => {
+		const record = (result ?? {}) as { sessionId?: unknown; agent?: unknown; task?: unknown };
+		if (typeof record.sessionId !== "string" || !record.sessionId) return [];
+		const agent = typeof record.agent === "string" ? record.agent : "";
+		const task = typeof record.task === "string" ? compact(record.task, 60) : "";
+		return [{ sessionId: record.sessionId, label: [agent, task].filter(Boolean).join(" · ") }];
+	});
+	return children.length ? { children } : {};
+}
+
 /** Image parts of a message's content. */
 function imageCount(content: unknown): number {
 	return Array.isArray(content)
@@ -197,6 +221,7 @@ export function timelineFromEntries(entries: readonly SessionEntry[] = []): Time
 			for (const block of (message.content as readonly ContentPart[]).filter((part) => part?.type === "toolCall")) {
 				const result = toolResults.get(String(block.id));
 				const change = fileChange(String(block.name ?? ""), block.arguments, result);
+				const links = childAgents(String(block.name ?? ""), result?.details);
 				items.push({
 					itemId: `tool-${block.id}`,
 					kind: "tool",
@@ -207,6 +232,7 @@ export function timelineFromEntries(entries: readonly SessionEntry[] = []): Time
 					inputDetail: toolInputDetail(block.arguments),
 					outputDetail: result ? clipDetail(contentText(result.content)) : "",
 					...(change ? { change } : {}),
+					...links,
 				});
 			}
 		}
@@ -316,8 +342,8 @@ interface AgentStreamEvent {
 	readonly toolCallId?: string;
 	readonly toolName?: string;
 	readonly args?: unknown;
-	readonly partialResult?: { readonly content?: unknown };
-	readonly result?: { readonly content?: unknown };
+	readonly partialResult?: { readonly content?: unknown; readonly details?: unknown };
+	readonly result?: { readonly content?: unknown; readonly details?: unknown };
 	readonly isError?: boolean;
 }
 
@@ -451,6 +477,8 @@ function handleAgentEvent(agentEvent: AgentStreamEvent): void {
 			...item,
 			outputSummary: compact(output),
 			outputDetail: clipDetail(output),
+			// A running subagent call already knows its children's session ids.
+			...childAgents(item.toolName, agentEvent.partialResult?.details),
 		}));
 	}
 	if (agentEvent.type === "tool_execution_end") {
@@ -460,6 +488,7 @@ function handleAgentEvent(agentEvent: AgentStreamEvent): void {
 			state: agentEvent.isError ? "failed" : "completed",
 			outputSummary: compact(output),
 			outputDetail: clipDetail(output),
+			...childAgents(item.toolName, agentEvent.result?.details),
 		}));
 	}
 	if (
@@ -609,7 +638,7 @@ export async function refreshWorkspaces(): Promise<void> {
 
 /** Open a session and follow its stream (legacy `openSession`, 3122-3130). */
 export async function openSession(id: string): Promise<void> {
-	setUi({ midView: null });
+	setUi({ midView: null, childView: null });
 	setState({ pendingTurn: null });
 	try {
 		const snapshot = await api<SessionSnapshot>(`/api/v1/sessions/${id}`);
@@ -649,8 +678,8 @@ export function startDraft(cwd: string = getState().bootstrapCwd): void {
 			draftCwd,
 		};
 	});
-	// A new conversation replaces whatever covers the pane (cron / plugin market).
-	setUi({ midView: null });
+	// A new conversation replaces whatever covers the pane (cron / plugin market, a child agent).
+	setUi({ midView: null, childView: null });
 	requestPromptFocus();
 	void loadDraftModels(draftCwd);
 }
