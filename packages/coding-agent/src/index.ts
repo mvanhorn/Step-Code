@@ -64,6 +64,13 @@ export {
 	computeCacheWaste,
 	detectCacheMiss,
 } from "./core/cache-stats.ts";
+export {
+	CHILD_SESSION_ORIGIN,
+	isChildAgentSession,
+	isChildAgentSessionId,
+	SUBAGENT_SESSION_ID_PREFIX,
+	WORKFLOW_SESSION_ID_PREFIX,
+} from "./core/child-session.ts";
 // Compaction
 export {
 	type BranchPreparation,
@@ -526,11 +533,6 @@ export {
 	stepScheduleExtensionInline,
 	UpdateGoalParams,
 } from "./features/step-schedule.ts";
-export {
-	isChildAgentSessionId,
-	SUBAGENT_SESSION_ID_PREFIX,
-	WORKFLOW_SESSION_ID_PREFIX,
-} from "./features/step-subagent.ts";
 // Optional Step Workflow capability. The extension remains feature-gated at
 // registration time, while the pure runtime contracts are useful to embedders
 // and tests.
