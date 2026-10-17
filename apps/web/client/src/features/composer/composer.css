@@ -364,11 +364,11 @@
 	height: var(--control-h);
 	padding: 0 var(--control-pad-x);
 	border-radius: var(--radius-row);
-	color: var(--danger);
+	color: var(--ink);
 	font-size: 12px;
 }
 .stop-button:hover {
-	background: var(--danger-surface);
+	background: var(--hover);
 }
 .control-segment-none {
 	padding: 3px 4px;

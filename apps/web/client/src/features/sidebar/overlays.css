@@ -159,7 +159,7 @@
 	background: var(--hover);
 }
 .context-menu button.danger {
-	color: var(--danger);
+	color: var(--ink);
 }
 .project-action[data-tooltip],
 .list-action[data-tooltip] {

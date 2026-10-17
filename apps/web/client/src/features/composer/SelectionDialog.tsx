@@ -97,7 +97,6 @@ export function SelectionDialog() {
 			closeOnBackdrop={false}
 			dialogProps={{
 				"aria-describedby": "selectionDialogMessage",
-				...(request && isFullAccessRisk(request) ? { "data-risky": "true" } : {}),
 				onKeyDown: trapTab,
 			}}
 		>
