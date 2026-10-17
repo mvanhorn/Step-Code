@@ -382,8 +382,8 @@
 	color: var(--ink);
 }
 .settings-icon-action.danger:hover {
-	background: var(--danger-surface);
-	color: var(--danger);
+	background: var(--hover);
+	color: var(--ink);
 }
 .settings-icon-action.bordered {
 	width: var(--control-h);
@@ -565,12 +565,13 @@
 .settings-btn.primary:hover {
 	opacity: 0.86;
 }
+/* Destructive buttons stay black and white like every other button. */
 .settings-btn.danger {
-	color: var(--danger);
+	color: var(--ink);
 }
 .settings-btn.danger:hover {
-	border-color: color-mix(in srgb, var(--danger) 40%, var(--line));
-	background: var(--danger-surface);
+	border-color: var(--focus-border);
+	background: var(--hover);
 }
 .settings-btn.subtle {
 	border-color: transparent;
@@ -768,6 +769,27 @@
 }
 .settings-field input[aria-invalid="true"] {
 	border-color: var(--danger);
+}
+.settings-field input[aria-invalid="true"]:focus {
+	border-color: var(--danger);
+	box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 16%, transparent);
+}
+.settings-field-label {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+}
+/* Marks a required field; the input's own `required` is what assistive tech reads. */
+.settings-required-dot {
+	flex: none;
+	width: 5px;
+	height: 5px;
+	border-radius: 50%;
+	background: var(--danger);
+}
+.settings-field small.settings-field-error {
+	color: var(--danger);
+	line-height: 1.5;
 }
 .settings-select {
 	position: relative;
