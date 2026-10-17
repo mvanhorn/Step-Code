@@ -26,8 +26,8 @@
   width: 30px;
   height: 30px;
   border-radius: var(--radius-control);
-  background: var(--danger-surface);
-  color: var(--danger);
+  background: var(--surface-soft);
+  color: var(--ink);
 }
 .selection-dialog > p {
   color: var(--ink-3);
@@ -65,7 +65,7 @@
   color: var(--ink);
 }
 .selection-dialog-option:focus-visible {
-  outline: 2px solid var(--accent-ring);
+  outline: 2px solid var(--focus-border);
   outline-offset: 1px;
 }
 .selection-dialog-option-body {
@@ -85,7 +85,7 @@
 }
 .selection-dialog-check {
   flex: none;
-  color: var(--accent);
+  color: var(--ink);
 }
 .selection-dialog > footer {
   display: flex;
@@ -106,12 +106,18 @@
   background: var(--hover);
   color: var(--ink);
 }
+/* Black and white like the rest of the UI, including the Full Access confirm:
+   the wording and the badge carry the warning, not a colored button. */
 #selectionDialogConfirm {
   background: var(--ink);
   color: var(--canvas);
   font-weight: 550;
+  transition: opacity var(--fast);
 }
-.selection-dialog[data-risky="true"] #selectionDialogConfirm {
-  background: var(--danger);
-  color: var(--canvas);
+#selectionDialogConfirm:hover {
+  opacity: 0.86;
+}
+#selectionDialogConfirm:focus-visible {
+  outline: 2px solid var(--focus-border);
+  outline-offset: 2px;
 }

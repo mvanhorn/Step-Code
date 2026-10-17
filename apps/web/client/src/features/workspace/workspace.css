@@ -267,10 +267,11 @@
   color: var(--ink-3);
 }
 #removeWorkspaceCancel:focus-visible {
-  outline-color: var(--accent);
+  outline-color: var(--focus-border);
 }
+/* Buttons stay black and white; the dialog text carries the warning. */
 #removeWorkspaceConfirm {
-  background: var(--danger-surface);
-  color: var(--danger);
+  background: var(--ink);
+  color: var(--canvas);
   font-weight: 500;
 }

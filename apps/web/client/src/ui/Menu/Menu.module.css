@@ -29,8 +29,9 @@
 	background: var(--hover);
 }
 
+/* Destructive items keep the neutral ink: buttons are black and white. */
 .danger {
-	color: var(--danger);
+	color: var(--ink);
 }
 
 .trailing {
