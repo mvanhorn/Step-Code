@@ -135,8 +135,16 @@ apps/web/
   and explicit `removedWorkspaces`. Removed entries are returned with `hidden: true`; clients must not recreate
   their project groups from session cwd values. Re-adding restores the group; removal never deletes chats or files.
 - Environment variables: `STEPCODE_WEB_PORT` (default 3077), `STEPCODE_WEB_CWD` (default workspace),
-  `STEPCODE_WEB_PUBLIC_DIR` (client directory), `STEPCODE_WEB_AUTH_SECRET`. Document new ones here and in
-  `apps/desktop/README.md` if the desktop passes them through.
+  `STEPCODE_WEB_PUBLIC_DIR` (client directory), `STEPCODE_WEB_AUTH_SECRET`, `STEPCODE_WEB_OPEN` (below).
+  Document new ones here and in `apps/desktop/README.md` if the desktop passes them through.
+- Opening a browser on start is **opt-in**, because Desktop shows the client in its own window and the tests must stay
+  headless. `STEPCODE_WEB_OPEN=1|true|on` makes the host open the launch URL right after printing the banner; unset or
+  any other value leaves it closed. The developer commands set it; Desktop, the e2e suite and
+  `scripts/check-web-runtime.mjs` force it to `"0"` so a variable exported in the caller's shell cannot open a window.
+  `STEPCODE_WEB_OPEN_MARKER=<path>` names a file recording "this run already opened a tab", so the restarts `tsx watch`
+  performs stay quiet; `web:watch` creates it in a per-run temporary directory and removes that directory on exit. One
+  open per run is the right unit: the cookie a page holds survives a host restart (the signing secret is persisted), so
+  the tab that is already open reconnects by itself.
 - `/api/v1/settings/*` is the settings screen's own surface (MCP servers, plugins, marketplaces, skills). It reads
   and writes the user's global StepCode configuration through `@step-harness/coding-agent` — the same files
   `step mcp`, `/plugin` and the TUI resource selector use — and never project scope. Only user-scope state moves;
@@ -151,8 +159,8 @@ Run from the repo root.
 
 | Command | Use |
 |---|---|
-| `pnpm web` | Build the client, run the host from source with the current folder as workspace (port 3077) |
-| `pnpm web:watch` | Same as `pnpm web`, but rebuilds the client and restarts the host on every source change (web or imported packages); refresh the page to see it. A host restart drops running turns |
+| `pnpm web` | Build the client, run the host from source with the current folder as workspace (port 3077), and open the launch URL in the default browser (`STEPCODE_WEB_OPEN=0` to skip) |
+| `pnpm web:watch` | Same as `pnpm web`, but rebuilds the client and restarts the host on every source change (web or imported packages); refresh the page to see it. A host restart drops running turns. The browser opens once per run, not on each restart |
 | `pnpm --filter @step-harness/web dev:client` | Vite dev server with HMR, proxies to a host on `STEPCODE_WEB_PORT` (start the host first) |
 | `pnpm --filter @step-harness/web typecheck` | Host and client type check |
 | `pnpm --filter @step-harness/web test` | Host unit tests |
