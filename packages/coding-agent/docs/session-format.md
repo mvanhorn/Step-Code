@@ -208,6 +208,8 @@ A session created by a child agent (a subagent lane or workflow agent, spawned w
 {"type":"session","version":3,"id":"subagent-uuid","timestamp":"2024-12-03T14:00:00.000Z","cwd":"/path/to/project","origin":"subagent","parentSessionId":"uuid"}
 ```
 
+The parent links forward to its children through structured tool-result details: each record in a `subagent` result's `details.results` carries the child's `sessionId`, and a `workflow` result (and its progress updates) carries `runId`, whose agents are the sessions `workflow-<runId>-<agentId>`. `readSessionBranch(path)` reads a child's current branch without writing to the file, so a host can show a transcript the child may still be appending to.
+
 ### SessionMessageEntry
 
 A message in the conversation. The `message` field contains an `AgentMessage`.

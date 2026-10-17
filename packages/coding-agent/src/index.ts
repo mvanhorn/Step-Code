@@ -362,6 +362,7 @@ export {
 	migrateSessionEntries,
 	type NewSessionOptions,
 	parseSessionEntries,
+	readSessionBranch,
 	type SessionContext,
 	type SessionEntry,
 	type SessionEntryBase,

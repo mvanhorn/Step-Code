@@ -189,6 +189,8 @@ export interface StepSubagentResultRecord extends StepSubagentRunResult {
 	step?: number;
 	worktreePath?: string;
 	worktreeBranch?: string;
+	/** Session id of the child process; its transcript is a read-only child session. */
+	sessionId?: string;
 }
 
 export interface StepSubagentDetails {

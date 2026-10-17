@@ -13,7 +13,7 @@ import {
 	statSync,
 	writeFileSync,
 } from "fs";
-import { readdir, stat } from "fs/promises";
+import { readdir, readFile, stat } from "fs/promises";
 import { join, resolve } from "path";
 import { createInterface } from "readline";
 import { StringDecoder } from "string_decoder";
@@ -574,6 +574,35 @@ export function loadEntriesFromFile(filePath: string): FileEntry[] {
 
 	if (pending) appendFileSync(resolvedFilePath, "\n");
 	return entries;
+}
+
+/**
+ * A session file's header and current branch, read without writing anything:
+ * version migration happens in memory only, and an unfinished last line is
+ * left alone. For viewing a transcript another process may still be appending
+ * to, such as a running child agent's.
+ */
+export async function readSessionBranch(
+	filePath: string,
+): Promise<{ header: SessionHeader; branch: SessionEntry[] } | undefined> {
+	const content = await readFile(normalizePath(filePath), "utf8");
+	const complete = content.slice(0, content.lastIndexOf("\n") + 1);
+	const entries = parseSessionEntries(complete);
+	const first = entries[0];
+	if (first?.type !== "session" || typeof first.id !== "string") return undefined;
+	migrateToCurrentVersion(entries);
+	const byId = new Map<string, SessionEntry>();
+	let leaf: SessionEntry | undefined;
+	for (const entry of entries) {
+		if (entry.type === "session") continue;
+		byId.set(entry.id, entry);
+		leaf = entry;
+	}
+	const branch: SessionEntry[] = [];
+	for (let current = leaf; current; current = current.parentId ? byId.get(current.parentId) : undefined) {
+		branch.push(current);
+	}
+	return { header: entries[0] as SessionHeader, branch: branch.reverse() };
 }
 
 /**
