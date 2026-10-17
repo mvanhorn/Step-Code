@@ -12,6 +12,7 @@ import {
 	resolveStepAgentDir,
 	resolveStepCodeVersion,
 	resolveStepConfigRoot,
+	SessionSearchRequestError,
 } from "@step-harness/coding-agent";
 import { WebAuth } from "./auth.ts";
 import { formatStartupBanner } from "./banner.ts";
@@ -38,6 +39,7 @@ import {
 	type WebAttachment,
 	WebSessionStore,
 } from "./runtime.ts";
+import { searchParamsFromUrl, WebSessionSearch } from "./session-search.ts";
 import {
 	addMarketplace,
 	createSkill,
@@ -187,7 +189,8 @@ async function directoryList(inputPath: string): Promise<unknown> {
 	};
 }
 
-const store = new WebSessionStore();
+const sessionSearch = new WebSessionSearch(resolveStepAgentDir());
+const store = new WebSessionStore({ index: sessionSearch });
 const workspaces = new WorkspaceRegistry(join(resolveStepAgentDir(), WORKSPACES_FILE));
 
 /**
@@ -413,6 +416,23 @@ async function settingsRoute(
 	}
 }
 
+/** `GET /api/v1/search`: full-text search over every session. A client that goes away cancels the query. */
+async function searchSessions(url: URL, response: ServerResponse): Promise<void> {
+	const controller = new AbortController();
+	response.on("close", () => {
+		if (!response.writableFinished) controller.abort();
+	});
+	try {
+		return json(response, 200, await sessionSearch.search(searchParamsFromUrl(url), controller.signal));
+	} catch (caught) {
+		if (controller.signal.aborted) return;
+		if (caught instanceof SessionSearchRequestError) {
+			return json(response, 400, { error: caught.message, code: caught.code });
+		}
+		throw caught;
+	}
+}
+
 async function serveWorkspaceImage(response: ServerResponse, cwd: string, inputPath: string): Promise<void> {
 	const file = await readWorkspaceFile(cwd, inputPath);
 	if (file.kind !== "image") return error(response, 415, "Only images can be served raw");
@@ -530,6 +550,10 @@ const server = createServer(async (request, response) => {
 			// read from the cwd, so an arbitrary path must not pick which ones.
 			const cwd = (await knownWorkspace(url.searchParams.get("cwd"))) ?? defaultWorkspace();
 			return json(response, 200, await store.draftModels(cwd));
+		}
+		if (parts[2] === "search" && method === "GET") {
+			if (parts.length === 4 && parts[3] === "status") return json(response, 200, await sessionSearch.status());
+			if (parts.length === 3) return searchSessions(url, response);
 		}
 		if (parts[2] === "sessions" && parts.length === 3 && method === "GET") {
 			const sessions = await store.list();
@@ -747,6 +771,8 @@ const shutdown = async (): Promise<void> => {
 	server.closeAllConnections();
 	try {
 		await store.close();
+		// After the sessions: their last writes are flushed into the index before it stops.
+		await sessionSearch.close();
 	} finally {
 		process.exit(0);
 	}

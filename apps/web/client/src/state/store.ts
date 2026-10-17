@@ -181,6 +181,8 @@ export interface UiState {
 	readonly changesMenu: string | null;
 	/** The composer's slash menu: matching commands, or the MCP server list picked from it. */
 	readonly slashMenu: "commands" | "mcp" | null;
+	/** A search hit to scroll to once its session is shown; cleared when done. */
+	readonly revealEntry: { readonly sessionId: string; readonly entryId: string } | null;
 }
 
 export interface ToastState {
@@ -360,6 +362,7 @@ export function createInitialState(): AppState {
 			midView: null,
 			changesMenu: null,
 			slashMenu: null,
+			revealEntry: null,
 		},
 		toast: null,
 	};

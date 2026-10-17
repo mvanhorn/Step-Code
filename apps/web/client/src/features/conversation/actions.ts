@@ -5,10 +5,20 @@
 import { t } from "../../i18n";
 import { ApiError, apiSend, errorMessage } from "../../lib/api";
 import { forgetApproval, openSession, refreshSessions, renderSnapshot, showError } from "../../state/session";
-import { getState } from "../../state/store";
+import { getState, setUi } from "../../state/store";
 import type { TurnRevertResult } from "../../state/types";
 
 export type ApprovalVerdict = "deny" | "approve" | "approve_for_session";
+
+/**
+ * Show `sessionId` and scroll to `entryId` in it (a search hit). The stream
+ * scrolls once the entry is rendered; an entry it does not show (a summary, a
+ * branch not on the current path) leaves the view at the end.
+ */
+export async function openSessionAtEntry(sessionId: string, entryId: string | null): Promise<void> {
+	setUi({ revealEntry: entryId ? { sessionId, entryId } : null });
+	await openSession(sessionId);
+}
 
 /** Branch the current session at `entryId` (or at its end) and follow the fork (legacy `forkAtEntry`). */
 export async function forkAtEntry(entryId: string | undefined): Promise<void> {

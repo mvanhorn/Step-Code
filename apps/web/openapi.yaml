@@ -250,11 +250,67 @@ paths:
                     description: Full Access was granted with "don't ask again", so picking it needs no confirmation.
   /api/v1/sessions:
     get:
+      description: >-
+        Every session a user started, newest first after the client sorts. Child-agent sessions (subagent lanes and
+        workflow agents) are omitted. Rows carry `name`, `firstMessage` and counts but not the full message text;
+        content search is `GET /api/v1/search`.
       responses:
         "200": { description: Session list grouped by cwd by the client }
     post:
       responses:
         "201": { description: New StepCode v3 session }
+  /api/v1/search:
+    get:
+      description: >-
+        Full-text search over every session through the host's session index (SQLite FTS5, derived from the session
+        files). Queries whose words all have 3+ characters are ranked by relevance; shorter ones match the 200 most
+        recently modified sessions (of the last 30 days unless `cwd` is set) and return at most 50 hits, newest first.
+        When the index is unavailable (`state: degraded`) the host scans session files and returns session-level hits
+        only. Child-agent sessions are never returned. Closing the request cancels the query.
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string, minLength: 1, maxLength: 500 } }
+        - { name: cwd, in: query, description: Absolute workspace path; only its sessions, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        "200":
+          description: Hits in rank order
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [hits, coverage, state]
+                properties:
+                  hits:
+                    type: array
+                    items: { $ref: "#/components/schemas/SessionSearchHit" }
+                  coverage:
+                    type: object
+                    description: Session files indexed versus found; below `total` while the first backfill runs.
+                    properties: { indexed: { type: integer }, total: { type: integer } }
+                  state: { type: string, enum: [ready, backfilling, degraded] }
+        "400":
+          description: Invalid parameter; `code` is `invalid_params`
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { error: { type: string }, code: { type: string } }
+  /api/v1/search/status:
+    get:
+      responses:
+        "200":
+          description: Index state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  state: { type: string, enum: [ready, backfilling, degraded] }
+                  indexed: { type: integer }
+                  total: { type: integer }
+                  pending: { type: integer }
+                  errors: { type: integer }
+                  degradedReason: { type: string }
   /api/v1/directories:
     get:
       parameters:
@@ -883,6 +939,20 @@ paths:
         "200": { description: Workspace file contents }
 components:
   schemas:
+    SessionSearchHit:
+      type: object
+      required: [sessionId, cwd, entryId, ts, snippet]
+      properties:
+        sessionId: { type: string }
+        cwd: { type: string }
+        entryId:
+          type: string
+          nullable: true
+          description: The matched entry; null for a title match or a hit from the degraded file scan.
+        entryType: { type: string, description: "Entry type, or `session` for a title match" }
+        role: { type: string, description: "`user` or `assistant` for message hits" }
+        ts: { type: number, description: Epoch milliseconds of the entry }
+        snippet: { type: string, description: Excerpt; each match is wrapped in U+0002 and U+0003 }
     McpServerConfig:
       description: "A server declaration as `config.toml` stores it: `command` for stdio, `url` for streamable HTTP."
       type: object

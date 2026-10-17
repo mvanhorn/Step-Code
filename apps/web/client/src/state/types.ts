@@ -87,7 +87,6 @@ export interface SessionSummary {
 	readonly cwd?: string;
 	readonly name?: string;
 	readonly firstMessage?: string;
-	readonly allMessagesText?: string;
 	readonly created?: string;
 	readonly modified?: string;
 	readonly messageCount?: number;
@@ -96,6 +95,26 @@ export interface SessionSummary {
 	readonly status?: SessionStatus;
 	readonly unread?: boolean;
 	readonly [key: string]: unknown;
+}
+
+/** One hit of GET /api/v1/search (session-search.ts `WebSearchHit`). */
+export interface SessionSearchHit {
+	readonly sessionId: string;
+	readonly cwd: string;
+	/** Null for a title match, or for every hit while the index is degraded. */
+	readonly entryId: string | null;
+	readonly entryType?: string;
+	readonly role?: string;
+	readonly ts: number;
+	/** Excerpt; each match is wrapped in U+0002 / U+0003. */
+	readonly snippet: string;
+}
+
+/** GET /api/v1/search (session-search.ts `WebSearchResult`). */
+export interface SessionSearchResult {
+	readonly hits: readonly SessionSearchHit[];
+	readonly coverage: { readonly indexed: number; readonly total: number };
+	readonly state: "ready" | "backfilling" | "degraded";
 }
 
 /** GET /api/v1/sessions/:id and the SSE `snapshot` event (runtime.ts `snapshot()`). */

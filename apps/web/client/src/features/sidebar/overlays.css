@@ -106,6 +106,12 @@
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
+.search-result-snippet mark {
+	border-radius: var(--radius-hairline);
+	background: var(--selection);
+	color: var(--ink);
+	font-weight: 550;
+}
 .search-result time {
 	flex: none;
 	color: var(--ink-3);
@@ -120,6 +126,12 @@
 	border-top: 1px solid var(--line);
 	color: var(--ink-3);
 	font-size: 12px;
+}
+.search-index-note {
+	overflow: hidden;
+	margin-left: auto;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 .search-footer kbd {
 	display: inline-grid;

@@ -4,7 +4,9 @@
  */
 
 import type { TagColor } from "../../i18n";
+import { api } from "../../lib/api";
 import { type ConversationView, setState, setToggled, setUi } from "../../state/store";
+import type { SessionSearchResult } from "../../state/types";
 
 /* ── Global search (legacy 1199-1211) ────────────────────────────────────── */
 
@@ -26,6 +28,15 @@ export function subscribeSearchOpen(listener: () => void): () => void {
 export function openSearch(): void {
 	setUi({ searchOpen: true });
 	for (const listener of [...searchOpenListeners]) listener();
+}
+
+/** Hits per query; several can fall in one session, which the modal shows once. */
+const SEARCH_HIT_LIMIT = 100;
+
+/** Full-text search over session content through the host's index (GET /api/v1/search). */
+export function searchSessionContent(query: string, signal: AbortSignal): Promise<SessionSearchResult> {
+	const params = new URLSearchParams({ q: query, limit: String(SEARCH_HIT_LIMIT) });
+	return api<SessionSearchResult>(`/api/v1/search?${params}`, { signal });
 }
 
 /** Hide the global search modal (legacy `closeSearch`, 1207-1211); the modal drops its results. */

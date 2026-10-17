@@ -6,6 +6,7 @@ import {
 	type AgentSession,
 	type AgentSessionEvent,
 	type AgentSessionRuntime,
+	attachSessionIndex,
 	clampThinkingLevel,
 	createAgentSessionFromServices,
 	createAgentSessionRuntime,
@@ -29,6 +30,7 @@ import {
 	getStepMcpStatuses,
 	getSupportedThinkingLevels,
 	type InlineExtension,
+	isChildAgentSession,
 	listAllStepSessions,
 	ModelRuntime,
 	NOOP_OBSERVABILITY_PROVIDER,
@@ -42,6 +44,7 @@ import {
 	resolveStepConfigRoot,
 	resolveStepStorageRoot,
 	type SessionEntry,
+	type SessionIndex,
 	type SessionInfo,
 	STEP_DEFAULT_MODEL,
 	STEP_PERMISSION_PRESETS,
@@ -53,6 +56,7 @@ import {
 	submitFeedback as submitKernelFeedback,
 	syncStepLoginProfileEndpoint,
 	THINKING_LEVEL_OPTIONS,
+	withSessionIndex,
 } from "@step-harness/coding-agent";
 import { ApprovalBroker, type ApprovalRequest } from "./approval.ts";
 import { type WebAttachment, withTextAttachments } from "./attachments.ts";
@@ -383,6 +387,8 @@ export class WebSession {
 	private unsubscribeSession?: () => void;
 	private unsubscribeRuntimeSessionChange?: () => void;
 	private releaseWriterLease?: () => void;
+	/** Receives this session's file writes, including those of forks and /new. */
+	private index?: SessionIndexSink;
 	private writerLeasePath?: string;
 	private archived = false;
 	private readonly reverter = new TurnReverter();
@@ -466,7 +472,12 @@ export class WebSession {
 	private readonly sessionManager: ReturnType<typeof createStepSessionManager>;
 	private readonly writerOwnerId: string;
 
-	static async create(options: { cwd: string; sessionId?: string; sessionPath?: string }): Promise<WebSession> {
+	static async create(options: {
+		cwd: string;
+		sessionId?: string;
+		sessionPath?: string;
+		index?: SessionIndexSink;
+	}): Promise<WebSession> {
 		const agentDir = resolveStepAgentDir();
 		const cwd = options.cwd;
 		const authPath = getStepAuthPath();
@@ -491,6 +502,7 @@ export class WebSession {
 						agentDir,
 						newSession: options.sessionId ? { id: options.sessionId } : undefined,
 					});
+			if (options.index) attachSessionIndex(sessionManager, options.index);
 			const instance = new WebSession(
 				sessionManager.getSessionId(),
 				cwd,
@@ -499,6 +511,7 @@ export class WebSession {
 				sessionManager,
 				writerOwnerId,
 			);
+			instance.index = options.index;
 			instance.releaseWriterLease = releaseWriterLease;
 			instance.writerLeasePath = options.sessionPath ? resolve(options.sessionPath) : undefined;
 			await instance.start();
@@ -578,7 +591,9 @@ export class WebSession {
 				cwd: this.cwd,
 				agentDir: this.agentDir,
 				sessionManager: this.sessionManager,
-				sessionManagerFactory: createStepSessionManagerFactory(this.agentDir),
+				sessionManagerFactory: this.index
+					? withSessionIndex(createStepSessionManagerFactory(this.agentDir), this.index)
+					: createStepSessionManagerFactory(this.agentDir),
 			});
 			this.bindSession(this.runtime.session);
 			this.unsubscribeRuntimeSessionChange = this.runtime.onSessionChange((session) => this.bindSession(session));
@@ -1048,6 +1063,11 @@ class WebSessionMetadataStore {
 	}
 }
 
+/** Where session managers report their file writes (the host's session index). */
+export type SessionIndexSink = Pick<SessionIndex, "notifyPersisted">;
+
+export type WebSessionInfo = Omit<SessionInfo, "allMessagesText"> & { archived: boolean; cwdAvailable: boolean };
+
 /**
  * Forget every idle session in `sessions` and close it.
  *
@@ -1065,6 +1085,12 @@ export function releaseIdleSessions<T extends Pick<WebSession, "isBusy" | "close
 }
 
 export class WebSessionStore {
+	private readonly index?: SessionIndexSink;
+
+	constructor(options: { index?: SessionIndexSink } = {}) {
+		this.index = options.index;
+	}
+
 	private readonly sessions = new Map<string, WebSession>();
 	private readonly openings = new Map<string, Promise<WebSession>>();
 	private readonly metadata = new WebSessionMetadataStore(resolveStepAgentDir());
@@ -1076,7 +1102,7 @@ export class WebSessionStore {
 
 	async create(cwd: string): Promise<WebSession> {
 		await this.metadata.load();
-		const session = await WebSession.create({ cwd });
+		const session = await WebSession.create({ cwd, index: this.index });
 		this.sessions.set(session.id, session);
 		return session;
 	}
@@ -1121,7 +1147,7 @@ export class WebSessionStore {
 			const unsavedCwd = this.unsaved.get(id);
 			if (!info && unsavedCwd !== undefined) {
 				this.unsaved.delete(id);
-				const recreated = await WebSession.create({ cwd: unsavedCwd, sessionId: id });
+				const recreated = await WebSession.create({ cwd: unsavedCwd, sessionId: id, index: this.index });
 				this.sessions.set(recreated.id, recreated);
 				return recreated;
 			}
@@ -1130,6 +1156,7 @@ export class WebSessionStore {
 				cwd: info.cwdAvailable ? info.cwd : defaultWorkspace(),
 				sessionPath: info.path,
 				sessionId: info.id,
+				index: this.index,
 			});
 			opened.setArchived(this.metadata.isArchived(opened.id));
 			this.sessions.set(opened.id, opened);
@@ -1143,19 +1170,24 @@ export class WebSessionStore {
 		}
 	}
 
-	async list(): Promise<Array<SessionInfo & { archived: boolean; cwdAvailable: boolean }>> {
+	async list(): Promise<Array<WebSessionInfo>> {
 		await this.metadata.load();
 		const sessions = await listAllStepSessions({ agentDir: resolveStepAgentDir(), recursive: true });
 		return Promise.all(
-			sessions.map(async (session) => {
-				let cwdAvailable = false;
-				try {
-					cwdAvailable = session.cwd ? (await stat(session.cwd)).isDirectory() : false;
-				} catch {
-					// A session with a removed cwd remains readable and appears under Recent.
-				}
-				return { ...session, archived: this.metadata.isArchived(session.id), cwdAvailable };
-			}),
+			// Child-agent sessions share the parent's folder but belong to its tool calls, as in the CLI's resume picker.
+			sessions
+				.filter((session) => !isChildAgentSession(session))
+				.map(async (session) => {
+					let cwdAvailable = false;
+					try {
+						cwdAvailable = session.cwd ? (await stat(session.cwd)).isDirectory() : false;
+					} catch {
+						// A session with a removed cwd remains readable and appears under Recent.
+					}
+					// Full message text is for searching only; the session index serves search now.
+					const { allMessagesText: _allMessagesText, ...summary } = session;
+					return { ...summary, archived: this.metadata.isArchived(session.id), cwdAvailable };
+				}),
 		);
 	}
 

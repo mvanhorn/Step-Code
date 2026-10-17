@@ -1485,3 +1485,68 @@ test("workspaces with chats can be removed through the dialog, retained after re
   `);
   assert.deepEqual(restored, [workspace]);
 });
+
+test("conversation search finds message content written outside the page and opens the matching message", { skip }, async () => {
+  // A session another process (the CLI) wrote: the host's index picks it up without a notification.
+  const sessionId = "e2e-search-session"
+  const now = new Date().toISOString()
+  const lines = [
+    { type: "session", version: 3, id: sessionId, timestamp: now, cwd: workspace },
+    { type: "message", id: "e2e-user", parentId: null, timestamp: now, message: { role: "user", content: "where is the config loader", timestamp: Date.now() } },
+    {
+      type: "message",
+      id: "e2e-answer",
+      parentId: "e2e-user",
+      timestamp: now,
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "The quokkaloader module reads config.toml once at startup." }],
+        api: "openai-completions",
+        provider: "e2e",
+        model: "e2e",
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+        stopReason: "stop",
+        timestamp: Date.now(),
+      },
+    },
+  ]
+  const dir = join(base, "agent", "sessions", "--e2e-search--")
+  await mkdir(dir, { recursive: true })
+  await writeFile(join(dir, `${sessionId}.jsonl`), lines.map((line) => JSON.stringify(line)).join("\n") + "\n")
+  // A subagent's transcript in the same folder: indexed, but neither searched nor listed.
+  const child = [
+    { type: "session", version: 3, id: "subagent-e2e", timestamp: now, cwd: workspace, origin: "subagent" },
+    { ...lines[1], id: "e2e-child", message: { role: "user", content: "You are a subagent. Read the quokkaloader module.", timestamp: Date.now() } },
+  ]
+  await writeFile(join(dir, "subagent-e2e.jsonl"), child.map((line) => JSON.stringify(line)).join("\n") + "\n")
+
+  const found = await browser.run(`
+    $("#searchPlaceholder").click();
+    await until(() => !$("#searchModal").hidden, "search modal");
+    const input = $("#globalSearchInput");
+    input.value = "quokkaloader";
+    input.dispatchEvent(new Event("input"));
+    const result = await until(() => $$(".search-result").find((row) => row.querySelector("mark")), "content hit");
+    const marked = result.querySelector("mark").textContent;
+    const entry = result.dataset.entryId;
+    const all = $$(".search-result").length;
+    result.click();
+    await until(() => $("#searchModal").hidden, "modal to close");
+    const message = await until(() => $('#streamInner [data-entry-id="e2e-answer"]'), "matching message");
+    const stream = $("#stream").getBoundingClientRect();
+    const box = message.getBoundingClientRect();
+    return { marked, entry, all, visible: box.bottom > stream.top && box.top < stream.bottom };
+  `)
+  assert.deepEqual(found, { marked: "quokkaloader", entry: "e2e-answer", all: 1, visible: true })
+
+  const rejected = await browser.run(`
+    return (await fetch("/api/v1/search?q=abc&cwd=relative")).status;
+  `)
+  assert.equal(rejected, 400)
+
+  const listed = await browser.run(`
+    const { sessions } = await (await fetch("/api/v1/sessions")).json();
+    return sessions.map((session) => session.id).filter((id) => id.startsWith("e2e-search") || id.startsWith("subagent-"));
+  `)
+  assert.deepEqual(listed, [sessionId])
+})

@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useLocale, useT } from "../../i18n";
 import { collectTurnChanges } from "../../lib/turn-changes";
-import { useAppStore } from "../../state/store";
+import { setUi, useAppStore } from "../../state/store";
 import type { TimelineItem } from "../../state/types";
 import { MessageItem } from "./MessageItem";
 import { ThinkingIndicator } from "./ThinkingIndicator";
@@ -71,6 +71,7 @@ export function ConversationStream() {
 	const cwd = useAppStore((state) => state.current?.cwd ?? "");
 	const status = useAppStore((state) => state.current?.status);
 	const revertedTurns = useAppStore((state) => state.current?.revertedTurns);
+	const reveal = useAppStore((state) => state.ui.revealEntry);
 	const running = status === "running";
 	const busy = running || status === "waiting";
 	const locale = useLocale();
@@ -90,6 +91,19 @@ export function ConversationStream() {
 	useLayoutEffect(() => {
 		if (stick.current) scrollToEnd(streamRef.current);
 	}, [items, locale]);
+	// A search hit: once its session's timeline is drawn, centre the entry and stop following the end.
+	useLayoutEffect(() => {
+		if (!reveal || reveal.sessionId !== sessionId || !items.length) return;
+		setUi({ revealEntry: null });
+		const target = innerRef.current?.querySelector<HTMLElement>(`[data-entry-id="${CSS.escape(reveal.entryId)}"]`);
+		if (!target) return;
+		stick.current = false;
+		target.scrollIntoView({ block: "center" });
+		target.animate([{ backgroundColor: "var(--selection)" }, { backgroundColor: "transparent" }], {
+			duration: 1600,
+			easing: "ease-out",
+		});
+	}, [reveal, sessionId, items]);
 	// The live reply grows between store updates (smooth reveal), so watch the size too.
 	useEffect(() => {
 		const inner = innerRef.current;
