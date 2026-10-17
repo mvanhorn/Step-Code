@@ -179,6 +179,10 @@
 .session-row:hover .session-time {
 	display: none;
 }
+.session-time {
+	position: relative;
+    top: 1px;
+}
 .session-meta > .session-tag {
 	display: block;
 	margin-left: auto;

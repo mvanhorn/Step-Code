@@ -541,7 +541,7 @@
 .slash-item.mcp .slash-item-title strong {
 	font-weight: inherit;
 }
-/* Group headers ("命令" / "技能") and the search hint under the list. */
+/* Group headers ("命令" / "技能"). */
 .slash-group {
 	padding: 6px 14px 2px;
 	color: var(--ink-3);
@@ -549,16 +549,6 @@
 }
 .slash-group:not(:first-child) {
 	margin-top: 4px;
-}
-.slash-hint {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-	margin-top: 4px;
-	padding: 8px 14px 4px;
-	border-top: 1px solid var(--line);
-	color: var(--ink-3);
-	font-size: 12px;
 }
 .slash-item-desc {
 	flex: 1;
