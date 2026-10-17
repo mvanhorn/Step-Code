@@ -135,7 +135,9 @@ apps/web/
   and explicit `removedWorkspaces`. Removed entries are returned with `hidden: true`; clients must not recreate
   their project groups from session cwd values. Re-adding restores the group; removal never deletes chats or files.
 - Environment variables: `STEPCODE_WEB_PORT` (default 3077), `STEPCODE_WEB_CWD` (default workspace),
-  `STEPCODE_WEB_PUBLIC_DIR` (client directory), `STEPCODE_WEB_AUTH_SECRET`, `STEPCODE_WEB_OPEN` (below).
+  `STEPCODE_WEB_PUBLIC_DIR` (client directory), `STEPCODE_WEB_AUTH_SECRET`, `STEPCODE_WEB_OPEN` (below),
+  `STEPCODE_WEB_CLIENT_PORT` (the launch URL points at this port instead of the host's; `web:watch` sets it to the
+  Vite dev server, default 5173).
   Document new ones here and in `apps/desktop/README.md` if the desktop passes them through.
 - Opening a browser on start is **opt-in**, because Desktop shows the client in its own window and the tests must stay
   headless. `STEPCODE_WEB_OPEN=1|true|on` makes the host open the launch URL right after printing the banner; unset or
@@ -160,7 +162,7 @@ Run from the repo root.
 | Command | Use |
 |---|---|
 | `pnpm web` | Build the client, run the host from source with the current folder as workspace (port 3077), and open the launch URL in the default browser (`STEPCODE_WEB_OPEN=0` to skip) |
-| `pnpm web:watch` | Same as `pnpm web`, but rebuilds the client and restarts the host on every source change (web or imported packages); refresh the page to see it. A host restart drops running turns. The browser opens once per run, not on each restart |
+| `pnpm web:watch` | Host from source plus the Vite dev server (port `STEPCODE_WEB_CLIENT_PORT`, default 5173); the launch URL opens Vite, so client edits apply by HMR. The host is not watched, so an agent editing this repo does not restart it and drop its own turn; restart the command for host or package changes, or set `STEPCODE_WEB_WATCH_HOST=1` to restart the host on every change (drops running turns). The browser opens once per run |
 | `pnpm --filter @step-harness/web dev:client` | Vite dev server with HMR, proxies to a host on `STEPCODE_WEB_PORT` (start the host first) |
 | `pnpm --filter @step-harness/web typecheck` | Host and client type check |
 | `pnpm --filter @step-harness/web test` | Host unit tests |

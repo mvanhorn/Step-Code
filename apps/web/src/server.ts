@@ -16,7 +16,7 @@ import {
 	SessionSearchRequestError,
 } from "@step-harness/coding-agent";
 import { WebAuth } from "./auth.ts";
-import { formatStartupBanner, launchUrl } from "./banner.ts";
+import { formatStartupBanner, launchUrl, resolveLaunchPort } from "./banner.ts";
 import { recordBrowserOpened, shouldOpenBrowser } from "./browser-open.ts";
 import { listWorkflowChildren, readChildTranscript } from "./child-sessions.ts";
 import { type DirectoryPickerMode, pickNativeDirectory, resolveDirectoryPickerMode } from "./directory-picker.ts";
@@ -87,6 +87,8 @@ const STATIC_CONTENT_TYPES: Readonly<Record<string, string>> = {
 	".woff2": "font/woff2",
 };
 const port = Number.parseInt(process.env.STEPCODE_WEB_PORT ?? "3077", 10);
+/** Where the launch link points: this host, or the Vite dev server in `pnpm web:watch`. */
+const launchPort = resolveLaunchPort(process.env, port);
 const SECRET_FILE = "web-auth-secret";
 const authSecretPath = process.env.STEPCODE_WEB_AUTH_SECRET?.trim() || join(resolveStepConfigRoot(), SECRET_FILE);
 const bindHost = "127.0.0.1";
@@ -784,10 +786,12 @@ const server = createServer(async (request, response) => {
 });
 
 server.listen(port, bindHost, () => {
-	console.log(formatStartupBanner({ port, token: auth.getLaunchToken(), version: resolveStepCodeVersion().value }));
+	console.log(
+		formatStartupBanner({ port: launchPort, token: auth.getLaunchToken(), version: resolveStepCodeVersion().value }),
+	);
 	// Opt-in: the dev commands ask for it; desktop and the tests must not open a window.
 	if (!shouldOpenBrowser(process.env, existsSync)) return;
-	openBrowser(launchUrl(port, auth.getLaunchToken()));
+	openBrowser(launchUrl(launchPort, auth.getLaunchToken()));
 	recordBrowserOpened(process.env);
 });
 

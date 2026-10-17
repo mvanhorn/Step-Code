@@ -31,6 +31,28 @@ export function launchUrl(port: number, token: string): string {
 	return `http://127.0.0.1:${port}/#token=${token}`;
 }
 
+/** Names the port of a dev server (Vite) that serves the client and proxies to this host. */
+export const CLIENT_PORT_ENV = "STEPCODE_WEB_CLIENT_PORT";
+
+/**
+ * The port the launch URL points at. `pnpm web:watch` serves the client from
+ * the Vite dev server for hot module replacement, so the link must open that
+ * server, not the host; the Vite proxy rewrites Origin to the host's, so the
+ * token exchange and the cookie still pass the host's checks.
+ *
+ * An invalid value throws: silently falling back to the host port would open a
+ * page without HMR and hide the misconfiguration.
+ */
+export function resolveLaunchPort(environment: NodeJS.ProcessEnv, hostPort: number): number {
+	const raw = environment[CLIENT_PORT_ENV]?.trim();
+	if (raw === undefined || raw === "") return hostPort;
+	const value = Number(raw);
+	if (!Number.isInteger(value) || value < 1 || value > 65_535) {
+		throw new Error(`${CLIENT_PORT_ENV} must be a port number between 1 and 65535, got "${raw}"`);
+	}
+	return value;
+}
+
 export function formatStartupBanner({ port, token, version }: StartupBannerInput): string {
 	const url = launchUrl(port, token);
 	return [

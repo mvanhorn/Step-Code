@@ -9,7 +9,7 @@ import { dirname } from "node:path";
  * `scripts/check-web-runtime.mjs`. So opening is opt-in, and only the developer
  * commands `pnpm web` / `pnpm web:watch` set it.
  *
- * `pnpm web:watch` restarts the host on every source change, and each restart
+ * `pnpm web:watch` with `STEPCODE_WEB_WATCH_HOST=1` restarts the host on every source change, and each restart
  * would open another tab for a page that is already connected — the cookie it
  * holds survives the restart. `STEPCODE_WEB_OPEN_MARKER` names a file that
  * records "already opened for this run", so a restart stays quiet.
