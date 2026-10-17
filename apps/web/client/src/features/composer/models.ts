@@ -100,13 +100,23 @@ export function modelMeta(model: ModelInfo): string[] {
 }
 
 /** `#modelLabel`: model name (or id), then ` · <effort>` when a level is set. */
-export function modelLabel(t: TranslateFn, source: ModelSource): string {
+/**
+ * The trigger label in its two parts: the model name, which may be long and is
+ * the part the trigger shortens, and the effort suffix (` · 高`), which stays
+ * whole so the chosen effort is always readable.
+ */
+export function modelLabelParts(
+	t: TranslateFn,
+	source: ModelSource,
+): { readonly name: string; readonly effort: string } {
 	const currentKey = source.model ? modelKey(source.model) : "";
 	const active = (source.models ?? []).find((model) => modelKey(model) === currentKey);
 	const effort = source.thinkingLevel;
-	const effortSuffix = effort ? ` · ${effortLabel(t, effort)}` : "";
-	// `defaultModel` has no translation: legacy showed the key itself here.
-	return `${active?.name ?? (currentKey && source.model ? source.model.id : t("defaultModel"))}${effortSuffix}`;
+	return {
+		// `defaultModel` has no translation: legacy showed the key itself here.
+		name: active?.name ?? (currentKey && source.model ? source.model.id : t("defaultModel")),
+		effort: effort ? ` · ${effortLabel(t, effort)}` : "",
+	};
 }
 
 /**

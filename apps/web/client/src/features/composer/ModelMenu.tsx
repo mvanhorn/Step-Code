@@ -17,7 +17,7 @@ import { shallowEqual, useAppStore } from "../../state/store";
 import { selectEffort, selectModel } from "./actions";
 import { ControlMenu } from "./ControlOption";
 import { ModelPanel, type ModelPanelView } from "./ModelPanel";
-import { draftModelSource, type ModelSource, modelLabel, readPinnedModels, togglePinnedModel } from "./models";
+import { draftModelSource, type ModelSource, modelLabelParts, readPinnedModels, togglePinnedModel } from "./models";
 import type { ComposerMenuProps } from "./PolicyMenu";
 
 export function ModelMenu({ open, onOpen, onClose }: ComposerMenuProps) {
@@ -36,6 +36,8 @@ export function ModelMenu({ open, onOpen, onClose }: ComposerMenuProps) {
 	// and panel show the model and effort that session will actually start on.
 	const source: ModelSource = current ?? draftModelSource(draft.models, draft.model, draft.effort);
 
+	const labelParts = source.model ? modelLabelParts(t, source) : undefined;
+
 	const resetSearch = () => {
 		setQuery("");
 		setSearchEpoch((epoch) => epoch + 1);
@@ -50,7 +52,20 @@ export function ModelMenu({ open, onOpen, onClose }: ComposerMenuProps) {
 			icon="cube"
 			labelId="modelLabel"
 			// Before the draft's prediction arrives there is no model to name yet.
-			label={source.model ? modelLabel(t, source) : "默认模型"}
+			// A long name is cut with an ellipsis instead of pushing the controls on
+			// its left; the hover title and the panel still show it in full.
+			label={
+				labelParts ? (
+					<>
+						<span className="model-control-name" title={labelParts.name}>
+							{labelParts.name}
+						</span>
+						{labelParts.effort}
+					</>
+				) : (
+					"默认模型"
+				)
+			}
 			popoverId="modelPopover"
 			open={open}
 			onOpen={() => {
