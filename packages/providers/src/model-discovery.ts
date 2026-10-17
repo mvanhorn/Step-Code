@@ -119,20 +119,58 @@ function nested(value: unknown, key: string): unknown {
 }
 
 /**
+ * The `baseUrl` a protocol's SDK needs, from the address a user typed.
+ *
+ * The SDKs append different paths: the OpenAI client requests
+ * `{baseUrl}/chat/completions` or `{baseUrl}/responses`, while the Anthropic
+ * client requests `{baseUrl}/v1/messages`. Gateway documentation publishes the
+ * same service as `https://gw.example` and as `https://gw.example/v1`, so one
+ * spelling 404s under each protocol. This maps both spellings to the one the
+ * protocol's client expects:
+ *
+ * - OpenAI protocols: an address with no path gets `/v1`. An address that already
+ *   has a path (`/openai/v1`, `/api/v3`, `/api/paas/v4`) names a deployment only
+ *   its owner knows and is kept as typed.
+ * - Anthropic Messages: one trailing `/v1` is removed, since the client adds it.
+ *
+ * Trailing slashes are dropped; query and fragment are not expected in a base
+ * address and are kept as typed. A value that is not a URL is returned trimmed,
+ * for the caller's own validation to reject.
+ *
+ * This is applied where an address is entered (a settings form saving a
+ * declaration, a discovery probe), not on every request: a hand-written
+ * `models.json` keeps meaning exactly what it says.
+ */
+export function normalizeProviderBaseUrl(baseUrl: string, api: string): string {
+	const trimmed = baseUrl.trim();
+	let parsed: URL;
+	try {
+		parsed = new URL(trimmed);
+	} catch {
+		return trimmed;
+	}
+	let path = parsed.pathname.replace(/\/+$/u, "");
+	if (api === "anthropic-messages") {
+		if (path.endsWith("/v1")) path = path.slice(0, -3);
+	} else if (path === "") {
+		path = "/v1";
+	}
+	return `${parsed.origin}${path}${parsed.search}${parsed.hash}`;
+}
+
+/**
  * Join the configured endpoint with the protocol's listing path.
  *
- * The base is treated as a prefix rather than a URL to resolve against, so a
- * deployment path such as `https://gateway.example/openai/v1` keeps its segments
- * instead of losing them to URL resolution. OpenAI protocols list at
- * `{base}/models`; Anthropic lists at `{root}/v1/models`, where the root is the
- * base without one trailing `/v1` segment — gateway documentation publishes both
- * spellings of the same root. Only this listing URL normalizes that segment; the
- * model requests themselves receive the configured `baseUrl` unchanged.
+ * The base is first normalized by {@link normalizeProviderBaseUrl}, then treated
+ * as a prefix rather than a URL to resolve against, so a deployment path such as
+ * `https://gateway.example/openai/v1` keeps its segments instead of losing them
+ * to URL resolution. OpenAI protocols list at `{base}/models`; Anthropic lists at
+ * `{base}/v1/models`, the same prefix its client puts before `/messages`.
  */
 export function modelListingUrl(baseUrl: string, api: string): string {
-	const base = baseUrl.replace(/\/+$/u, "");
+	const base = normalizeProviderBaseUrl(baseUrl, api);
 	if (api !== "anthropic-messages") return `${base}/models`;
-	return `${base.endsWith("/v1") ? base.slice(0, -3) : base}/v1/models?limit=${ANTHROPIC_MODEL_LIMIT}`;
+	return `${base}/v1/models?limit=${ANTHROPIC_MODEL_LIMIT}`;
 }
 
 /** Read a reply body, refusing one that outgrows {@link MAX_RESPONSE_BYTES}. */

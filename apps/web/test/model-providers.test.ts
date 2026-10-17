@@ -68,6 +68,17 @@ test("a declaration needs an http(s) address, a protocol, and unique model ids",
 		parseModelProvider({ baseUrl: "https://gw.example/v1", api: "openai-completions", apiKey: "secret" }),
 		{ baseUrl: "https://gw.example/v1", api: "openai-completions" },
 	);
+	// One address works under every protocol: the declaration stores what that
+	// protocol's client appends its request path to.
+	for (const typed of ["https://gw.example", "https://gw.example/v1/"]) {
+		assert.equal(parseModelProvider({ baseUrl: typed, api: "openai-completions" }).baseUrl, "https://gw.example/v1");
+		assert.equal(parseModelProvider({ baseUrl: typed, api: "openai-responses" }).baseUrl, "https://gw.example/v1");
+		assert.equal(parseModelProvider({ baseUrl: typed, api: "anthropic-messages" }).baseUrl, "https://gw.example");
+	}
+	assert.equal(
+		parseModelProvider({ baseUrl: "https://ark.example/api/v3", api: "openai-completions" }).baseUrl,
+		"https://ark.example/api/v3",
+	);
 	for (const bad of [
 		{ api: "openai-completions" },
 		{ baseUrl: "ftp://gw.example" },

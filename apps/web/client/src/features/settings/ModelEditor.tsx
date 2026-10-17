@@ -24,18 +24,39 @@ import { SettingsSelect } from "./parts";
 const MODELS_PATH = "/api/v1/settings/models";
 
 /**
- * The protocols the form offers, by the identifier `models.json` stores.
- *
- * Anthropic Messages is listed with its own placeholder because its SDK appends
- * `/v1/messages`, so the address it wants is the API root rather than the `/v1`
- * one the OpenAI-shaped protocols use. That difference is exactly what the
- * listing-path normalization also handles.
+ * The protocols the form offers, by the identifier `models.json` stores, with the
+ * path each protocol's client appends to the stored address.
  */
-const API_CHOICES: ReadonlyArray<{ readonly value: string; readonly label: string; readonly placeholder: string }> = [
-	{ value: "openai-completions", label: "OpenAI Chat Completions", placeholder: "https://gateway.example/v1" },
-	{ value: "openai-responses", label: "OpenAI Responses", placeholder: "https://gateway.example/v1" },
-	{ value: "anthropic-messages", label: "Anthropic Messages", placeholder: "https://gateway.example" },
+const API_CHOICES: ReadonlyArray<{ readonly value: string; readonly label: string; readonly requestPath: string }> = [
+	{ value: "openai-completions", label: "OpenAI Chat Completions", requestPath: "/chat/completions" },
+	{ value: "openai-responses", label: "OpenAI Responses", requestPath: "/responses" },
+	{ value: "anthropic-messages", label: "Anthropic Messages", requestPath: "/v1/messages" },
 ];
+
+/**
+ * The address the host stores for `api`, for showing the request it leads to.
+ *
+ * Display-only mirror of `normalizeProviderBaseUrl` in
+ * `packages/providers/src/model-discovery.ts`, which the host applies on save and
+ * on discovery: OpenAI protocols give a bare root `/v1`, Anthropic drops one
+ * trailing `/v1` (its client adds it). Undefined for a value that is not a URL.
+ */
+function storedBaseUrl(baseUrl: string, api: string): string | undefined {
+	let parsed: URL;
+	try {
+		parsed = new URL(baseUrl.trim());
+	} catch {
+		return undefined;
+	}
+	if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return undefined;
+	let path = parsed.pathname.replace(/\/+$/u, "");
+	if (api === "anthropic-messages") {
+		if (path.endsWith("/v1")) path = path.slice(0, -3);
+	} else if (path === "") {
+		path = "/v1";
+	}
+	return `${parsed.origin}${path}${parsed.search}${parsed.hash}`;
+}
 
 /** One editable catalog row. Numbers stay strings while the user types them. */
 interface ModelRowState {
@@ -400,6 +421,8 @@ export function ModelEditor({
 
 	const idError = shownError("id");
 	const baseUrlError = shownError("baseUrl");
+	const storedUrl = storedBaseUrl(form.baseUrl, form.api);
+	const requestUrl = storedUrl && apiChoice ? `${storedUrl}${apiChoice.requestPath}` : undefined;
 	return (
 		<>
 			{/* noValidate: the fields show their own messages instead of the browser's bubble. */}
@@ -457,11 +480,11 @@ export function ModelEditor({
 							id={field("baseUrl")}
 							className="mono"
 							value={form.baseUrl}
-							placeholder={apiChoice?.placeholder ?? "https://gateway.example/v1"}
+							placeholder="https://gateway.example"
 							spellCheck={false}
 							required
 							aria-invalid={baseUrlError ? true : undefined}
-							aria-describedby={baseUrlError ? field("baseUrl-message") : undefined}
+							aria-describedby={field("baseUrl-message")}
 							onBlur={() => touch("baseUrl")}
 							onChange={(event) => update({ baseUrl: event.target.value })}
 						/>
@@ -469,7 +492,18 @@ export function ModelEditor({
 							<small id={field("baseUrl-message")} className="settings-field-error">
 								{t(baseUrlError)}
 							</small>
-						) : null}
+						) : (
+							<small id={field("baseUrl-message")} className="settings-field-hint">
+								{requestUrl ? (
+									<>
+										{t("settingsModelsBaseUrlRequest")}
+										<span className="mono">{requestUrl}</span>
+									</>
+								) : (
+									t("settingsModelsBaseUrlHint")
+								)}
+							</small>
+						)}
 					</label>
 					<div className="settings-field settings-field-narrow">
 						<FieldTitle text={t("settingsModelsApi")} required />

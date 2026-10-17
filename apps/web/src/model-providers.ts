@@ -15,6 +15,7 @@ import {
 	type DiscoveredModel,
 	discoverModels,
 	ModelDiscoveryError,
+	normalizeProviderBaseUrl,
 	readModelsJsonProviders,
 	readStoredCredential,
 	resolveStepConfigRoot,
@@ -201,16 +202,20 @@ export interface ModelProviderInput {
  * it out.
  */
 export function parseModelProvider(input: ModelProviderInput): Record<string, unknown> {
-	const baseUrl = stringOf(input.baseUrl);
-	if (!baseUrl) throw new SettingsError(400, "API address is required");
+	const typedUrl = stringOf(input.baseUrl);
+	if (!typedUrl) throw new SettingsError(400, "API address is required");
 	try {
-		const parsed = new URL(baseUrl);
+		const parsed = new URL(typedUrl);
 		if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("protocol");
 	} catch {
 		throw new SettingsError(400, "API address must be an http(s) URL");
 	}
 	const api = stringOf(input.api);
 	if (!api) throw new SettingsError(400, "API protocol is required");
+	// The form accepts a gateway root or its /v1 spelling under every protocol;
+	// the file stores the one this protocol's client appends its path to, so a
+	// session reads it back unchanged.
+	const baseUrl = normalizeProviderBaseUrl(typedUrl, api);
 	const name = stringOf(input.name);
 	const models = parseModelEntries(input.models);
 	return {

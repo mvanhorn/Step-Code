@@ -4,6 +4,7 @@ import {
 	discoverModels,
 	ModelDiscoveryError,
 	modelListingUrl,
+	normalizeProviderBaseUrl,
 	readModelListing,
 } from "../src/model-discovery.ts";
 
@@ -42,6 +43,48 @@ describe("modelListingUrl", () => {
 
 	it("defaults to the protocol the composer also defaults to", () => {
 		expect(DEFAULT_DISCOVERY_API).toBe("openai-completions");
+	});
+
+	it("lists a bare gateway root under /v1 for the OpenAI protocols", () => {
+		expect(modelListingUrl("https://gateway.example", "openai-completions")).toBe(
+			"https://gateway.example/v1/models",
+		);
+		expect(modelListingUrl("https://gateway.example/", "openai-responses")).toBe("https://gateway.example/v1/models");
+	});
+});
+
+describe("normalizeProviderBaseUrl", () => {
+	it("maps both spellings of a gateway root to what each protocol's client appends to", () => {
+		for (const typed of [
+			"https://gw.example",
+			"https://gw.example/",
+			"https://gw.example/v1",
+			"https://gw.example/v1/",
+		]) {
+			expect(normalizeProviderBaseUrl(typed, "openai-completions")).toBe("https://gw.example/v1");
+			expect(normalizeProviderBaseUrl(typed, "openai-responses")).toBe("https://gw.example/v1");
+			expect(normalizeProviderBaseUrl(typed, "anthropic-messages")).toBe("https://gw.example");
+		}
+	});
+
+	it("keeps a deployment path the OpenAI protocols cannot guess", () => {
+		expect(normalizeProviderBaseUrl("https://ark.example/api/v3", "openai-completions")).toBe(
+			"https://ark.example/api/v3",
+		);
+		expect(normalizeProviderBaseUrl("https://gw.example/openai/", "openai-responses")).toBe(
+			"https://gw.example/openai",
+		);
+	});
+
+	it("strips only one trailing /v1 for Anthropic and keeps other paths", () => {
+		expect(normalizeProviderBaseUrl("https://gw.example/proxy/anthropic/v1", "anthropic-messages")).toBe(
+			"https://gw.example/proxy/anthropic",
+		);
+		expect(normalizeProviderBaseUrl("https://gw.example/v1/v1", "anthropic-messages")).toBe("https://gw.example/v1");
+	});
+
+	it("returns a value that is not a URL trimmed, for the caller to reject", () => {
+		expect(normalizeProviderBaseUrl("  not a url ", "openai-completions")).toBe("not a url");
 	});
 });
 

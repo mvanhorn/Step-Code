@@ -12,6 +12,7 @@ export {
 	getSupportedThinkingLevels,
 	ModelDiscoveryError,
 	modelListingUrl,
+	normalizeProviderBaseUrl,
 	readModelListing,
 } from "@step-harness/providers";
 export { type Args, type Mode, parseArgs } from "./cli/args.ts";
