@@ -301,7 +301,7 @@ export function createInitialState(): AppState {
 		pendingTurn: null,
 		bootstrapCwd: "",
 		draftCwd: "",
-		draftPolicy: "ask",
+		draftPolicy: "approve-for-me",
 		draftSelection: null,
 		draftFullAccessAnswer: "",
 		draftPolicyPicked: false,

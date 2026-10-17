@@ -178,7 +178,7 @@ function makeExtensions(
 	const telemetry = NOOP_OBSERVABILITY_PROVIDER.createReporter();
 	const persisted = settingsManager.getStepSettings();
 	const permission = {
-		initialPreset: (persisted.permissionPreset ?? "ask") as StepPermissionPresetId,
+		initialPreset: (persisted.permissionPreset ?? "approve-for-me") as StepPermissionPresetId,
 		nonInteractiveApproval: persisted.nonInteractiveApproval ?? "deny",
 	};
 	const webHostExtension: InlineExtension = {
@@ -933,7 +933,7 @@ export class WebSession {
 			permissionPreset:
 				this.livePermission ??
 				(this.session.settingsManager as StepSettingsManager).getStepPermissionPreset() ??
-				"ask",
+				"approve-for-me",
 			policies: webPermissionPresets(),
 			thinkingLevel: this.session.thinkingLevel,
 			availableThinkingLevels: this.session.getAvailableThinkingLevels(),
@@ -1104,7 +1104,7 @@ export class WebSessionStore {
 		});
 		return {
 			...(await predictDraftModel(modelRuntime, settings, readGlobalStepDefaults())),
-			permissionPreset: settings.getStepPermissionPreset() ?? "ask",
+			permissionPreset: settings.getStepPermissionPreset() ?? "approve-for-me",
 			policies: webPermissionPresets(),
 			fullAccessAcknowledged: settings.getStepSettings().fullAccessAcknowledged === true,
 		};
