@@ -11,7 +11,7 @@
 import { t } from "../i18n";
 import { api, apiSend, errorMessage, setUnauthorizedHandler } from "../lib/api";
 import { writeClipboard } from "../lib/clipboard";
-import { basename, clipDetail, compact, toolInputDetail, toolInputSummary } from "../lib/format";
+import { basename, clipDetail, compact, toolArgs, toolInputDetail, toolInputSummary } from "../lib/format";
 import { contentText, skillInvocation } from "../lib/markdown";
 import { FULL_ACCESS_PRESET, isFullAccessRisk } from "../lib/permissions";
 import { isDesktopHost } from "../platform/host";
@@ -32,6 +32,7 @@ import type {
 	SessionStatus,
 	SessionSummary,
 	TimelineItem,
+	ToolArgs,
 	ToolTimelineItem,
 	WebWorkspace,
 } from "./types";
@@ -176,6 +177,12 @@ export function childAgents(name: string, details: unknown): Pick<ToolTimelineIt
 	return children.length ? { children } : {};
 }
 
+/** `{ args }` for a tool item when the call has arguments a row names, else nothing. */
+function withArgs(input: unknown): { args?: ToolArgs } {
+	const args = toolArgs(input);
+	return args ? { args } : {};
+}
+
 /** Image parts of a message's content. */
 function imageCount(content: unknown): number {
 	return Array.isArray(content)
@@ -231,6 +238,7 @@ export function timelineFromEntries(entries: readonly SessionEntry[] = []): Time
 					outputSummary: result ? compact(contentText(result.content)) : "",
 					inputDetail: toolInputDetail(block.arguments),
 					outputDetail: result ? clipDetail(contentText(result.content)) : "",
+					...withArgs(block.arguments),
 					...(change ? { change } : {}),
 					...links,
 				});
@@ -405,6 +413,7 @@ function applyLiveMessage(content: unknown): void {
 				outputSummary: existing?.kind === "tool" ? existing.outputSummary : "",
 				inputDetail: toolInputDetail(call.arguments),
 				outputDetail: existing?.kind === "tool" ? existing.outputDetail : "",
+				...withArgs(call.arguments),
 			});
 		}
 		return next;
@@ -468,6 +477,7 @@ function handleAgentEvent(agentEvent: AgentStreamEvent): void {
 				outputSummary: "",
 				inputDetail: toolInputDetail(agentEvent.args),
 				outputDetail: "",
+				...withArgs(agentEvent.args),
 			}),
 		);
 	}

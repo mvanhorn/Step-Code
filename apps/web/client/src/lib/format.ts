@@ -4,6 +4,8 @@
  * (see i18n/index.ts for `formatRelativeTime`, which supplies them).
  */
 
+import type { ToolArgs } from "../state/types";
+
 /** Collapse whitespace and cut to `limit` characters with an ellipsis (legacy `compact`). */
 export function compact(value: unknown, limit = 120): string {
 	const text = String(value ?? "")
@@ -20,6 +22,24 @@ export function toolInputSummary(input: unknown): string {
 			.map(([key, value]) => `${key}=${typeof value === "string" ? value : JSON.stringify(value)}`)
 			.join(" "),
 	);
+}
+
+/** The arguments a tool row shows by name; undefined when the call has none of them. */
+export function toolArgs(input: unknown): ToolArgs | undefined {
+	if (!input || typeof input !== "object") return undefined;
+	const raw = input as Record<string, unknown>;
+	const text = (value: unknown) => (typeof value === "string" && value.trim() ? value : undefined);
+	const path = text(raw.path) ?? text(raw.file_path);
+	const command = text(raw.command);
+	const pattern = text(raw.pattern);
+	const offset = typeof raw.offset === "number" && Number.isFinite(raw.offset) ? raw.offset : undefined;
+	if (path === undefined && command === undefined && pattern === undefined) return undefined;
+	return {
+		...(path !== undefined ? { path } : {}),
+		...(command !== undefined ? { command } : {}),
+		...(pattern !== undefined ? { pattern } : {}),
+		...(offset !== undefined ? { offset } : {}),
+	};
 }
 
 /** Longest tool input or output kept for the expanded row; the rest is cut so a huge result cannot stall the page. */

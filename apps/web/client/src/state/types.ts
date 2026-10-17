@@ -208,6 +208,8 @@ export interface ToolTimelineItem {
 	/** Full arguments and result, shown when the row is expanded. */
 	readonly inputDetail?: string;
 	readonly outputDetail?: string;
+	/** The arguments the row shows by name (path, command...), when the call had them. */
+	readonly args?: ToolArgs;
 	/** A successful edit/write: its path argument and the unified patch from the result `details.patch`. */
 	readonly change?: FileChange;
 	/** Subagents this call started, from the result `details.results[].sessionId`. */
@@ -238,6 +240,18 @@ export interface ChildAgentSummary {
 	readonly title: string;
 	readonly messageCount: number;
 	readonly modified: string;
+}
+
+/** Tool arguments a tool row names instead of listing `key=value` pairs. */
+export interface ToolArgs {
+	/** `path` or `file_path` (read, write, edit, grep, find, ls). */
+	readonly path?: string;
+	/** `bash` command. */
+	readonly command?: string;
+	/** `read` start line (1-based). */
+	readonly offset?: number;
+	/** `grep` / `find` pattern. */
+	readonly pattern?: string;
 }
 
 /** Why an edit/write has no patch (host `SkippedChange.reason`). */

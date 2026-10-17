@@ -79,6 +79,10 @@ export const ICON_NAMES = [
 	"download",
 	"store",
 	"globe",
+	"fileText",
+	"squarePen",
+	"prompt",
+	"wrench",
 ] as const;
 
 export type IconName = (typeof ICON_NAMES)[number];
@@ -244,6 +248,53 @@ export function IconSprite() {
 				strokeLinejoin="round"
 			>
 				<path d="M17 3a2.828 2.828 0 0 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+			</symbol>
+			{/* Lucide file-text, square-pen, terminal and wrench, for tool-call rows; see docs/THIRD_PARTY_PROVENANCE.md. */}
+			<symbol
+				id="i-fileText"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.7"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
+				<path d="M14 2v4a2 2 0 0 0 2 2h4M10 9H8M16 13H8M16 17H8" />
+			</symbol>
+			<symbol
+				id="i-squarePen"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.7"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+				<path d="M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z" />
+			</symbol>
+			<symbol
+				id="i-prompt"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.7"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="m4 17 6-6-6-6M12 19h8" />
+			</symbol>
+			<symbol
+				id="i-wrench"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.7"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
 			</symbol>
 			<symbol id="i-sidebar" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5">
 				<rect x="1.75" y="2.75" width="14.5" height="12.5" rx="2" />

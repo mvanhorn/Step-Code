@@ -7,4 +7,6 @@
 import "./files.css";
 
 export { FileTreePanel } from "./FileTreePanel";
+/** Code shown outside the preview: a tool call's excerpt and diff use the same tokens and families. */
+export { fileLanguage, highlightLines } from "./highlight";
 export { PreviewPanel, PreviewShowButton } from "./PreviewPanel";
