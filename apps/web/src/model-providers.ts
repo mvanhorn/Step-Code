@@ -47,6 +47,29 @@ export interface WebModelEntry {
 	readonly contextWindow?: number;
 	readonly maxTokens?: number;
 	readonly input?: readonly ("text" | "image")[];
+	/** Whether the model takes a thinking effort; without it the composer offers only "off". */
+	readonly reasoning?: boolean;
+	/** The effort value sent for each level; `null` hides a level. */
+	readonly thinkingLevelMap?: ThinkingLevelMap;
+}
+
+/** The levels a `thinkingLevelMap` may name (providers `ModelThinkingLevel`). */
+const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+type ThinkingLevelMap = Partial<Record<(typeof THINKING_LEVELS)[number], string | null>>;
+
+/**
+ * A `thinkingLevelMap` as `models.json` may hold it, or `undefined` when it is
+ * not one. Reading is lenient (an unknown key is dropped so one hand edit does
+ * not hide the row); {@link parseThinkingLevelMap} is the strict client check.
+ */
+function thinkingLevelMapOf(raw: unknown): ThinkingLevelMap | undefined {
+	if (!isRecord(raw)) return undefined;
+	const map: ThinkingLevelMap = {};
+	for (const level of THINKING_LEVELS) {
+		const value = raw[level];
+		if (typeof value === "string" || value === null) map[level] = value;
+	}
+	return Object.keys(map).length > 0 ? map : undefined;
 }
 
 /** The provider id whose `auth.json` entry is the account login, not a custom key. */
@@ -107,12 +130,15 @@ function entryOf(raw: unknown): WebModelEntry | undefined {
 	const input = (Array.isArray(raw.input) ? raw.input : []).filter(
 		(value): value is "text" | "image" => value === "text" || value === "image",
 	);
+	const thinkingLevelMap = thinkingLevelMapOf(raw.thinkingLevelMap);
 	return {
 		id,
 		...(stringOf(raw.name) ? { name: stringOf(raw.name) } : {}),
 		...(typeof raw.contextWindow === "number" && raw.contextWindow > 0 ? { contextWindow: raw.contextWindow } : {}),
 		...(typeof raw.maxTokens === "number" && raw.maxTokens > 0 ? { maxTokens: raw.maxTokens } : {}),
 		...(input.length > 0 ? { input } : {}),
+		...(typeof raw.reasoning === "boolean" ? { reasoning: raw.reasoning } : {}),
+		...(thinkingLevelMap ? { thinkingLevelMap } : {}),
 	};
 }
 
@@ -158,6 +184,21 @@ function positiveInt(value: unknown, field: string): number | undefined {
 	return value;
 }
 
+/** A `thinkingLevelMap` from the client: known levels only, each a string or `null`. */
+function parseThinkingLevelMap(value: unknown, id: string): ThinkingLevelMap | undefined {
+	if (value === undefined || value === null) return undefined;
+	const field = `model '${id}' thinkingLevelMap`;
+	if (!isRecord(value)) throw new SettingsError(400, `${field} must be an object`);
+	const known: ReadonlySet<string> = new Set(THINKING_LEVELS);
+	for (const [level, mapped] of Object.entries(value)) {
+		if (!known.has(level)) throw new SettingsError(400, `${field} has an unknown level '${level}'`);
+		if (typeof mapped !== "string" && mapped !== null) {
+			throw new SettingsError(400, `${field}.${level} must be a string or null`);
+		}
+	}
+	return thinkingLevelMapOf(value);
+}
+
 /** The model catalog from the client: an id per row is required, the rest is optional. */
 function parseModelEntries(input: unknown): Array<Record<string, unknown>> {
 	if (input === undefined) return [];
@@ -175,12 +216,18 @@ function parseModelEntries(input: unknown): Array<Record<string, unknown>> {
 			(value): value is "text" | "image" => value === "text" || value === "image",
 		);
 		const name = stringOf(raw.name);
+		if (raw.reasoning !== undefined && typeof raw.reasoning !== "boolean") {
+			throw new SettingsError(400, `model '${id}' reasoning must be true or false`);
+		}
+		const thinkingLevelMap = parseThinkingLevelMap(raw.thinkingLevelMap, id);
 		return {
 			id,
 			...(name ? { name } : {}),
 			...(contextWindow === undefined ? {} : { contextWindow }),
 			...(maxTokens === undefined ? {} : { maxTokens }),
 			...(input_.length > 0 ? { input: input_ } : {}),
+			...(raw.reasoning === undefined ? {} : { reasoning: raw.reasoning }),
+			...(thinkingLevelMap ? { thinkingLevelMap } : {}),
 		};
 	});
 }

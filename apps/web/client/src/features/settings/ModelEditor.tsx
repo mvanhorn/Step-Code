@@ -66,7 +66,28 @@ interface ModelRowState {
 	readonly contextWindow: string;
 	readonly maxTokens: string;
 	readonly input: readonly ("text" | "image")[];
+	/** Only a stored `false` is kept; every other row is saved as a reasoning model. */
+	readonly reasoning?: boolean;
+	/** The stored map, kept as is; a row without one is saved with {@link DEFAULT_THINKING_LEVEL_MAP}. */
+	readonly thinkingLevelMap?: Readonly<Record<string, string | null>>;
 }
+
+/**
+ * The thinking levels a model saved from this page offers when its own map is
+ * not known. A model listing does not say which efforts a model takes, and the
+ * kernel offers only "off" for a model without `reasoning`, so every row is
+ * saved as a reasoning model with this map: each level is sent by its own name,
+ * and `minimal` (`null`) is hidden.
+ */
+const DEFAULT_THINKING_LEVEL_MAP: Readonly<Record<string, string | null>> = {
+	off: "off",
+	minimal: null,
+	low: "low",
+	medium: "medium",
+	high: "high",
+	xhigh: "xhigh",
+	max: "max",
+};
 
 interface FormState {
 	readonly id: string;
@@ -96,7 +117,11 @@ function newRow(entry?: Partial<ModelRowState>): ModelRowState {
 		name: entry?.name ?? "",
 		contextWindow: entry?.contextWindow ?? "",
 		maxTokens: entry?.maxTokens ?? "",
-		input: entry?.input ?? ["text"],
+		// Image input is what a current endpoint usually serves, so a new row
+		// starts with it on; a row built from a stored declaration keeps what it says.
+		input: entry?.input ?? ["text", "image"],
+		...(entry?.reasoning === false ? { reasoning: false } : {}),
+		...(entry?.thinkingLevelMap ? { thinkingLevelMap: entry.thinkingLevelMap } : {}),
 	};
 }
 
@@ -118,10 +143,20 @@ function formFromProvider(provider: SettingsModelProvider | undefined): FormStat
 				input: (model.input ?? ["text"]).filter(
 					(value): value is "text" | "image" => value === "text" || value === "image",
 				),
+				...(model.reasoning === false ? { reasoning: false } : {}),
+				...(model.thinkingLevelMap ? { thinkingLevelMap: model.thinkingLevelMap } : {}),
 			}),
 		),
 	};
 }
+
+/**
+ * The context window a row is saved with when its field is left blank. The form
+ * writes it into `models.json` rather than leaving the key out, because the
+ * runtime's own fallback for a missing value is smaller; the field's placeholder
+ * names this number, so it has to be what is stored.
+ */
+const DEFAULT_CONTEXT_WINDOW = 1_000_000;
 
 /** The request body: rows without an id are dropped rather than rejected. */
 function modelsPayload(rows: readonly ModelRowState[]): Array<Record<string, unknown>> {
@@ -130,9 +165,11 @@ function modelsPayload(rows: readonly ModelRowState[]): Array<Record<string, unk
 		.map((row) => ({
 			id: row.id.trim(),
 			...(row.name.trim() ? { name: row.name.trim() } : {}),
-			...(Number(row.contextWindow) > 0 ? { contextWindow: Number(row.contextWindow) } : {}),
+			contextWindow: Number(row.contextWindow) > 0 ? Number(row.contextWindow) : DEFAULT_CONTEXT_WINDOW,
 			...(Number(row.maxTokens) > 0 ? { maxTokens: Number(row.maxTokens) } : {}),
 			...(row.input.length > 0 ? { input: row.input } : {}),
+			reasoning: row.reasoning !== false,
+			thinkingLevelMap: row.thinkingLevelMap ?? DEFAULT_THINKING_LEVEL_MAP,
 		}));
 }
 
@@ -572,48 +609,49 @@ export function ModelEditor({
 						<ul className="settings-model-rows">
 							{form.models.map((row) => (
 								<li className="settings-model-row" data-model-row={row.id || row.key} key={row.key}>
-									<input
-										className="mono"
-										aria-label={t("settingsModelsModelId")}
-										value={row.id}
-										placeholder="model-id"
-										spellCheck={false}
-										onChange={(event) => updateRow(row.key, { id: event.target.value })}
-									/>
-									<input
-										aria-label={t("settingsModelsModelName")}
-										value={row.name}
-										placeholder={t("settingsModelsModelName")}
-										onChange={(event) => updateRow(row.key, { name: event.target.value })}
-									/>
-									<input
-										type="number"
-										min="1"
-										aria-label={t("settingsModelsContextWindow")}
-										value={row.contextWindow}
-										placeholder="128000"
-										onChange={(event) => updateRow(row.key, { contextWindow: event.target.value })}
-									/>
-									<input
-										type="number"
-										min="1"
-										aria-label={t("settingsModelsMaxTokens")}
-										value={row.maxTokens}
-										placeholder="16384"
-										onChange={(event) => updateRow(row.key, { maxTokens: event.target.value })}
-									/>
-									<label className="settings-inline-check">
+									<label className="settings-model-field">
+										<span>{t("settingsModelsModelId")}</span>
 										<input
-											type="checkbox"
-											checked={row.input.includes("image")}
-											onChange={() =>
-												updateRow(row.key, {
-													input: row.input.includes("image") ? ["text"] : ["text", "image"],
-												})
-											}
+											className="mono"
+											value={row.id}
+											placeholder="model-id"
+											spellCheck={false}
+											onChange={(event) => updateRow(row.key, { id: event.target.value })}
 										/>
-										{t("settingsModelsImageInput")}
 									</label>
+									<label className="settings-model-field">
+										<span>{t("settingsModelsModelName")}</span>
+										<input
+											value={row.name}
+											placeholder={t("settingsModelsModelName")}
+											onChange={(event) => updateRow(row.key, { name: event.target.value })}
+										/>
+									</label>
+									<label className="settings-model-field">
+										<span>{t("settingsModelsContextWindow")}</span>
+										<input
+											type="number"
+											min="1"
+											value={row.contextWindow}
+											placeholder={t("settingsModelsContextWindowPlaceholder")}
+											onChange={(event) => updateRow(row.key, { contextWindow: event.target.value })}
+										/>
+									</label>
+									<div className="settings-model-field">
+										<span>{t("settingsModelsInputTypes")}</span>
+										<label className="settings-inline-check">
+											<input
+												type="checkbox"
+												checked={row.input.includes("image")}
+												onChange={() =>
+													updateRow(row.key, {
+														input: row.input.includes("image") ? ["text"] : ["text", "image"],
+													})
+												}
+											/>
+											{t("settingsModelsImageInput")}
+										</label>
+									</div>
 									<button
 										type="button"
 										className="settings-icon-action danger"

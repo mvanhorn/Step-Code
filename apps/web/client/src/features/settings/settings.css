@@ -1146,27 +1146,62 @@
 	cursor: pointer;
 }
 
-/* One catalog row: id, name, the two capacities, image input, remove. */
+/* One catalog row: a card of labelled fields — id, display name, context window,
+   input types — with its remove action beside them. Every field carries its own
+   title, so an empty row still says what goes where. */
 .settings-model-rows {
 	display: grid;
-	gap: 8px;
+	gap: 10px;
 	margin: 0;
 	padding: 0;
 	list-style: none;
 }
 .settings-model-row {
 	display: grid;
-	grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) 110px 110px auto auto;
-	align-items: center;
-	gap: 8px;
+	grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 0.9fr) auto auto;
+	align-items: start;
+	gap: 10px;
+	padding: 12px;
+	border: 1px solid var(--line);
+	border-radius: var(--radius-panel);
+	background: var(--surface-soft);
 }
-.settings-model-row input[type="text"],
-.settings-model-row input:not([type]) {
+.settings-model-field {
+	display: grid;
+	gap: 5px;
 	min-width: 0;
 }
-.settings-model-row input[type="number"] {
+.settings-model-field > span {
+	color: var(--ink-2);
+	font-size: 11.5px;
+	font-weight: 550;
+}
+.settings-model-field input:not([type="checkbox"]) {
 	width: 100%;
 	min-width: 0;
+	height: var(--control-h-md);
+	padding: 0 10px;
+	border: 1px solid var(--line);
+	border-radius: var(--radius-tiny);
+	outline: 0;
+	background: var(--canvas);
+	color: var(--ink);
+	/* Size only: the id field's .mono keeps its family. */
+	font-size: 12.5px;
+	transition:
+		border-color var(--fast),
+		box-shadow var(--fast);
+}
+/* The input-type checkbox sits inside the field grid as its control row. */
+.settings-model-field .settings-inline-check {
+	height: var(--control-h-md);
+}
+.settings-model-field input:focus {
+	border-color: var(--focus-border);
+	box-shadow: 0 0 0 3px var(--accent-ring);
+}
+.settings-model-row > .settings-icon-action {
+	margin-top: 18px;
 }
 
 /* The candidate picker 获取可用模型 opens. It is the shared `ui/Modal`; only the
@@ -1214,8 +1249,12 @@
 	margin-top: 12px;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1180px) {
 	.settings-model-row {
-		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+	}
+	.settings-model-row > .settings-icon-action {
+		grid-row: 1;
+		grid-column: 4;
 	}
 }
