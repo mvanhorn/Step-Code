@@ -1017,7 +1017,7 @@ test(
   async () => {
     const before = await browser.run(`
 		$("#fileTreeBack").click();
-		return { projects: projects(), tooltip: $("#addWorkspace").dataset.tooltip };
+		return { projects: projects(), tooltip: $("#addWorkspace + [role='tooltip']").textContent };
 	`)
     assert.deepEqual(before.projects, [])
     assert.match(before.tooltip, /O$/)
@@ -1475,6 +1475,72 @@ test(
   },
 )
 
+test("icon hints open on hover, centered above their trigger, and the open menu's trigger shows none", { skip }, async () => {
+  // A real pointer move, so CSS :hover applies; returns where the trigger's hint sits.
+  const hover = async (selector) => {
+    const box = await browser.run(`
+		const rect = (await until(() => $(${JSON.stringify(selector)}), "hint trigger")).getBoundingClientRect();
+		return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+	`)
+    await browser.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: box.x, y: box.y })
+    return browser.run(`
+		const trigger = $(${JSON.stringify(selector)});
+		const hint = trigger.nextElementSibling;
+		const shown = await until(() => hint && getComputedStyle(hint).display !== "none" && hint, "hint to show");
+		const a = trigger.getBoundingClientRect();
+		const b = shown.getBoundingClientRect();
+		return {
+			role: shown.getAttribute("role"),
+			text: shown.textContent,
+			describedBy: trigger.getAttribute("aria-describedby") === shown.id,
+			centerOffset: Math.round((b.left + b.width / 2) - (a.left + a.width / 2)),
+			above: b.bottom <= a.top,
+		};
+	`)
+  }
+  const tree = await hover("#projectGroups .project-group .tree-button")
+  assert.equal(tree.role, "tooltip")
+  assert.ok(tree.text.trim(), "the tree button's hint has text")
+  // Same words as the aria-label: not announced twice.
+  assert.equal(tree.describedBy, false)
+  assert.ok(Math.abs(tree.centerOffset) <= 1, `hint off center by ${tree.centerOffset}px`)
+  assert.equal(tree.above, true)
+
+  // Rich content: the footer's settings hint is an element, linked to its button.
+  const settings = await hover("#settingsButton")
+  assert.equal(settings.role, "tooltip")
+  assert.equal(settings.describedBy, true)
+  assert.equal(settings.above, true)
+
+  // Settings icon buttons never had a visible hint before the Tooltip component.
+  await browser.run(`
+		$("#settingsButton").click();
+		await until(() => !$("#settingsView").hidden, "settings view");
+		$("[data-settings-page='mcp']").click();
+	`)
+  const refresh = await hover("#settingsView .settings-icon-action.bordered")
+  assert.equal(refresh.role, "tooltip")
+  assert.ok(Math.abs(refresh.centerOffset) <= 1, `hint off center by ${refresh.centerOffset}px`)
+  assert.equal(refresh.above, true)
+  await browser.run(`
+		document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+		await until(() => $("#settingsView").hidden, "settings view to close");
+	`)
+
+  const open = await browser.run(`
+		const button = $("#projectGroups .project-group .workspace-menu-button");
+		const before = button.nextElementSibling?.getAttribute("role");
+		button.click();
+		await until(() => !$("#workspaceMenu").hidden, "workspace menu to open");
+		const during = button.nextElementSibling?.getAttribute("role") ?? null;
+		button.click();
+		await until(() => $("#workspaceMenu").hidden, "workspace menu to close");
+		return { before, during };
+	`)
+  assert.deepEqual(open, { before: "tooltip", during: null })
+  await browser.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 0, y: 0 })
+})
+
 test(
   "the workspace more menu closes on outside click and Escape returns focus to its trigger",
   { skip },
@@ -1839,11 +1905,12 @@ test("a subagent or workflow call opens its child agents' transcripts read-only 
     $('.tool-child-link[data-workflow-run="${run}"]').click();
     await until(() => !view.hidden && view.textContent.includes("First agent answer."), "first workflow agent");
     const agentTabs = $$(".child-agent-tab").map((tab) => tab.textContent);
+    const tabHints = $$(".child-agent-tab").map((tab) => tab.nextElementSibling?.getAttribute("role") === "tooltip" && tab.nextElementSibling.textContent);
     $$(".child-agent-tab")[1].click();
     await until(() => view.textContent.includes("Second agent answer."), "second workflow agent");
     $("#childAgentBack").click();
     await until(() => view.hidden, "child view closed");
-    return { ...single, tabs: agentTabs };
+    return { ...single, tabs: agentTabs, tabHints };
   `)
   assert.deepEqual(seen, {
     listedChildren: 0,
@@ -1851,6 +1918,7 @@ test("a subagent or workflow call opens its child agents' transcripts read-only 
     actions: 0,
     activeRow: parentId,
     tabs: ["#1first workflow agent", "#2second workflow agent"],
+    tabHints: ["first workflow agent", "second workflow agent"],
   })
 
   const refused = await browser.run(`

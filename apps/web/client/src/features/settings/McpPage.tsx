@@ -11,7 +11,7 @@ import { apiSend, errorMessage } from "../../lib/api";
 import { showError } from "../../state/session";
 import { useAppStore } from "../../state/store";
 import type { SettingsMcpServer } from "../../state/types";
-import { Icon, IconButton, SearchInput, Switch } from "../../ui";
+import { Icon, IconButton, SearchInput, Switch, Tooltip } from "../../ui";
 import { closeSettingsEditor, openSettingsEditor, useSettingsResource } from "./actions";
 import { McpEditor } from "./McpEditor";
 import { Badge, EmptyBox, PageHeader, ResourceState, SectionHeader, SettingsCard, StatusDot } from "./parts";
@@ -70,22 +70,24 @@ function McpRow({
 			<div className="settings-list-actions">
 				{server.source === "user" ? (
 					<>
-						<IconButton
-							icon="pencil"
-							iconSize="xs"
-							className="settings-icon-action"
-							aria-label={t("settingsEdit")}
-							data-tooltip={t("settingsEdit")}
-							onClick={() => openSettingsEditor({ kind: "mcp", name: server.name })}
-						/>
-						<IconButton
-							icon="trash"
-							iconSize="xs"
-							className="settings-icon-action danger"
-							aria-label={t("settingsDelete")}
-							data-tooltip={t("settingsDelete")}
-							onClick={onDelete}
-						/>
+						<Tooltip content={t("settingsEdit")}>
+							<IconButton
+								icon="pencil"
+								iconSize="xs"
+								className="settings-icon-action"
+								aria-label={t("settingsEdit")}
+								onClick={() => openSettingsEditor({ kind: "mcp", name: server.name })}
+							/>
+						</Tooltip>
+						<Tooltip content={t("settingsDelete")}>
+							<IconButton
+								icon="trash"
+								iconSize="xs"
+								className="settings-icon-action danger"
+								aria-label={t("settingsDelete")}
+								onClick={onDelete}
+							/>
+						</Tooltip>
 					</>
 				) : null}
 				<Switch
@@ -174,14 +176,15 @@ export function McpPage() {
 				count={users.length}
 				actions={
 					<>
-						<IconButton
-							icon="refresh"
-							iconSize="xs"
-							className="settings-icon-action bordered"
-							aria-label={t("settingsRefresh")}
-							data-tooltip={t("settingsRefresh")}
-							onClick={resource.reload}
-						/>
+						<Tooltip content={t("settingsRefresh")}>
+							<IconButton
+								icon="refresh"
+								iconSize="xs"
+								className="settings-icon-action bordered"
+								aria-label={t("settingsRefresh")}
+								onClick={resource.reload}
+							/>
+						</Tooltip>
 						<button
 							type="button"
 							className="settings-btn"

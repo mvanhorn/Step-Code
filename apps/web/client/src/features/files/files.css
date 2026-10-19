@@ -471,7 +471,7 @@
 	outline: 2px solid var(--focus-border);
 	outline-offset: -2px;
 }
-/* Full path on hover, like the sidebar's data-tooltip. */
+/* Full path on hover, under the row (a wide hint the icon `Tooltip` does not suit). */
 .changes-file-toggle[data-tooltip] {
 	position: relative;
 }

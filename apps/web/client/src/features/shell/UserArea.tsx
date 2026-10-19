@@ -7,7 +7,7 @@
 import { type TranslateFn, useT } from "../../i18n";
 import { useAppStore } from "../../state/store";
 import type { LoginReport } from "../../state/types";
-import { Icon } from "../../ui";
+import { Icon, Tooltip } from "../../ui";
 import { openSettings } from "../settings/actions";
 
 function accountName(t: TranslateFn, login: LoginReport | null): string {
@@ -35,37 +35,41 @@ export function UserArea() {
 				<span className="user-name">{name}</span>
 			</button>
 			<div className="user-actions">
-				<span className="footer-tip-anchor">
+				<Tooltip
+					id="remoteControlTip"
+					className="footer-tooltip"
+					content={
+						<>
+							<strong>{t("remoteControl")}</strong>
+							<span>{t("remoteControlOff")}</span>
+						</>
+					}
+				>
 					<button
 						type="button"
 						className="footer-icon-button"
 						id="remoteControlButton"
 						aria-label={t("remoteControl")}
-						aria-describedby="remoteControlTip"
 						aria-disabled="true"
 					>
 						<Icon name="phone" size="md" />
 					</button>
-					<span className="footer-tooltip" id="remoteControlTip" role="tooltip">
-						<strong>{t("remoteControl")}</strong>
-						<span>{t("remoteControlOff")}</span>
-					</span>
-				</span>
-				<span className="footer-tip-anchor">
+				</Tooltip>
+				<Tooltip
+					id="settingsButtonTip"
+					className="footer-tooltip compact"
+					content={<strong>{t("settings")}</strong>}
+				>
 					<button
 						type="button"
 						className="footer-icon-button"
 						id="settingsButton"
 						aria-label={t("settings")}
-						aria-describedby="settingsButtonTip"
 						onClick={() => openSettings()}
 					>
 						<Icon name="cog" size="md" />
 					</button>
-					<span className="footer-tooltip compact" id="settingsButtonTip" role="tooltip">
-						<strong>{t("settings")}</strong>
-					</span>
-				</span>
+				</Tooltip>
 			</div>
 		</div>
 	);

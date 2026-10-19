@@ -18,7 +18,7 @@ import { apiSend, errorMessage } from "../../lib/api";
 import { showError } from "../../state/session";
 import type { SettingsEditor } from "../../state/store";
 import type { DiscoveredModelEntry, SettingsModelProvider } from "../../state/types";
-import { Icon, IconButton, Modal, SearchInput, Spinner } from "../../ui";
+import { Icon, IconButton, Modal, SearchInput, Spinner, Tooltip } from "../../ui";
 import { SettingsSelect } from "./parts";
 
 const MODELS_PATH = "/api/v1/settings/models";
@@ -657,17 +657,18 @@ export function ModelEditor({
 											{t("settingsModelsImageInput")}
 										</label>
 									</div>
-									<button
-										type="button"
-										className="settings-icon-action danger"
-										aria-label={t("settingsDelete")}
-										data-tooltip={t("settingsDelete")}
-										onClick={() =>
-											update({ models: form.models.filter((candidate) => candidate.key !== row.key) })
-										}
-									>
-										<Icon name="trash" size="xs" />
-									</button>
+									<Tooltip content={t("settingsDelete")}>
+										<button
+											type="button"
+											className="settings-icon-action danger"
+											aria-label={t("settingsDelete")}
+											onClick={() =>
+												update({ models: form.models.filter((candidate) => candidate.key !== row.key) })
+											}
+										>
+											<Icon name="trash" size="xs" />
+										</button>
+									</Tooltip>
 								</li>
 							))}
 						</ul>

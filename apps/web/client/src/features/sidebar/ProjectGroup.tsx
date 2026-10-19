@@ -4,7 +4,7 @@ import { basename, cx } from "../../lib/format";
 import { startDraft } from "../../state/session";
 import { useAppStore } from "../../state/store";
 import type { SessionSummary } from "../../state/types";
-import { EmptyState, Icon, IconButton, LEGACY_ICONS } from "../../ui";
+import { EmptyState, Icon, IconButton, LEGACY_ICONS, Tooltip } from "../../ui";
 import { openTree } from "../files/actions";
 import { closeWorkspaceMenu, toggleProjectFolded, toggleWorkspaceMenu } from "./actions";
 import { SessionRow } from "./SessionRow";
@@ -41,36 +41,40 @@ export function ProjectGroup({ cwd, sessions, folded, hiddenIds, filteredOut }: 
 				<Icon {...LEGACY_ICONS.folder} />
 				<span className="project-name">{basename(cwd)}</span>
 				<span className={cx("project-actions", menuOpen && "menu-open")}>
-					<IconButton
-						className="project-action workspace-menu-button"
-						data-tooltip={menuOpen ? undefined : t("moreActions")}
-						aria-label={t("moreActions")}
-						aria-haspopup="menu"
-						aria-expanded={menuOpen}
-						aria-controls="workspaceMenu"
-						onClick={(event) => {
-							event.stopPropagation();
-							toggleWorkspaceMenu(cwd, event.currentTarget);
-						}}
-					>
-						<Icon {...LEGACY_ICONS.more} />
-					</IconButton>
-					<IconButton
-						className="project-action tree-button"
-						data-tooltip={t("fileTree")}
-						aria-label={t("fileTree")}
-						onClick={action(() => void openTree({ cwd }))}
-					>
-						<Icon {...LEGACY_ICONS.tree} />
-					</IconButton>
-					<IconButton
-						className="project-action new-project-session"
-						data-tooltip={t("newConversationInWorkspace")}
-						aria-label={t("newConversationInWorkspace")}
-						onClick={action(() => startDraft(cwd))}
-					>
-						<Icon {...LEGACY_ICONS.plus} />
-					</IconButton>
+					{/* No hint while its menu is open: the menu already says what the button did. */}
+					<Tooltip content={menuOpen ? null : t("moreActions")}>
+						<IconButton
+							className="project-action workspace-menu-button"
+							aria-label={t("moreActions")}
+							aria-haspopup="menu"
+							aria-expanded={menuOpen}
+							aria-controls="workspaceMenu"
+							onClick={(event) => {
+								event.stopPropagation();
+								toggleWorkspaceMenu(cwd, event.currentTarget);
+							}}
+						>
+							<Icon {...LEGACY_ICONS.more} />
+						</IconButton>
+					</Tooltip>
+					<Tooltip content={t("fileTree")}>
+						<IconButton
+							className="project-action tree-button"
+							aria-label={t("fileTree")}
+							onClick={action(() => void openTree({ cwd }))}
+						>
+							<Icon {...LEGACY_ICONS.tree} />
+						</IconButton>
+					</Tooltip>
+					<Tooltip content={t("newConversationInWorkspace")}>
+						<IconButton
+							className="project-action new-project-session"
+							aria-label={t("newConversationInWorkspace")}
+							onClick={action(() => startDraft(cwd))}
+						>
+							<Icon {...LEGACY_ICONS.plus} />
+						</IconButton>
+					</Tooltip>
 				</span>
 			</div>
 			<div className="project-sessions">

@@ -11,7 +11,7 @@ import { getDesktopBridge } from "../../platform/host";
 import { showError } from "../../state/session";
 import { useAppStore } from "../../state/store";
 import type { SettingsSkill } from "../../state/types";
-import { Icon, IconButton, Modal, SearchInput, Switch } from "../../ui";
+import { Icon, IconButton, Modal, SearchInput, Switch, Tooltip } from "../../ui";
 import {
 	closeSettingsDialog,
 	closeSettingsEditor,
@@ -59,14 +59,15 @@ function SkillRow({
 			</div>
 			<div className="settings-list-actions">
 				{skill.deletable ? (
-					<IconButton
-						icon="trash"
-						iconSize="xs"
-						className="settings-icon-action danger"
-						aria-label={t("settingsDelete")}
-						data-tooltip={t("settingsDelete")}
-						onClick={onDelete}
-					/>
+					<Tooltip content={t("settingsDelete")}>
+						<IconButton
+							icon="trash"
+							iconSize="xs"
+							className="settings-icon-action danger"
+							aria-label={t("settingsDelete")}
+							onClick={onDelete}
+						/>
+					</Tooltip>
 				) : null}
 				{skill.toggleable ? (
 					<Switch
@@ -359,14 +360,15 @@ export function SkillsPage() {
 				}
 				actions={
 					<>
-						<IconButton
-							icon="refresh"
-							iconSize="xs"
-							className="settings-icon-action bordered"
-							aria-label={t("settingsRefresh")}
-							data-tooltip={t("settingsRefresh")}
-							onClick={resource.reload}
-						/>
+						<Tooltip content={t("settingsRefresh")}>
+							<IconButton
+								icon="refresh"
+								iconSize="xs"
+								className="settings-icon-action bordered"
+								aria-label={t("settingsRefresh")}
+								onClick={resource.reload}
+							/>
+						</Tooltip>
 						<button type="button" className="settings-btn" onClick={() => openSettingsDialog("skillImport")}>
 							<Icon name="download" size="xs" />
 							{t("settingsImport")}

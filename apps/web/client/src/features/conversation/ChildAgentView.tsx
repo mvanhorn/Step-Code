@@ -5,7 +5,7 @@ import { cx } from "../../lib/format";
 import { timelineFromEntries } from "../../state/session";
 import { setUi, useAppStore } from "../../state/store";
 import type { ChildAgentSummary, ChildSessionSnapshot } from "../../state/types";
-import { Icon, IconButton } from "../../ui";
+import { Icon, IconButton, Tooltip } from "../../ui";
 import { closeChildAgent } from "./actions";
 import { MessageItem } from "./MessageItem";
 import { ToolRow } from "./TimelineRows";
@@ -94,19 +94,19 @@ export function ChildAgentView() {
 			{workflowRun && agents.value?.length ? (
 				<div className="child-agent-tabs" role="tablist" aria-label={t("childAgentList")}>
 					{agents.value.map((agent, index) => (
-						<button
-							key={agent.id}
-							type="button"
-							role="tab"
-							aria-selected={agent.id === childId}
-							className={cx("child-agent-tab", agent.id === childId && "active")}
-							data-child-session-id={agent.id}
-							data-tooltip={agent.title}
-							onClick={() => selectAgent(agent.id)}
-						>
-							<span className="child-agent-tab-index">#{index + 1}</span>
-							<span>{agent.title || agent.id}</span>
-						</button>
+						<Tooltip key={agent.id} content={agent.title}>
+							<button
+								type="button"
+								role="tab"
+								aria-selected={agent.id === childId}
+								className={cx("child-agent-tab", agent.id === childId && "active")}
+								data-child-session-id={agent.id}
+								onClick={() => selectAgent(agent.id)}
+							>
+								<span className="child-agent-tab-index">#{index + 1}</span>
+								<span>{agent.title || agent.id}</span>
+							</button>
+						</Tooltip>
 					))}
 				</div>
 			) : null}

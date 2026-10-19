@@ -6,7 +6,7 @@ import { displayPath, parsedPatch } from "../../lib/turn-changes";
 import { copyText } from "../../state/session";
 import { useAppStore } from "../../state/store";
 import type { FileChange, ToolArgs, ToolTimelineItem } from "../../state/types";
-import { DiffStat, Icon, type IconName } from "../../ui";
+import { DiffStat, Icon, type IconName, Tooltip } from "../../ui";
 import { openFile } from "../files/actions";
 import { fileLanguage, highlightLines } from "../files/index";
 import { openChildAgent, openWorkflowAgents } from "./actions";
@@ -243,37 +243,35 @@ function CardHead({
 			<span className={cx("tool-cx-state", item.state)} aria-hidden="true" />
 			<code className="tool-cx-summary">{text}</code>
 			{openable ? (
-				<button
-					type="button"
-					className="tool-cx-action list-action"
-					data-tooltip={t("toolOpenFile")}
-					aria-label={t("toolOpenFile")}
-					onClick={() => void openFile(cwd, openable)}
-				>
-					<Icon name="open" size="xs" />
-				</button>
+				<Tooltip content={t("toolOpenFile")}>
+					<button
+						type="button"
+						className="tool-cx-action"
+						aria-label={t("toolOpenFile")}
+						onClick={() => void openFile(cwd, openable)}
+					>
+						<Icon name="open" size="xs" />
+					</button>
+				</Tooltip>
 			) : null}
 			{onWrap ? (
-				<button
-					type="button"
-					className={cx("tool-cx-action list-action", wrap && "active")}
-					data-tooltip={t("toolWrapLines")}
-					aria-label={t("toolWrapLines")}
-					aria-pressed={wrap}
-					onClick={onWrap}
-				>
-					<Icon name="wrap" size="xs" />
-				</button>
+				<Tooltip content={t("toolWrapLines")}>
+					<button
+						type="button"
+						className={cx("tool-cx-action", wrap && "active")}
+						aria-label={t("toolWrapLines")}
+						aria-pressed={wrap}
+						onClick={onWrap}
+					>
+						<Icon name="wrap" size="xs" />
+					</button>
+				</Tooltip>
 			) : null}
-			<button
-				type="button"
-				className="tool-cx-action list-action"
-				data-tooltip={copyLabel}
-				aria-label={copyLabel}
-				onClick={onCopy}
-			>
-				<Icon name={copied ? "check" : "copy"} size="xs" />
-			</button>
+			<Tooltip content={copyLabel}>
+				<button type="button" className="tool-cx-action" aria-label={copyLabel} onClick={onCopy}>
+					<Icon name={copied ? "check" : "copy"} size="xs" />
+				</button>
+			</Tooltip>
 		</div>
 	);
 }

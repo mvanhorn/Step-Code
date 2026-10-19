@@ -5,6 +5,9 @@
  *   can keep the legacy ids and classes the tests and feature CSS rely on;
  * - overlays stay mounted and toggle the native `hidden` attribute.
  *
+ * apps/web/AGENTS.md ("Shared UI components") lists what each export is for;
+ * add a row there with every new export.
+ *
  * main.tsx imports this barrel before App so that the CSS Modules here load
  * before feature CSS, letting the legacy feature rules override them.
  */
@@ -35,3 +38,4 @@ export { ShimmerText } from "./ShimmerText/ShimmerText";
 export { Spinner } from "./Spinner/Spinner";
 export { Switch, type SwitchProps } from "./Switch/Switch";
 export { Toast, type ToastProps, type ToastTone } from "./Toast/Toast";
+export { Tooltip, type TooltipProps, type TooltipTriggerProps } from "./Tooltip/Tooltip";

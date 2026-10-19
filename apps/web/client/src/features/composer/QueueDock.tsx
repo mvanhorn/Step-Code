@@ -11,7 +11,7 @@ import { useT } from "../../i18n";
 import { useImeGuard } from "../../lib/ime";
 import { setUi, useAppStore } from "../../state/store";
 import type { QueuedMessage } from "../../state/types";
-import { Icon } from "../../ui";
+import { Icon, Tooltip } from "../../ui";
 import { turnActive, updateQueued } from "./actions";
 
 const NO_QUEUE: readonly QueuedMessage[] = [];
@@ -129,62 +129,67 @@ export function QueueDock() {
 							<div className="queue-row-actions">
 								{isEditing ? (
 									<>
-										<button
-											type="button"
-											className="queue-action list-action"
-											aria-label={t("queueSave")}
-											data-tooltip={t("queueSave")}
-											disabled={busy !== null || !editing.text.trim()}
-											onClick={() => void save()}
-										>
-											<Icon name="check" size="sm" />
-										</button>
-										<button
-											type="button"
-											className="queue-action list-action"
-											aria-label={t("queueCancelEdit")}
-											data-tooltip={t("queueCancelEdit")}
-											disabled={busy !== null}
-											onClick={stopEditing}
-										>
-											<Icon name="close" size="sm" />
-										</button>
+										<Tooltip content={t("queueSave")}>
+											<button
+												type="button"
+												className="queue-action"
+												aria-label={t("queueSave")}
+												disabled={busy !== null || !editing.text.trim()}
+												onClick={() => void save()}
+											>
+												<Icon name="check" size="sm" />
+											</button>
+										</Tooltip>
+										<Tooltip content={t("queueCancelEdit")}>
+											<button
+												type="button"
+												className="queue-action"
+												aria-label={t("queueCancelEdit")}
+												disabled={busy !== null}
+												onClick={stopEditing}
+											>
+												<Icon name="close" size="sm" />
+											</button>
+										</Tooltip>
 									</>
 								) : (
 									<>
-										<button
-											type="button"
-											className="queue-action list-action"
-											aria-label={t("queueEdit")}
-											data-tooltip={t("queueEdit")}
-											data-queue-action="edit"
-											disabled={busy !== null}
-											onClick={() => setEditing({ id: item.id, text: item.text })}
-										>
-											<Icon name="pencil" size="sm" />
-										</button>
-										<button
-											type="button"
-											className="queue-action list-action"
-											aria-label={t("queueRemove")}
-											data-tooltip={t("queueRemove")}
-											data-queue-action="remove"
-											disabled={busy !== null}
-											onClick={() => void run(item.id, { kind: "remove", id: item.id })}
-										>
-											<Icon name="trash" size="sm" />
-										</button>
-										<button
-											type="button"
-											className="queue-action queue-action--now list-action"
-											aria-label={sendNowTip}
-											data-tooltip={sendNowTip}
-											data-queue-action="steer"
-											disabled={busy !== null}
-											onClick={() => void run(item.id, { kind: "steer", id: item.id })}
-										>
-											<Icon name="up" size="sm" />
-										</button>
+										<Tooltip content={t("queueEdit")}>
+											<button
+												type="button"
+												className="queue-action"
+												aria-label={t("queueEdit")}
+												data-queue-action="edit"
+												disabled={busy !== null}
+												onClick={() => setEditing({ id: item.id, text: item.text })}
+											>
+												<Icon name="pencil" size="sm" />
+											</button>
+										</Tooltip>
+										<Tooltip content={t("queueRemove")}>
+											<button
+												type="button"
+												className="queue-action"
+												aria-label={t("queueRemove")}
+												data-queue-action="remove"
+												disabled={busy !== null}
+												onClick={() => void run(item.id, { kind: "remove", id: item.id })}
+											>
+												<Icon name="trash" size="sm" />
+											</button>
+										</Tooltip>
+										<Tooltip content={sendNowTip}>
+											<button
+												type="button"
+												className="queue-action queue-action--now"
+												aria-label={sendNowTip}
+												data-queue-action="steer"
+												disabled={busy !== null}
+												onClick={() => void run(item.id, { kind: "steer", id: item.id })}
+											>
+												<Icon name="up" size="sm" />
+											</button>
+										</Tooltip>
 									</>
 								)}
 							</div>

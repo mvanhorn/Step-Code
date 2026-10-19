@@ -17,7 +17,7 @@ import {
 } from "../../lib/turn-changes";
 import { copyText } from "../../state/session";
 import { setUi, useAppStore } from "../../state/store";
-import { DiffStat, Icon, IconButton, Menu, MenuItem, Popover } from "../../ui";
+import { DiffStat, Icon, IconButton, Menu, MenuItem, Popover, Tooltip } from "../../ui";
 import {
 	openFile,
 	openTurnChanges,
@@ -128,26 +128,28 @@ function FileRow({
 					</span>
 					<DiffStat additions={file.additions} deletions={file.deletions} />
 				</button>
-				<IconButton
-					className="changes-file-action list-action"
-					icon="openExternal"
-					iconSize="xs"
-					data-tooltip={t("openFile")}
-					aria-label={t("openFile")}
-					disabled={!inWorkspace || !cwd}
-					onClick={() => void openFile(cwd, file.path)}
-				/>
-				<IconButton
-					ref={moreRef}
-					className="changes-file-action list-action"
-					icon="more"
-					iconSize="xs"
-					data-tooltip={t("moreActions")}
-					aria-label={t("moreActions")}
-					aria-haspopup="menu"
-					aria-expanded={menuOpen}
-					onClick={() => setUi({ changesMenu: menuOpen ? null : menuKey })}
-				/>
+				<Tooltip content={t("openFile")}>
+					<IconButton
+						className="changes-file-action"
+						icon="openExternal"
+						iconSize="xs"
+						aria-label={t("openFile")}
+						disabled={!inWorkspace || !cwd}
+						onClick={() => void openFile(cwd, file.path)}
+					/>
+				</Tooltip>
+				<Tooltip content={t("moreActions")}>
+					<IconButton
+						ref={moreRef}
+						className="changes-file-action"
+						icon="more"
+						iconSize="xs"
+						aria-label={t("moreActions")}
+						aria-haspopup="menu"
+						aria-expanded={menuOpen}
+						onClick={() => setUi({ changesMenu: menuOpen ? null : menuKey })}
+					/>
+				</Tooltip>
 				<Popover
 					className="changes-menu changes-file-menu"
 					open={menuOpen}
@@ -259,18 +261,18 @@ export function ChangesView({ hidden }: { readonly hidden: boolean }) {
 					</Popover>
 				</div>
 				<div className="changes-pill changes-tools">
-					<IconButton
-						ref={moreRef}
-						className="list-action"
-						icon="more"
-						iconSize="sm"
-						data-tooltip={t("moreActions")}
-						aria-label={t("moreActions")}
-						aria-haspopup="menu"
-						aria-expanded={menu === "more"}
-						disabled={!turn}
-						onClick={() => setUi({ changesMenu: menu === "more" ? null : "more" })}
-					/>
+					<Tooltip content={t("moreActions")}>
+						<IconButton
+							ref={moreRef}
+							icon="more"
+							iconSize="sm"
+							aria-label={t("moreActions")}
+							aria-haspopup="menu"
+							aria-expanded={menu === "more"}
+							disabled={!turn}
+							onClick={() => setUi({ changesMenu: menu === "more" ? null : "more" })}
+						/>
+					</Tooltip>
 					<Popover
 						className="changes-menu changes-more-menu"
 						open={menu === "more"}
@@ -308,23 +310,23 @@ export function ChangesView({ hidden }: { readonly hidden: boolean }) {
 							</MenuItem>
 						</Menu>
 					</Popover>
-					<IconButton
-						className="list-action"
-						icon="fileSearch"
-						iconSize="sm"
-						data-tooltip={t("showOpenFiles")}
-						aria-label={t("showOpenFiles")}
-						disabled={!hasTabs}
-						onClick={showPreviewFiles}
-					/>
-					<IconButton
-						className="list-action"
-						icon="panelRight"
-						iconSize="sm"
-						data-tooltip={t("closePreview")}
-						aria-label={t("closePreview")}
-						onClick={() => setPreviewOpen(false)}
-					/>
+					<Tooltip content={t("showOpenFiles")}>
+						<IconButton
+							icon="fileSearch"
+							iconSize="sm"
+							aria-label={t("showOpenFiles")}
+							disabled={!hasTabs}
+							onClick={showPreviewFiles}
+						/>
+					</Tooltip>
+					<Tooltip content={t("closePreview")}>
+						<IconButton
+							icon="panelRight"
+							iconSize="sm"
+							aria-label={t("closePreview")}
+							onClick={() => setPreviewOpen(false)}
+						/>
+					</Tooltip>
 				</div>
 			</div>
 			{turn ? (

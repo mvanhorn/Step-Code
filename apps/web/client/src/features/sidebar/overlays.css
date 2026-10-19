@@ -1,4 +1,4 @@
-/* Search modal, session menu, tooltips and tag picker: legacy styles.css 1146-1277, 1332-1388. */
+/* Search modal, session menu and tag picker: legacy styles.css 1146-1277, 1332-1388. */
 .search-overlay {
 	position: fixed;
 	inset: 0;
@@ -172,46 +172,6 @@
 }
 .context-menu button.danger {
 	color: var(--ink);
-}
-.project-action[data-tooltip],
-.list-action[data-tooltip] {
-	position: relative;
-	anchor-name: --icon-tooltip;
-	anchor-scope: --icon-tooltip;
-}
-/*
- * Placement "top": centered over the icon. Fixed to the icon's anchor so scroll
- * containers do not clip it. Only when the viewport edge leaves no room for a
- * centered hint does `top center` shift it inward, keeping an 8px margin.
- */
-.project-action[data-tooltip]::after,
-.list-action[data-tooltip]::after {
-	position: fixed;
-	position-anchor: --icon-tooltip;
-	position-area: top center;
-	inset: auto;
-	margin: 0 8px 6px;
-	z-index: 40;
-	display: none;
-	width: max-content;
-	max-width: 180px;
-	padding: 5px 8px;
-	border: 1px solid var(--line);
-	border-radius: var(--radius-input);
-	background: var(--surface);
-	color: var(--ink-2);
-	box-shadow: 0 6px 18px var(--shadow);
-	content: attr(data-tooltip);
-	font-size: 11px;
-	font-weight: 400;
-	pointer-events: none;
-	white-space: nowrap;
-}
-.project-action[data-tooltip]:hover::after,
-.project-action[data-tooltip]:focus-visible::after,
-.list-action[data-tooltip]:hover::after,
-.list-action[data-tooltip]:focus-visible::after {
-	display: block;
 }
 .tag-picker {
 	position: fixed;

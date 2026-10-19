@@ -745,7 +745,7 @@
 	color: var(--ink-3);
 	font-size: 12px;
 }
-/* Full path on hover, like the sidebar's data-tooltip; above the row, since the card clips what overflows it. */
+/* Full path on hover, above the row, since the card clips what overflows it. */
 .turn-change-file[data-tooltip] {
 	position: relative;
 }

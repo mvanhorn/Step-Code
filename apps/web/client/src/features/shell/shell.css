@@ -67,12 +67,6 @@
 	flex: none;
 	gap: 2px;
 }
-.footer-tip-anchor {
-	position: relative;
-	display: inline-flex;
-	anchor-name: --footer-tooltip;
-	anchor-scope: --footer-tooltip;
-}
 .footer-icon-button {
 	display: inline-grid;
 	place-items: center;
@@ -92,51 +86,27 @@
 .footer-icon-button[aria-disabled="true"] {
 	cursor: default;
 }
-/*
- * Hover card with placement "top": centered over its button. Fixed to the
- * button's anchor so the sidebar's overflow does not clip it; `top center`
- * shifts it inward only when a viewport edge leaves no room to center.
- */
+/* The footer's `Tooltip` hints: a title with an optional note, larger than an icon's hint. */
 .footer-tooltip {
-	position: fixed;
-	position-anchor: --footer-tooltip;
-	position-area: top center;
-	inset: auto;
-	margin: 0 8px 10px;
-	z-index: 30;
-	display: grid;
-	gap: 3px;
-	width: max-content;
-	max-width: 220px;
+	margin-bottom: 10px;
 	padding: 10px 14px;
-	border: 1px solid var(--line);
 	border-radius: var(--radius-overlay);
-	background: var(--surface);
 	box-shadow: 0 12px 32px var(--shadow);
 	color: var(--ink);
 	font-size: 12px;
-	text-align: left;
-	opacity: 0;
-	pointer-events: none;
-	transform: translateY(4px);
-	transition:
-		opacity var(--fast),
-		transform var(--fast);
 }
 .footer-tooltip strong {
+	display: block;
 	font-size: 13px;
 	font-weight: 650;
 }
 .footer-tooltip span {
+	display: block;
+	margin-top: 3px;
 	color: var(--ink-3);
 }
 .footer-tooltip.compact {
 	padding: 6px 11px;
-}
-.footer-tip-anchor:hover .footer-tooltip,
-.footer-icon-button:focus-visible + .footer-tooltip {
-	opacity: 1;
-	transform: translateY(0);
 }
 
 /* Fixed, so the toast also shows above the settings view and its dialogs. */
