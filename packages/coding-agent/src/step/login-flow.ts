@@ -11,8 +11,8 @@ import {
 import { detectTerminalBackgroundFromEnv, initTheme, resolveThemeSetting, theme } from "../theme/theme.ts";
 import { openBrowser } from "../utils/open-browser.ts";
 import { resolveStepAgentDir } from "./environment.ts";
-import { type StepApiKeyValidation, validateStepApiKey } from "./login-status.ts";
 import { buildStepLoginState, clearStepLoginState, saveStepLoginState } from "./login-state.ts";
+import { type StepApiKeyValidation, validateStepApiKey } from "./login-status.ts";
 import {
 	INITIAL_STEP_LOGIN_STEP,
 	isStepLoginSettled,
