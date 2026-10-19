@@ -1390,8 +1390,11 @@ test("Full Access needs the risk dialog: the host asks, cancel keeps the tier, a
   const draft = await browser.run(`
     (await until(() => $("#newSession"), "new chat")).click();
     await until(() => !$("#workspaceControl").hidden, "draft composer");
-    // Above the card, not inside it.
-    const pillAboveCard = $("#workspaceControl").nextElementSibling === $(".composer-card")
+    // Above the card, not inside it. The queue dock sits between them but stays hidden while the queue is empty.
+    let nextShown = $("#workspaceControl").nextElementSibling;
+    while (nextShown?.hidden) nextShown = nextShown.nextElementSibling;
+    const pillAboveCard = $(".queue-dock").hidden
+      && nextShown === $(".composer-card")
       && $("#workspaceControl").getBoundingClientRect().bottom <= $(".composer-card").getBoundingClientRect().top;
     $("#workspaceButton").click();
     const popover = await until(() => !$("#workspacePopover").hidden && $("#workspacePopover"), "workspace popover");
