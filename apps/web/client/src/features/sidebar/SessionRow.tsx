@@ -4,8 +4,10 @@ import { cx } from "../../lib/format";
 import { openSession, sessionTitle, taskStatus } from "../../state/session";
 import { mapWith, setState, shallowEqual, useAppStore } from "../../state/store";
 import type { SessionSummary } from "../../state/types";
-import { Icon, LEGACY_ICONS } from "../../ui";
-import { applyTagFilter, openSessionMenu, openTagPicker } from "./actions";
+import { Icon, LEGACY_ICONS, Popover } from "../../ui";
+import { applyTagFilter, closeSessionMenu, closeTagPicker, toggleSessionMenu, toggleTagPicker } from "./actions";
+import { SessionMenu } from "./SessionMenu";
+import { TagPicker } from "./TagPicker";
 import { cssVar, groupName, TAG_COLORS } from "./tags";
 
 export interface SessionRowProps {
@@ -21,6 +23,8 @@ export function SessionRow({ session, grouped = false, filteredOut = false }: Se
 	const t = useT();
 	const row = useAppStore((state) => {
 		const tag = state.tags.get(session.id);
+		// The project and grouped views both render a row per session; only the visible one owns its menus.
+		const inView = state.currentView === (grouped ? "group" : "project");
 		return {
 			status: taskStatus(state, session),
 			unread: state.unreadById.get(session.id) === true,
@@ -29,6 +33,8 @@ export function SessionRow({ session, grouped = false, filteredOut = false }: Se
 			tagName: tag ? groupName(state.groups, tag) : "",
 			view: state.currentView,
 			filter: state.currentFilter,
+			menuOpen: inView && state.ui.sessionMenu?.sessionId === session.id,
+			tagPickerOpen: inView && state.ui.tagPicker?.sessionId === session.id,
 		};
 	}, shallowEqual);
 	const { status, tag } = row;
@@ -49,18 +55,13 @@ export function SessionRow({ session, grouped = false, filteredOut = false }: Se
 			open();
 		}
 	};
-	const onContextMenu = (event: MouseEvent<HTMLDivElement>) => {
-		event.preventDefault();
-		openSessionMenu(session.id, event.clientX, event.clientY);
-	};
 	const onMenuClick = (event: MouseEvent<HTMLButtonElement>) => {
 		event.stopPropagation();
-		const rect = event.currentTarget.getBoundingClientRect();
-		openSessionMenu(session.id, rect.right, rect.bottom + 4);
+		toggleSessionMenu(session.id);
 	};
 	const onTagButtonClick = (event: MouseEvent<HTMLButtonElement>) => {
 		event.stopPropagation();
-		openTagPicker(session.id, event.currentTarget);
+		toggleTagPicker(session.id);
 	};
 	const onTagClick = (event: MouseEvent<HTMLButtonElement>) => {
 		event.stopPropagation();
@@ -77,7 +78,6 @@ export function SessionRow({ session, grouped = false, filteredOut = false }: Se
 			style={filteredOut ? { display: "none" } : undefined}
 			onClick={onClick}
 			onKeyDown={onKeyDown}
-			onContextMenu={onContextMenu}
 		>
 			<i className="session-dot" aria-hidden="true" />
 			<span className="session-title-wrap">
@@ -89,25 +89,57 @@ export function SessionRow({ session, grouped = false, filteredOut = false }: Se
 				) : null}
 				<time className="session-time">{formatRelativeTime(session.modified)}</time>
 				{grouped ? null : (
-					<button
-						className="session-tag-button"
-						type="button"
-						title={t("groups")}
-						aria-label={t("groups")}
-						onClick={onTagButtonClick}
+					// Escape belongs to the shell's chain (the group name field closes the picker itself).
+					<Popover
+						bare
+						className="sidebar-menu tag-picker"
+						id="tagPicker"
+						placement="bottom-end"
+						open={row.tagPickerOpen}
+						onClose={closeTagPicker}
+						dismissOn="click"
+						closeOnEscape={false}
+						content={<TagPicker sessionId={session.id} />}
 					>
-						<Icon {...LEGACY_ICONS.tag} />
-					</button>
+						<button
+							className="session-tag-button"
+							type="button"
+							title={t("groups")}
+							aria-label={t("groups")}
+							aria-haspopup="menu"
+							aria-expanded={row.tagPickerOpen}
+							aria-controls="tagPicker"
+							onClick={onTagButtonClick}
+						>
+							<Icon {...LEGACY_ICONS.tag} />
+						</button>
+					</Popover>
 				)}
-				<button
-					className="session-menu-button"
-					type="button"
-					title={t("settings")}
-					aria-label={t("settings")}
-					onClick={onMenuClick}
+				{/* Escape belongs to the shell's chain. */}
+				<Popover
+					bare
+					className="sidebar-menu session-menu"
+					id="sessionMenu"
+					placement="bottom-end"
+					open={row.menuOpen}
+					onClose={closeSessionMenu}
+					dismissOn="click"
+					closeOnEscape={false}
+					content={<SessionMenu session={session} />}
 				>
-					<Icon {...LEGACY_ICONS.more} />
-				</button>
+					<button
+						className="session-menu-button"
+						type="button"
+						title={t("settings")}
+						aria-label={t("settings")}
+						aria-haspopup="menu"
+						aria-expanded={row.menuOpen}
+						aria-controls="sessionMenu"
+						onClick={onMenuClick}
+					>
+						<Icon {...LEGACY_ICONS.more} />
+					</button>
+				</Popover>
 				{tag ? (
 					<button
 						className="tag-diamond session-tag"

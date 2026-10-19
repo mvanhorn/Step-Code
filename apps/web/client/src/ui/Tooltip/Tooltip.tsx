@@ -1,5 +1,6 @@
-import { type CSSProperties, cloneElement, type ReactElement, type ReactNode, useId } from "react";
+import { type CSSProperties, cloneElement, type ReactElement, type ReactNode, type Ref, useId } from "react";
 import { cx } from "../../lib/format";
+import { useMergedRef } from "../hooks/useMergedRef";
 import styles from "./Tooltip.module.css";
 
 /** Props the tooltip sets on its trigger; the trigger element must forward them to its DOM node. */
@@ -7,6 +8,7 @@ export interface TooltipTriggerProps {
 	readonly style?: CSSProperties;
 	readonly "aria-describedby"?: string;
 	readonly "aria-label"?: string;
+	readonly ref?: Ref<HTMLElement>;
 }
 
 export interface TooltipProps {
@@ -18,6 +20,12 @@ export interface TooltipProps {
 	readonly id?: string;
 	/** Extra classes on the hint element, for feature-specific surface styles. */
 	readonly className?: string;
+	/**
+	 * Passed through to the trigger (merged with its own), so a wrapper that
+	 * clones its child, such as Popover, reaches the real element.
+	 */
+	readonly style?: CSSProperties;
+	readonly ref?: Ref<HTMLElement>;
 }
 
 /**
@@ -34,15 +42,20 @@ export interface TooltipProps {
  * `aria-describedby` points at the hint unless the hint repeats the trigger's
  * `aria-label` word for word, which would only make a screen reader say it twice.
  */
-export function Tooltip({ content, children, id, className }: TooltipProps) {
+export function Tooltip({ content, children, id, className, style, ref }: TooltipProps) {
 	const autoId = useId();
 	const hintId = id ?? `tooltip-${autoId}`;
 	const anchorName = `--tooltip-${autoId.replace(/[^\w-]/g, "")}`;
 	const shown = content !== null && content !== undefined && content !== false && content !== "";
 	const repeatsLabel = typeof content === "string" && content === children.props["aria-label"];
 	const describedBy = cx(children.props["aria-describedby"], shown && !repeatsLabel && hintId) || undefined;
+	const triggerRef = useMergedRef(ref, children.props.ref);
+	const triggerStyle = { ...children.props.style, ...style };
+	// The trigger may carry another anchor name (a popover anchored to it); keep both.
+	const ownAnchor = triggerStyle.anchorName;
 	const trigger = cloneElement(children, {
-		style: { ...children.props.style, anchorName },
+		ref: triggerRef,
+		style: { ...triggerStyle, anchorName: ownAnchor ? `${ownAnchor}, ${anchorName}` : anchorName },
 		"aria-describedby": describedBy,
 	});
 	// The array keeps one shape whether or not the hint shows, so toggling `content` never remounts the trigger.

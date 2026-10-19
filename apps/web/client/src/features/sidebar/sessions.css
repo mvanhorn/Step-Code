@@ -124,7 +124,8 @@
 	border-radius: var(--radius-chip);
 	color: var(--ink-3);
 }
-.session-row:hover .session-tag-button {
+.session-row:hover .session-tag-button,
+.session-tag-button[aria-expanded="true"] {
 	display: grid;
 }
 .session-tag-button:hover {
@@ -188,11 +189,14 @@
 	border-radius: var(--radius-chip);
 	color: var(--ink-3);
 }
-.session-row:hover .session-menu-button {
+/* A button whose menu is open stays shown: the menu is anchored to it. */
+.session-row:hover .session-menu-button,
+.session-menu-button[aria-expanded="true"] {
 	display: inline-grid;
 	place-items: center;
 }
-.session-row:hover .session-time {
+.session-row:hover .session-time,
+.session-row:has([aria-expanded="true"]) .session-time {
 	display: none;
 }
 .session-time {

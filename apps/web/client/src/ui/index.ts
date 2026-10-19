@@ -13,7 +13,6 @@
  */
 
 export { Button, type ButtonProps, type ButtonVariant } from "./Button/Button";
-export { ContextMenu, type ContextMenuProps } from "./ContextMenu/ContextMenu";
 export { DiffStat, type DiffStatProps } from "./DiffStat/DiffStat";
 export { EmptyState } from "./EmptyState/EmptyState";
 export { type DismissEvent, type DismissOptions, useDismiss } from "./hooks/useDismiss";
@@ -25,7 +24,7 @@ export { Kbd, type KbdProps } from "./Kbd/Kbd";
 export { MarkdownView, type MarkdownViewProps } from "./MarkdownView/MarkdownView";
 export { Menu, MenuDivider, type MenuDividerProps, MenuItem, type MenuItemProps, type MenuProps } from "./Menu/Menu";
 export { Modal, type ModalProps } from "./Modal/Modal";
-export { Popover, type PopoverProps } from "./Popover/Popover";
+export { Popover, type PopoverPlacement, type PopoverProps } from "./Popover/Popover";
 export { ResizeHandle, type ResizeHandleProps } from "./ResizeHandle/ResizeHandle";
 export { SearchInput, type SearchInputProps } from "./SearchInput/SearchInput";
 export {

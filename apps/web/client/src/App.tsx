@@ -6,7 +6,7 @@ import { LoginGate } from "./features/login";
 import { CronView, MarketView } from "./features/market";
 import { SettingsView } from "./features/settings";
 import { AuthBanner, ErrorToast, LoggedOutOverlay, ShellEffects, SidebarShowButton, UserArea } from "./features/shell";
-import { SearchModal, SessionMenu, SidebarNav, SidebarResizer, TagPicker, WorkspaceMenu } from "./features/sidebar";
+import { SearchModal, SidebarNav, SidebarResizer } from "./features/sidebar";
 import { RemoveWorkspaceModal, WorkspaceBrowserModal, WorkspaceControl } from "./features/workspace";
 import { I18nProvider } from "./i18n";
 import { cx } from "./lib/format";
@@ -23,13 +23,14 @@ import { IconSprite } from "./ui";
  *     #sidebarResizer    sidebar
  *     main.main          shell show button | files show button | conversation banner | market cron/market views
  *                        | conversation #childAgentView (read-only child transcript over stream and composer) | stream
- *                        | .composer-zone > composer form (workspace pill above the card) | sidebar session menu
+ *                        | .composer-zone > composer form (workspace pill above the card)
  *                        | shell toast + auth banner
  *     aside#previewPanel files
  *   #settingsView      settings: full-window settings page (menu + page) over the workspace
- *   #workspaceMenu, #tagPicker, #feedbackModal, #searchModal, #workspaceBrowserModal, #removeWorkspaceModal, #selectionDialog,
+ *   #feedbackModal, #searchModal, #workspaceBrowserModal, #removeWorkspaceModal, #selectionDialog,
  *   #imagePreview (composer: enlarged image attachment), #loggedOutOverlay
  *   #loginGate         login: Desktop sign-in, above everything while no credential exists
+ *   #workspaceMenu, #sessionMenu, #tagPicker: rendered by their sidebar trigger, in a portal on body, only while open
  */
 export function App() {
 	const layout = useAppStore(
@@ -74,15 +75,12 @@ export function App() {
 					<div className="composer-zone">
 						<Composer workspaceControl={<WorkspaceControl />} />
 					</div>
-					<SessionMenu />
 					<ErrorToast />
 					<AuthBanner />
 				</main>
 				<PreviewPanel />
 			</div>
 			<SettingsView />
-			<WorkspaceMenu />
-			<TagPicker />
 			<FeedbackModal />
 			<SearchModal />
 			<WorkspaceBrowserModal />

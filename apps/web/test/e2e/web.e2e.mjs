@@ -1066,7 +1066,7 @@ test(
 
     const removed = await browser.run(`
 		$("#projectGroups .workspace-menu-button").click();
-		await until(() => !$("#workspaceMenu").hidden, "workspace menu");
+		await until(() => $("#workspaceMenu"), "workspace menu");
 		$("#workspaceMenu .remove-workspace").click();
 		await until(() => !$("#removeWorkspaceModal").hidden, "removal dialog");
 		$("#removeWorkspaceConfirm").click();
@@ -1147,7 +1147,7 @@ test(
     const removed = await browser.run(`
 		$("#fileTreeBack").click();
 		$("#projectGroups .workspace-menu-button").click();
-		await until(() => !$("#workspaceMenu").hidden, "workspace menu");
+		await until(() => $("#workspaceMenu"), "workspace menu");
 		$("#workspaceMenu .remove-workspace").click();
 		await until(() => !$("#removeWorkspaceModal").hidden, "removal dialog");
 		$("#removeWorkspaceConfirm").click();
@@ -1397,12 +1397,12 @@ test("Full Access needs the risk dialog: the host asks, cancel keeps the tier, a
       && nextShown === $(".composer-card")
       && $("#workspaceControl").getBoundingClientRect().bottom <= $(".composer-card").getBoundingClientRect().top;
     $("#workspaceButton").click();
-    const popover = await until(() => !$("#workspacePopover").hidden && $("#workspacePopover"), "workspace popover");
+    const popover = await until(() => $("#workspacePopover"), "workspace popover");
     // Below the pill when the list fits there, otherwise above; never off screen.
     const box = popover.getBoundingClientRect();
     const onScreen = box.top >= 0 && box.bottom <= innerHeight;
     document.body.click();
-    await until(() => $("#workspacePopover").hidden, "popover closed");
+    await until(() => !$("#workspacePopover"), "popover closed");
     const option = (label) => $$("#policyPopover [role=option]").find((row) => row.textContent.includes(label));
     $("#policyTrigger").click();
     await until(() => $$("#policyPopover [role=option]").length === 3, "three presets");
@@ -1439,11 +1439,8 @@ test(
     const toggled = await browser.run(`
 		const project = await until(() => $("#projectGroups .project-group"), "workspace project");
 		const button = project.querySelector(".workspace-menu-button");
-		const menu = $("#workspaceMenu");
 		const initial = {
-			hidden: menu.hidden,
-			role: menu.getAttribute("role"),
-			removeRole: menu.querySelector(".remove-workspace").getAttribute("role"),
+			rendered: !!$("#workspaceMenu"),
 			inlineRemove: !!project.querySelector(".remove-workspace"),
 			controls: button.getAttribute("aria-controls"),
 			hasPopup: button.getAttribute("aria-haspopup"),
@@ -1454,15 +1451,19 @@ test(
 			folded: project.classList.contains("folded"),
 		};
 		button.click();
-		await until(() => !menu.hidden, "workspace menu to open");
-		const opened = { hidden: menu.hidden, expanded: button.getAttribute("aria-expanded"), folded: project.classList.contains("folded") };
+		const menu = await until(() => $("#workspaceMenu"), "workspace menu to open");
+		const opened = {
+			role: menu.getAttribute("role"),
+			removeRole: menu.querySelector(".remove-workspace").getAttribute("role"),
+			expanded: button.getAttribute("aria-expanded"),
+			folded: project.classList.contains("folded"),
+		};
 		button.click();
-		await until(() => menu.hidden, "repeated click to close workspace menu");
-		return { initial, opened, closed: { hidden: menu.hidden, expanded: button.getAttribute("aria-expanded"), folded: project.classList.contains("folded") } };
+		await until(() => !$("#workspaceMenu"), "repeated click to close workspace menu");
+		return { initial, opened, closed: { rendered: !!$("#workspaceMenu"), expanded: button.getAttribute("aria-expanded"), folded: project.classList.contains("folded") } };
 	`)
-    assert.equal(toggled.initial.hidden, true)
-    assert.equal(toggled.initial.role, "menu")
-    assert.equal(toggled.initial.removeRole, "menuitem")
+    // The menu is rendered only while open.
+    assert.equal(toggled.initial.rendered, false)
     assert.equal(toggled.initial.inlineRemove, false)
     assert.equal(toggled.initial.controls, "workspaceMenu")
     assert.equal(toggled.initial.hasPopup, "menu")
@@ -1470,8 +1471,8 @@ test(
     assert.ok(toggled.initial.label?.trim(), "the more button has an accessible name")
     assert.deepEqual(toggled.initial.toolbar, ["workspace-menu-button", "tree-button", "new-project-session"])
     assert.equal(toggled.initial.folded, false)
-    assert.deepEqual(toggled.opened, { hidden: false, expanded: "true", folded: false })
-    assert.deepEqual(toggled.closed, { hidden: true, expanded: "false", folded: false })
+    assert.deepEqual(toggled.opened, { role: "menu", removeRole: "menuitem", expanded: "true", folded: false })
+    assert.deepEqual(toggled.closed, { rendered: false, expanded: "false", folded: false })
   },
 )
 
@@ -1531,10 +1532,10 @@ test("icon hints open on hover, centered above their trigger, and the open menu'
 		const button = $("#projectGroups .project-group .workspace-menu-button");
 		const before = button.nextElementSibling?.getAttribute("role");
 		button.click();
-		await until(() => !$("#workspaceMenu").hidden, "workspace menu to open");
+		await until(() => $("#workspaceMenu"), "workspace menu to open");
 		const during = button.nextElementSibling?.getAttribute("role") ?? null;
 		button.click();
-		await until(() => $("#workspaceMenu").hidden, "workspace menu to close");
+		await until(() => !$("#workspaceMenu"), "workspace menu to close");
 		return { before, during };
 	`)
   assert.deepEqual(open, { before: "tooltip", during: null })
@@ -1542,39 +1543,66 @@ test("icon hints open on hover, centered above their trigger, and the open menu'
 })
 
 test(
-  "the workspace more menu closes on outside click and Escape returns focus to its trigger",
+  "sidebar menus follow their trigger; the workspace menu closes on outside click and Escape returns focus to its trigger",
   { skip },
   async () => {
     const outside = await browser.run(`
 		const project = $("#projectGroups .project-group");
 		const button = project.querySelector(".workspace-menu-button");
 		button.click();
-		await until(() => !$("#workspaceMenu").hidden, "workspace menu to open");
+		await until(() => $("#workspaceMenu"), "workspace menu to open");
 		document.body.click();
-		await until(() => $("#workspaceMenu").hidden, "outside click to close workspace menu");
-		return { hidden: $("#workspaceMenu").hidden, expanded: button.getAttribute("aria-expanded"), folded: project.classList.contains("folded") };
+		await until(() => !$("#workspaceMenu"), "outside click to close workspace menu");
+		return { hidden: !$("#workspaceMenu"), expanded: button.getAttribute("aria-expanded"), folded: project.classList.contains("folded") };
 	`)
     assert.deepEqual(outside, { hidden: true, expanded: "false", folded: false })
 
-    const scrolled = await browser.run(`
+    // Anchored to its trigger, the menu follows it, so scrolling no longer closes it.
+    const anchored = await browser.run(`
 		const button = $("#projectGroups .workspace-menu-button");
-		const menu = $("#workspaceMenu");
 		button.click();
-		await until(() => !menu.hidden, "workspace menu before scrolling");
-		await new Promise((resolve) => requestAnimationFrame(resolve));
-		// Only sidebar scrolling moves the trigger; conversation scrolling must not dismiss its menu.
-		document.dispatchEvent(new Event("scroll"));
-		await new Promise((resolve) => requestAnimationFrame(resolve));
-		const documentHidden = menu.hidden;
+		const menu = await until(() => $("#workspaceMenu"), "workspace menu before scrolling");
 		$(".conversation-list").dispatchEvent(new Event("scroll"));
-		await until(() => menu.hidden, "sidebar scroll to close workspace menu");
-		return { documentHidden, sidebarHidden: menu.hidden, expanded: button.getAttribute("aria-expanded") };
+		await new Promise((resolve) => requestAnimationFrame(resolve));
+		const a = button.getBoundingClientRect();
+		const b = menu.getBoundingClientRect();
+		const result = { open: menu.isConnected, rightOffset: Math.round(b.right - a.right), gap: Math.round(b.top - a.bottom) };
+		button.click();
+		await until(() => !$("#workspaceMenu"), "workspace menu to close");
+		return result;
 	`)
-    assert.deepEqual(scrolled, { documentHidden: false, sidebarHidden: true, expanded: "false" })
+    assert.deepEqual(anchored, { open: true, rightOffset: 0, gap: 4 })
+
+    // The session row's more and tag buttons open their menus under themselves the same way.
+    const rowMenus = await browser.run(`
+		const row = await until(() => $(".session-row"), "a session row");
+		const place = async (selector, menuId) => {
+			const button = row.querySelector(selector);
+			button.click();
+			const menu = await until(() => $("#" + menuId), menuId + " to open");
+			await new Promise((resolve) => requestAnimationFrame(resolve));
+			const a = button.getBoundingClientRect();
+			const b = menu.getBoundingClientRect();
+			const placed = {
+				// The grouped view renders the same session in a hidden row; only the visible row's menu exists.
+				count: $$("#" + menuId).length,
+				expanded: button.getAttribute("aria-expanded"),
+				shown: a.width > 0,
+				rightOffset: Math.round(b.right - a.right),
+				gap: Math.round(b.top - a.bottom),
+			};
+			button.click();
+			await until(() => !$("#" + menuId), menuId + " to close on a second click");
+			return placed;
+		};
+		return { session: await place(".session-menu-button", "sessionMenu"), tag: await place(".session-tag-button", "tagPicker") };
+	`)
+    const placed = { count: 1, expanded: "true", shown: true, rightOffset: 0, gap: 4 }
+    assert.deepEqual(rowMenus, { session: placed, tag: placed })
 
     await browser.run(`
 		$("#projectGroups .workspace-menu-button").click();
-		await until(() => !$("#workspaceMenu").hidden, "workspace menu to reopen");
+		await until(() => $("#workspaceMenu"), "workspace menu to reopen");
 		$("#workspaceMenu .remove-workspace").focus();
 	`)
     await browser.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 })
@@ -1582,9 +1610,9 @@ test(
     const escaped = await browser.run(`
 		const project = $("#projectGroups .project-group");
 		const button = project.querySelector(".workspace-menu-button");
-		await until(() => $("#workspaceMenu").hidden && document.activeElement === button, "Escape to close menu and return trigger focus");
+		await until(() => !$("#workspaceMenu") && document.activeElement === button, "Escape to close menu and return trigger focus");
 		return {
-			hidden: $("#workspaceMenu").hidden,
+			hidden: !$("#workspaceMenu"),
 			expanded: button.getAttribute("aria-expanded"),
 			focused: document.activeElement === button,
 			folded: project.classList.contains("folded"),
@@ -1604,12 +1632,12 @@ test(
 		const button = project.querySelector(".workspace-menu-button");
 		const before = { projects: projects(), sessions: $$(".session-row").map((row) => row.dataset.sessionId) };
 		button.focus(); button.click();
-		await until(() => !$("#workspaceMenu").hidden, "workspace menu to open");
+		await until(() => $("#workspaceMenu"), "workspace menu to open");
 		$("#workspaceMenu .remove-workspace").click();
 		await until(() => !$("#removeWorkspaceModal").hidden && document.activeElement === $("#removeWorkspaceCancel"), "removal dialog and cancel focus");
 		const section = $("#removeWorkspaceModal [role='dialog']");
 		const opened = {
-			menuHidden: $("#workspaceMenu").hidden,
+			menuHidden: !$("#workspaceMenu"),
 			expanded: button.getAttribute("aria-expanded"),
 			modal: section.getAttribute("aria-modal"),
 			labelledBy: section.getAttribute("aria-labelledby"),
@@ -1660,7 +1688,7 @@ test(
 			await new Promise((resolve) => requestAnimationFrame(resolve));
 			const project = await until(() => $("#projectGroups .project-group"), "project in narrow sidebar");
 			project.querySelector(".workspace-menu-button").click();
-			const menu = await until(() => !$("#workspaceMenu").hidden && $("#workspaceMenu"), "workspace menu in narrow sidebar");
+			const menu = await until(() => $("#workspaceMenu"), "workspace menu in narrow sidebar");
 			await new Promise((resolve) => requestAnimationFrame(resolve));
 			const box = menu.getBoundingClientRect();
 			const remove = menu.querySelector(".remove-workspace");
@@ -1686,8 +1714,8 @@ test(
     } finally {
       try {
         await browser.run(`
-			if (!$("#workspaceMenu").hidden) document.body.click();
-			await until(() => $("#workspaceMenu").hidden, "narrow sidebar menu to close");
+			if ($("#workspaceMenu")) document.body.click();
+			await until(() => !$("#workspaceMenu"), "narrow sidebar menu to close");
 		`)
       } finally {
         await browser.send("Emulation.setDeviceMetricsOverride", {
@@ -1708,7 +1736,7 @@ test("workspaces with chats can be removed through the dialog, retained after re
     const project = $("#projectGroups .project-group");
     const button = project.querySelector(".workspace-menu-button");
     button.focus(); button.click();
-    await until(() => !$("#workspaceMenu").hidden, "workspace menu");
+    await until(() => $("#workspaceMenu"), "workspace menu");
     $("#workspaceMenu .remove-workspace").click();
     await until(() => !$("#removeWorkspaceModal").hidden, "removal dialog");
     const title = $("#removeWorkspaceTitle").textContent;
@@ -1718,7 +1746,7 @@ test("workspaces with chats can be removed through the dialog, retained after re
     await until(() => $("#removeWorkspaceModal").hidden && document.activeElement === button, "cancel and restore trigger focus");
     const restoredFocus = document.activeElement === button;
     button.click();
-    await until(() => !$("#workspaceMenu").hidden, "workspace menu again");
+    await until(() => $("#workspaceMenu"), "workspace menu again");
     $("#workspaceMenu .remove-workspace").click();
     await until(() => !$("#removeWorkspaceModal").hidden, "reopen");
     return { session, title, description, focused, restoredFocus };
@@ -1733,13 +1761,13 @@ test("workspaces with chats can be removed through the dialog, retained after re
     await until(() => $("#removeWorkspaceModal").hidden, "Escape closes dialog");
     const button = $("#projectGroups .workspace-menu-button");
     button.click();
-    await until(() => !$("#workspaceMenu").hidden, "workspace menu for close");
+    await until(() => $("#workspaceMenu"), "workspace menu for close");
     $("#workspaceMenu .remove-workspace").click();
     await until(() => !$("#removeWorkspaceModal").hidden, "reopen for close");
     $("#removeWorkspaceModal header button").click();
     await until(() => $("#removeWorkspaceModal").hidden, "close button");
     button.click();
-    await until(() => !$("#workspaceMenu").hidden, "workspace menu for confirm");
+    await until(() => $("#workspaceMenu"), "workspace menu for confirm");
     $("#workspaceMenu .remove-workspace").click();
     await until(() => !$("#removeWorkspaceModal").hidden, "reopen for confirm");
     const original = window.fetch; let calls = 0;

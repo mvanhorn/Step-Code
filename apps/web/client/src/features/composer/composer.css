@@ -129,16 +129,12 @@
  * pickers. One presentation, four payloads, so a new picker is a render
  * function rather than another copy of the positioning and dismissal rules.
  */
-.control-menu {
-	position: relative;
-}
+/* Placed by Popover, 8px above its trigger and at least as wide. */
 .control-popover {
-	position: absolute;
-	bottom: calc(100% + 8px);
-	left: 0;
+	--popover-gap: 8px;
 	z-index: 50;
 	width: max-content;
-	min-width: 100%;
+	min-width: anchor-size(width);
 	max-width: min(340px, calc(100vw - 32px));
 	max-height: min(420px, 60vh);
 	overflow-y: auto;
@@ -147,10 +143,6 @@
 	border-radius: var(--radius-overlay);
 	background: var(--surface);
 	box-shadow: 0 16px 42px var(--shadow);
-}
-.control-popover[data-align="right"] {
-	left: auto;
-	right: 0;
 }
 .control-popover-search {
 	display: flex;
@@ -271,13 +263,6 @@
 .composer-right > #modelMenu {
 	flex: 0 1 auto;
 	min-width: 0;
-}
-/* The model trigger sits at the composer's right edge and its width varies
-   with the name, so its panel opens from the trigger's right edge rather than
-   its left one, which would push the panel past the window. */
-.composer-right > #modelMenu > .control-popover {
-	right: 0;
-	left: auto;
 }
 .model-control {
 	max-width: 100%;

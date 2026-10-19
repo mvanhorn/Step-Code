@@ -4,10 +4,11 @@ import { basename, cx } from "../../lib/format";
 import { startDraft } from "../../state/session";
 import { useAppStore } from "../../state/store";
 import type { SessionSummary } from "../../state/types";
-import { EmptyState, Icon, IconButton, LEGACY_ICONS, Tooltip } from "../../ui";
+import { EmptyState, Icon, IconButton, LEGACY_ICONS, Popover, Tooltip } from "../../ui";
 import { openTree } from "../files/actions";
 import { closeWorkspaceMenu, toggleProjectFolded, toggleWorkspaceMenu } from "./actions";
 import { SessionRow } from "./SessionRow";
+import { WorkspaceMenu } from "./WorkspaceMenu";
 
 export interface ProjectGroupProps {
 	readonly cwd: string;
@@ -41,22 +42,37 @@ export function ProjectGroup({ cwd, sessions, folded, hiddenIds, filteredOut }: 
 				<Icon {...LEGACY_ICONS.folder} />
 				<span className="project-name">{basename(cwd)}</span>
 				<span className={cx("project-actions", menuOpen && "menu-open")}>
-					{/* No hint while its menu is open: the menu already says what the button did. */}
-					<Tooltip content={menuOpen ? null : t("moreActions")}>
-						<IconButton
-							className="project-action workspace-menu-button"
-							aria-label={t("moreActions")}
-							aria-haspopup="menu"
-							aria-expanded={menuOpen}
-							aria-controls="workspaceMenu"
-							onClick={(event) => {
-								event.stopPropagation();
-								toggleWorkspaceMenu(cwd, event.currentTarget);
-							}}
-						>
-							<Icon {...LEGACY_ICONS.more} />
-						</IconButton>
-					</Tooltip>
+					{/* Escape belongs to the shell's chain, which also refocuses this button. */}
+					<Popover
+						bare
+						className="sidebar-menu"
+						id="workspaceMenu"
+						role="menu"
+						aria-label={t("moreActions")}
+						placement="bottom-end"
+						open={menuOpen}
+						onClose={() => closeWorkspaceMenu()}
+						dismissOn="click"
+						closeOnEscape={false}
+						content={<WorkspaceMenu cwd={cwd} />}
+					>
+						{/* No hint while its menu is open: the menu already says what the button did. */}
+						<Tooltip content={menuOpen ? null : t("moreActions")}>
+							<IconButton
+								className="project-action workspace-menu-button"
+								aria-label={t("moreActions")}
+								aria-haspopup="menu"
+								aria-expanded={menuOpen}
+								aria-controls="workspaceMenu"
+								onClick={(event) => {
+									event.stopPropagation();
+									toggleWorkspaceMenu(cwd);
+								}}
+							>
+								<Icon {...LEGACY_ICONS.more} />
+							</IconButton>
+						</Tooltip>
+					</Popover>
 					<Tooltip content={t("fileTree")}>
 						<IconButton
 							className="project-action tree-button"

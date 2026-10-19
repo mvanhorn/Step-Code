@@ -13,9 +13,6 @@
   align-items: center;
   margin: 0 0 8px 6px;
 }
-.workspace-control:has(> .workspace-popover:not([hidden])) {
-  z-index: 3;
-}
 .workspace-pill {
   display: inline-flex;
   align-items: center;
@@ -49,10 +46,9 @@
   flex: none;
   color: var(--ink-3);
 }
+/* Placed by Popover below the pill (above it when there is no room). */
 .workspace-popover {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
+  --popover-gap: 6px;
   z-index: 45;
   width: min(280px, calc(100vw - 40px));
   max-height: min(360px, 60vh);
@@ -62,10 +58,6 @@
   border-radius: var(--radius-overlay);
   background: var(--surface);
   box-shadow: 0 16px 42px var(--shadow);
-}
-.workspace-popover[data-placement="above"] {
-  top: auto;
-  bottom: calc(100% + 6px);
 }
 .workspace-popover-title {
   padding: 4px 8px 5px;

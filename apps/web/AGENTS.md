@@ -102,7 +102,8 @@ apps/web/
    cross-feature CSS select on are an API. Do not rename or remove them; grep `test/e2e/web.e2e.mjs` and the smoke
    script before you do.
 4. **Overlays stay mounted.** Popovers, modals, banners and panels toggle the native `hidden` attribute
-   (`hidden={!open}`) or an `open` class; do not unmount them. Tests read `element.hidden`.
+   (`hidden={!open}`) or an `open` class; do not unmount them. Tests read `element.hidden`. Exception: `Popover`
+   renders its panel only while open (one per trigger, e.g. per sidebar row); tests check the panel's presence.
 5. **Text.** Every user-visible string comes from `useT()` / `t()`. Add each new key to both the `zh` and the `en`
    dictionary in `i18n/messages.ts`. Do not reuse a key whose wording you need to change in only one place; add a
    new key.
@@ -137,11 +138,10 @@ keep only the classes passed in. Read the component's doc comment before using i
 | `IconButton` | Square icon-only buttons (`icon`, `iconSize`) | Always has `.icon-button`; pass `aria-label`; wrap in `Tooltip` for a hint |
 | `Icon` | Sprite icons: `<Icon name size>`; `LEGACY_ICONS` holds preset name+size pairs | Sizes `2xs xs sm md lg menu`. New icons: add a `<symbol id="i-<name>">` to `IconSprite` and the name to `ICON_NAMES` |
 | `IconSprite` | The `<symbol>` sheet every `Icon` references | Rendered once in `App.tsx`; do not render again |
-| `Tooltip` | Hover / keyboard-focus hints: `<Tooltip content={text or element}>{trigger}</Tooltip>` | Placement top, centered, shifts only at viewport edges. One child that forwards `style` and `aria-describedby`; the hint is its next sibling (no wrapper). Empty `content` = no hint |
+| `Tooltip` | Hover / keyboard-focus hints: `<Tooltip content={text or element}>{trigger}</Tooltip>` | Placement top, centered, shifts only at viewport edges. One child that forwards `style`, `ref` and `aria-describedby`; the hint is its next sibling (no wrapper). Empty `content` = no hint. Can itself be a `Popover` trigger |
 | `Modal` | Dialogs: backdrop + `section[role=dialog][aria-modal]`, toggled by `open` | `id` / `overlayClassName` on the overlay, `className` / `dialogProps` on the dialog, `labelledBy`. Escape belongs to the shell's chain unless `closeOnEscape` |
-| `Popover` | A panel opened from a trigger (dropdowns, pickers), toggled by `open` | Handles outside press / Escape (`onClose`, `ignoreRefs` = the trigger, `returnFocusRef`); positioning is the caller's CSS |
-| `ContextMenu` | A menu at a pointer position (`x`, `y`, `align`), clamped into the viewport | Dismissal is the owner's job (`useDismiss`) |
-| `Menu`, `MenuItem`, `MenuDivider` | Rows inside a `Popover` / `ContextMenu` | `MenuItem`: `icon`, `trailing`, `danger`; pass `role="menu"` / `"menuitem"` where it is a real menu |
+| `Popover` | A panel or menu opened from a trigger (dropdowns, pickers, overflow menus): `<Popover content={panel} open onClose>{trigger}</Popover>` | The child is the trigger (forwards `ref` and `style`; may be a `Tooltip`); other div props go to the panel. The panel renders only while open, portaled to `body`, `--popover-gap` (4px) from the trigger: `placement` `bottom-start` (default) / `bottom-end` / `top-start` / `top-end`, flipped when there is no room. `dismissOn`, `closeOnEscape` (refocuses the trigger) |
+| `Menu`, `MenuItem`, `MenuDivider` | Rows inside a `Popover` | `MenuItem`: `icon`, `trailing`, `danger`; pass `role="menu"` / `"menuitem"` where it is a real menu |
 | `SegmentedControl` (alias `Tabs`) | Mutually exclusive options or tabs: `items`, `value`, `onChange` | `selection` marks the chosen item with `aria-pressed` or an `active` class |
 | `Switch` | On/off settings: `<button role="switch" aria-checked>`; `checked`, `onChange(boolean)` | Pass `aria-label` |
 | `SearchInput` | Search fields (icon + `input[type=search]`); input props go to the `<input>` | For test-driven inputs use `onInputCapture` on an uncontrolled input (convention 8) |

@@ -1,74 +1,32 @@
-import { type KeyboardEvent, useEffect, useLayoutEffect, useRef } from "react";
+import { type KeyboardEvent, useLayoutEffect, useRef } from "react";
 import { useT } from "../../i18n";
-import { useAppStore } from "../../state/store";
-import { ContextMenu, MenuItem } from "../../ui";
+import { MenuItem } from "../../ui";
 import { requestWorkspaceRemoval } from "../workspace/actions";
 import { closeWorkspaceMenu } from "./actions";
 
-/** Workspace actions live outside the sidebar so its scroll container cannot clip the menu. */
-export function WorkspaceMenu() {
+/** Content of `#workspaceMenu`: actions for one project. Mounted on open, so its item takes focus then. */
+export function WorkspaceMenu({ cwd }: { readonly cwd: string }) {
 	const t = useT();
-	const menu = useAppStore((state) => state.ui.workspaceMenu);
 	const itemRef = useRef<HTMLButtonElement | null>(null);
-
-	useLayoutEffect(() => {
-		if (menu) itemRef.current?.focus({ preventScroll: true });
-	}, [menu]);
-
-	useEffect(() => {
-		if (!menu) return;
-		const dismiss = () => closeWorkspaceMenu();
-		const onOutsideClick = (event: MouseEvent) => {
-			const target = event.target;
-			if (target instanceof Element && target.closest("#workspaceMenu,.workspace-menu-button")) return;
-			dismiss();
-		};
-		// Capture also sees clicks whose action handlers stop propagation.
-		document.addEventListener("click", onOutsideClick, true);
-		// Fixed viewport coordinates are no longer valid after the anchor moves.
-		const list = document.querySelector(".conversation-list");
-		window.addEventListener("resize", dismiss);
-		list?.addEventListener("scroll", dismiss);
-		return () => {
-			document.removeEventListener("click", onOutsideClick, true);
-			window.removeEventListener("resize", dismiss);
-			list?.removeEventListener("scroll", dismiss);
-		};
-	}, [menu]);
-
-	const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-		if (event.key === "Tab") closeWorkspaceMenu(true);
-		if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
-			event.preventDefault();
-			itemRef.current?.focus();
-		}
-	};
-
+	useLayoutEffect(() => itemRef.current?.focus({ preventScroll: true }), []);
 	return (
-		<ContextMenu
-			id="workspaceMenu"
-			role="menu"
-			aria-label={t("moreActions")}
-			open={Boolean(menu)}
-			x={menu?.x ?? 0}
-			y={menu?.y ?? 0}
-			align="end"
-			onKeyDown={onKeyDown}
+		<MenuItem
+			ref={itemRef}
+			className="remove-workspace"
+			role="menuitem"
+			icon="close-sm"
+			onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => {
+				// Tab leaves the menu (focus back on the trigger); arrows / Home / End stay on its only item.
+				if (event.key === "Tab") closeWorkspaceMenu(true);
+				if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) event.preventDefault();
+			}}
+			onClick={() => {
+				// The confirmation dialog must restore focus to the trigger, not this unmounted item.
+				closeWorkspaceMenu(true);
+				requestWorkspaceRemoval(cwd);
+			}}
 		>
-			<MenuItem
-				ref={itemRef}
-				className="remove-workspace"
-				role="menuitem"
-				icon="close-sm"
-				onClick={() => {
-					if (!menu) return;
-					// The confirmation dialog must restore focus to the visible trigger, not this hidden item.
-					closeWorkspaceMenu(true);
-					requestWorkspaceRemoval(menu.cwd);
-				}}
-			>
-				{t("removeWorkspace")}
-			</MenuItem>
-		</ContextMenu>
+			{t("removeWorkspace")}
+		</MenuItem>
 	);
 }

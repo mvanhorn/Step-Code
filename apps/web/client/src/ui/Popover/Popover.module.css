@@ -7,3 +7,32 @@
 	background: var(--surface);
 	box-shadow: 0 16px 42px var(--shadow);
 }
+
+/*
+ * Placed against the trigger's anchor, `--popover-gap` away, flipped to the
+ * other side when the viewport has no room (the margins flip with it), and
+ * hidden while the trigger is scrolled out of view.
+ */
+.panel {
+	position: fixed;
+	inset: auto;
+	margin: 0;
+	position-try-fallbacks: flip-block;
+	position-visibility: anchors-visible;
+}
+.bottomStart {
+	position-area: bottom span-right;
+	margin-top: var(--popover-gap, 4px);
+}
+.bottomEnd {
+	position-area: bottom span-left;
+	margin-top: var(--popover-gap, 4px);
+}
+.topStart {
+	position-area: top span-right;
+	margin-bottom: var(--popover-gap, 4px);
+}
+.topEnd {
+	position-area: top span-left;
+	margin-bottom: var(--popover-gap, 4px);
+}

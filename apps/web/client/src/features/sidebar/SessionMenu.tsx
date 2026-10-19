@@ -1,12 +1,9 @@
-import type { MouseEvent } from "react";
 import { t, useT } from "../../i18n";
 import { apiSend, errorMessage } from "../../lib/api";
 import { refreshSessions, sessionTitle, showError, startDraft } from "../../state/session";
-import { getState, useAppStore } from "../../state/store";
+import { getState } from "../../state/store";
 import type { SessionSummary } from "../../state/types";
-import { ContextMenu } from "../../ui";
 import { closeSessionMenu } from "./actions";
-import { useOutsideClick } from "./useOutsideClick";
 
 type SessionAction = "rename" | "archive" | "delete";
 
@@ -31,45 +28,24 @@ async function runSessionAction(action: SessionAction, session: SessionSummary):
 	}
 }
 
-/** `#sessionMenu`, the per-session context menu (legacy index.html 1010, app.js 1287-1329). */
-export function SessionMenu() {
+/** Content of `#sessionMenu`: rename / archive / delete one session (legacy app.js 1287-1329). */
+export function SessionMenu({ session }: { readonly session: SessionSummary }) {
 	const translate = useT();
-	const menu = useAppStore((state) => state.ui.sessionMenu);
-	const session = useAppStore((state) =>
-		menu ? state.sessions.find((candidate) => candidate.id === menu.sessionId) : undefined,
-	);
-	useOutsideClick(Boolean(menu), "#sessionMenu,.session-menu-button", closeSessionMenu);
-
-	const onClick = (event: MouseEvent<HTMLDivElement>) => {
-		const action = (event.target as Element).closest<HTMLElement>("[data-action]")?.dataset.action;
-		if (!action || !session) return;
+	const run = (action: SessionAction) => {
 		closeSessionMenu();
-		void runSessionAction(action as SessionAction, session);
+		void runSessionAction(action, session);
 	};
-
 	return (
-		<ContextMenu
-			bare
-			className="context-menu"
-			id="sessionMenu"
-			open={Boolean(menu && session)}
-			x={menu?.x ?? 0}
-			y={menu?.y ?? 0}
-			onClick={onClick}
-		>
-			{session ? (
-				<>
-					<button type="button" data-action="rename">
-						{translate("rename")}
-					</button>
-					<button type="button" data-action="archive">
-						{session.archived ? translate("restore") : translate("archive")}
-					</button>
-					<button className="danger" type="button" data-action="delete">
-						{translate("delete")}
-					</button>
-				</>
-			) : null}
-		</ContextMenu>
+		<>
+			<button type="button" data-action="rename" onClick={() => run("rename")}>
+				{translate("rename")}
+			</button>
+			<button type="button" data-action="archive" onClick={() => run("archive")}>
+				{session.archived ? translate("restore") : translate("archive")}
+			</button>
+			<button className="danger" type="button" data-action="delete" onClick={() => run("delete")}>
+				{translate("delete")}
+			</button>
+		</>
 	);
 }

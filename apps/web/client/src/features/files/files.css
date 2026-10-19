@@ -408,23 +408,16 @@
 .changes-tools .icon-button:disabled {
 	opacity: 0.4;
 }
+/* Placed by Popover, 6px below its trigger. */
 .changes-menu {
-	position: absolute;
-	top: calc(100% + 6px);
+	--popover-gap: 6px;
 	z-index: 30;
-}
-.changes-turn-menu {
-	left: 0;
 }
 .changes-turn-menu [role="menu"] {
 	min-width: 200px;
 }
 .changes-turn-menu [aria-checked="true"] {
 	background: var(--selected);
-}
-.changes-more-menu,
-.changes-file-menu {
-	right: 0;
 }
 .changes-files {
 	flex: 1;

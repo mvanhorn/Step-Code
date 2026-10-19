@@ -44,15 +44,15 @@ export function closeSearch(): void {
 	setUi({ searchOpen: false });
 }
 
-/* ── Workspace overflow menu ─────────────────────────────────────────────── */
+/* ── Sidebar menus ───────────────────────────────────────────────────────── */
+/* At most one is open; each is a Popover around its trigger in ProjectGroup / SessionRow. */
 
-export function toggleWorkspaceMenu(cwd: string, anchor: HTMLButtonElement): void {
+export function toggleWorkspaceMenu(cwd: string): void {
 	if (getState().ui.workspaceMenu?.cwd === cwd) {
 		closeWorkspaceMenu(true);
 		return;
 	}
-	const rect = anchor.getBoundingClientRect();
-	setUi({ workspaceMenu: { cwd, x: rect.right, y: rect.bottom + 4 }, sessionMenu: null, tagPicker: null });
+	setUi({ workspaceMenu: { cwd }, sessionMenu: null, tagPicker: null });
 }
 
 export function closeWorkspaceMenu(restoreFocus = false): void {
@@ -65,11 +65,10 @@ export function closeWorkspaceMenu(restoreFocus = false): void {
 	}
 }
 
-/* ── Session context menu and tag picker ─────────────────────────────────── */
-
-/** Show `#sessionMenu` for a session at viewport coordinates (legacy `openSessionMenu`, 1291-1329). */
-export function openSessionMenu(sessionId: string, x: number, y: number): void {
-	setUi({ sessionMenu: { sessionId, x, y } });
+/** Open or close `#sessionMenu` for a session (legacy `openSessionMenu`, 1291-1329). */
+export function toggleSessionMenu(sessionId: string): void {
+	const open = getState().ui.sessionMenu?.sessionId === sessionId;
+	setUi({ sessionMenu: open ? null : { sessionId }, workspaceMenu: null, tagPicker: null });
 }
 
 /** Legacy `closeSessionMenu` (1287-1289). */
@@ -77,10 +76,10 @@ export function closeSessionMenu(): void {
 	setUi({ sessionMenu: null });
 }
 
-/** Show `#tagPicker` for a session under the button that opened it (legacy `openTagPicker`, 1022-1060). */
-export function openTagPicker(sessionId: string, anchor: Element): void {
-	const rect = anchor.getBoundingClientRect();
-	setUi({ tagPicker: { sessionId, anchorRight: rect.right, anchorBottom: rect.bottom } });
+/** Open or close `#tagPicker` for a session (legacy `openTagPicker`, 1022-1060). */
+export function toggleTagPicker(sessionId: string): void {
+	const open = getState().ui.tagPicker?.sessionId === sessionId;
+	setUi({ tagPicker: open ? null : { sessionId }, workspaceMenu: null, sessionMenu: null });
 }
 
 export function closeTagPicker(): void {

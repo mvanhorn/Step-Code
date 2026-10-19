@@ -157,19 +157,12 @@ export interface UiState {
 	readonly settingsEditor: SettingsEditor | null;
 	/** Dialog above the settings view: add a marketplace, import a skill folder. */
 	readonly settingsDialog: "marketplace" | "skillImport" | null;
-	/** `#workspaceMenu`, anchored below a project's overflow button. */
-	readonly workspaceMenu: { readonly cwd: string; readonly x: number; readonly y: number } | null;
-	/** `#sessionMenu` (session context menu) at viewport coordinates. */
-	readonly sessionMenu: { readonly sessionId: string; readonly x: number; readonly y: number } | null;
-	/**
-	 * `#tagPicker`, anchored to the bottom-right corner of the button that opened
-	 * it (legacy `positionTagPicker`). `sessionId` is the legacy `state.tagTarget`.
-	 */
-	readonly tagPicker: {
-		readonly sessionId: string;
-		readonly anchorRight: number;
-		readonly anchorBottom: number;
-	} | null;
+	/** `#workspaceMenu`, open below the overflow button of the project in `cwd`. */
+	readonly workspaceMenu: { readonly cwd: string } | null;
+	/** `#sessionMenu`, open below the more button of a session row. */
+	readonly sessionMenu: { readonly sessionId: string } | null;
+	/** `#tagPicker`, open below the tag button of a session row. `sessionId` is the legacy `state.tagTarget`. */
+	readonly tagPicker: { readonly sessionId: string } | null;
 	/** `#authBanner` visible (a request returned 401). */
 	readonly authExpired: boolean;
 	/** `#loggedOutOverlay` visible. */
