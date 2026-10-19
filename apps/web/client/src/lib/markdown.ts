@@ -3,8 +3,8 @@
  * `contentText`, `renderMarkdown`).
  *
  * The renderer is deliberately tiny: fenced code blocks, `#`/`##`/`###`
- * headings, `-` / `*` bullets, links, `**bold**`, inline code, line breaks and
- * paragraph gaps. Everything else is
+ * headings, `-` / `*` bullets, GFM pipe tables, links, `**bold**`, inline code,
+ * line breaks and paragraph gaps. Everything else is
  * escaped. Its output is an HTML string meant for `dangerouslySetInnerHTML`
  * (see ui/MarkdownView, which also wires the `.copy-code` buttons).
  */
@@ -51,6 +51,64 @@ function renderLink(label: string, destination: string): string {
 	return escapeHtml(label);
 }
 
+/** GFM delimiter row, e.g. `|---|:---:|`: dashes with optional alignment colons, separated by pipes. */
+const TABLE_DELIMITER = /^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$/;
+
+/** Cells of one table row; a `\|` stays a literal pipe. Inline code is already a placeholder here. */
+function tableCells(line: string): string[] {
+	const trimmed = line
+		.trim()
+		.replace(/^\|/, "")
+		.replace(/(?<!\\)\|$/, "");
+	return trimmed.split(/(?<!\\)\|/).map((cell) => cell.trim().replace(/\\\|/g, "|"));
+}
+
+function tableAlignment(cell: string): string {
+	const left = cell.startsWith(":");
+	const right = cell.endsWith(":");
+	if (left && right) return ' style="text-align:center"';
+	if (right) return ' style="text-align:right"';
+	return left ? ' style="text-align:left"' : "";
+}
+
+/**
+ * Replace GFM pipe tables with block placeholders. A table is a header row
+ * with a pipe, a delimiter row with the same column count, then every
+ * following line that still contains a pipe. `renderCell` formats one cell's
+ * source (escaping and inline Markdown).
+ */
+function extractTables(source: string, blocks: string[], renderCell: (cell: string) => string): string {
+	const lines = source.split("\n");
+	const output: string[] = [];
+	for (let index = 0; index < lines.length; index++) {
+		const header = lines[index];
+		const delimiter = lines[index + 1];
+		if (!header.includes("|") || delimiter === undefined || !TABLE_DELIMITER.test(delimiter)) {
+			output.push(header);
+			continue;
+		}
+		const columns = tableCells(header);
+		const alignments = tableCells(delimiter).map(tableAlignment);
+		if (alignments.length !== columns.length) {
+			output.push(header);
+			continue;
+		}
+		const rows: string[][] = [];
+		index += 2;
+		while (index < lines.length && lines[index].includes("|") && lines[index].trim()) {
+			rows.push(tableCells(lines[index]));
+			index++;
+		}
+		index--;
+		const row = (cells: readonly string[], tag: "th" | "td") =>
+			`<tr>${columns.map((_, column) => `<${tag}${alignments[column]}>${renderCell(cells[column] ?? "")}</${tag}>`).join("")}</tr>`;
+		const body = rows.length ? `<tbody>${rows.map((cells) => row(cells, "td")).join("")}</tbody>` : "";
+		const table = `<div class="md-table-wrap"><table class="md-table"><thead>${row(columns, "th")}</thead>${body}</table></div>`;
+		output.push(`\u0000${blocks.push(table) - 1}\u0000`);
+	}
+	return output.join("\n");
+}
+
 export function renderMarkdown(value: unknown, labels: MarkdownLabels): string {
 	const blocks: string[] = [];
 	const inlines: string[] = [];
@@ -84,7 +142,14 @@ export function renderMarkdown(value: unknown, labels: MarkdownLabels): string {
 			return `\u0001${inlines.push(html) - 1}\u0001${suffix}`;
 		},
 	);
-	const html = escapeHtml(inlineSource.replace(/\n{3,}/g, "\n\n"))
+	// Table cells are formatted here because their HTML becomes a block, which
+	// the line-based formatting below never sees.
+	const tableSource = extractTables(inlineSource, blocks, (cell) =>
+		escapeHtml(cell)
+			.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+			.replace(/\u0001(\d+)\u0001/g, (_match, index: string) => inlines[Number(index)] ?? ""),
+	);
+	const html = escapeHtml(tableSource.replace(/\n{3,}/g, "\n\n"))
 		.replace(/^### (.+)$/gm, "<h4>$1</h4>")
 		.replace(/^## (.+)$/gm, "<h3>$1</h3>")
 		.replace(/^# (.+)$/gm, "<h2>$1</h2>")

@@ -337,6 +337,28 @@ select {
   display: block;
   height: 10px;
 }
+.message-body .md-table-wrap {
+  max-width: 100%;
+  margin: 10px 0;
+  overflow-x: auto;
+}
+.message-body .md-table {
+  border-collapse: collapse;
+  font-size: 14px;
+  line-height: 1.55;
+}
+.message-body .md-table th,
+.message-body .md-table td {
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: normal;
+}
+.message-body .md-table th {
+  background: var(--surface-soft);
+  font-weight: 600;
+}
 .message-body code:not(.code-block code) {
   padding: 2px 5px;
   border-radius: var(--radius-inline-code);

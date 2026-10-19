@@ -49,3 +49,20 @@ test("handles incomplete streaming Markdown and keeps surrounding formatting", (
 		'<h3>Sources</h3><strong>Read <a href="https://example.com" target="_blank" rel="noopener noreferrer">source</a></strong>',
 	);
 });
+
+test("renders GFM pipe tables with alignment, inline formatting and escaped cells", () => {
+	const html = renderMarkdown(
+		"我用加载器实验复现了：\n\n| 场景 | 结果 |\n|---|--:|\n| 父目录 + `a|b` | **成功** |\n| <b>x</b> \\| y | 退出码 1 |\n\n后文",
+		labels,
+	);
+	assert.match(html, /<table class="md-table"><thead><tr><th>场景<\/th><th style="text-align:right">结果<\/th><\/tr><\/thead>/);
+	assert.match(html, /<td>父目录 \+ <code>a\|b<\/code><\/td><td style="text-align:right"><strong>成功<\/strong><\/td>/);
+	assert.match(html, /<td>&lt;b&gt;x&lt;\/b&gt; \| y<\/td>/);
+	assert.match(html, /^我用加载器实验复现了：<div class="md-table-wrap">/);
+	assert.match(html, /<\/table><\/div>后文$/);
+});
+
+test("leaves pipes without a delimiter row as text", () => {
+	assert.equal(renderMarkdown("| a | b |", labels), "| a | b |");
+	assert.equal(renderMarkdown("| a | b |\n|---|", labels), "| a | b |<br>|---|");
+});
