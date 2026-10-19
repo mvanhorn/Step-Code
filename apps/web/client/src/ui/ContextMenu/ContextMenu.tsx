@@ -43,7 +43,7 @@ export function ContextMenu({
 		const height = element.offsetHeight;
 		const left = align === "end" ? x - width : x;
 		setPosition({
-			left: Math.min(left, window.innerWidth - width - margin),
+			left: Math.max(margin, Math.min(left, window.innerWidth - width - margin)),
 			top: Math.min(y, window.innerHeight - height - margin),
 		});
 	}, [open, x, y, align, margin]);

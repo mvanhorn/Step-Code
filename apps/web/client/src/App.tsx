@@ -6,7 +6,7 @@ import { LoginGate } from "./features/login";
 import { CronView, MarketView } from "./features/market";
 import { SettingsView } from "./features/settings";
 import { AuthBanner, ErrorToast, LoggedOutOverlay, ShellEffects, SidebarShowButton, UserArea } from "./features/shell";
-import { SearchModal, SessionMenu, SidebarNav, SidebarResizer, TagPicker } from "./features/sidebar";
+import { SearchModal, SessionMenu, SidebarNav, SidebarResizer, TagPicker, WorkspaceMenu } from "./features/sidebar";
 import { RemoveWorkspaceModal, WorkspaceBrowserModal, WorkspaceControl } from "./features/workspace";
 import { I18nProvider } from "./i18n";
 import { cx } from "./lib/format";
@@ -27,7 +27,7 @@ import { IconSprite } from "./ui";
  *                        | shell toast + auth banner
  *     aside#previewPanel files
  *   #settingsView      settings: full-window settings page (menu + page) over the workspace
- *   #tagPicker, #feedbackModal, #searchModal, #workspaceBrowserModal, #removeWorkspaceModal, #selectionDialog,
+ *   #workspaceMenu, #tagPicker, #feedbackModal, #searchModal, #workspaceBrowserModal, #removeWorkspaceModal, #selectionDialog,
  *   #imagePreview (composer: enlarged image attachment), #loggedOutOverlay
  *   #loginGate         login: Desktop sign-in, above everything while no credential exists
  */
@@ -81,6 +81,7 @@ export function App() {
 				<PreviewPanel />
 			</div>
 			<SettingsView />
+			<WorkspaceMenu />
 			<TagPicker />
 			<FeedbackModal />
 			<SearchModal />

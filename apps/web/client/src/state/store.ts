@@ -157,6 +157,8 @@ export interface UiState {
 	readonly settingsEditor: SettingsEditor | null;
 	/** Dialog above the settings view: add a marketplace, import a skill folder. */
 	readonly settingsDialog: "marketplace" | "skillImport" | null;
+	/** `#workspaceMenu`, anchored below a project's overflow button. */
+	readonly workspaceMenu: { readonly cwd: string; readonly x: number; readonly y: number } | null;
 	/** `#sessionMenu` (session context menu) at viewport coordinates. */
 	readonly sessionMenu: { readonly sessionId: string; readonly x: number; readonly y: number } | null;
 	/**
@@ -369,6 +371,7 @@ export function createInitialState(): AppState {
 			settingsPage: null,
 			settingsEditor: null,
 			settingsDialog: null,
+			workspaceMenu: null,
 			sessionMenu: null,
 			tagPicker: null,
 			authExpired: false,

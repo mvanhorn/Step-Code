@@ -10,7 +10,7 @@ import { getState, setUi } from "../../state/store";
 import { answerSelection, pendingSelection } from "../composer/actions";
 import { openTree, setPreviewOpen } from "../files/actions";
 import { closeTopmostSettingsLayer } from "../settings/actions";
-import { closeSearch, openSearch } from "../sidebar/actions";
+import { closeSearch, closeWorkspaceMenu, openSearch } from "../sidebar/actions";
 import { chooseWorkspaceFolder, closeWorkspaceRemoval } from "../workspace/actions";
 import { toggleSidebar, watchSystemTheme } from "./actions";
 
@@ -37,6 +37,7 @@ function handleEscape(): void {
 	else if (closeTopmostSettingsLayer()) return;
 	else if (ui.workspacePopoverOpen) setUi({ workspacePopoverOpen: false });
 	else if (ui.tagPicker) setUi({ tagPicker: null });
+	else if (ui.workspaceMenu) closeWorkspaceMenu(true);
 	else if (ui.sessionMenu) setUi({ sessionMenu: null });
 	else if (ui.fileTreeOpen) setUi({ fileTreeOpen: false });
 	else if (ui.midView) setUi({ midView: null });

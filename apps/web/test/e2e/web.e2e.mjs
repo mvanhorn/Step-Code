@@ -1065,7 +1065,9 @@ test(
     )
 
     const removed = await browser.run(`
-		$("#projectGroups .remove-workspace").click();
+		$("#projectGroups .workspace-menu-button").click();
+		await until(() => !$("#workspaceMenu").hidden, "workspace menu");
+		$("#workspaceMenu .remove-workspace").click();
 		await until(() => !$("#removeWorkspaceModal").hidden, "removal dialog");
 		$("#removeWorkspaceConfirm").click();
 		await until(() => !projects().length, "workspace to be removed");
@@ -1144,7 +1146,9 @@ test(
 
     const removed = await browser.run(`
 		$("#fileTreeBack").click();
-		$("#projectGroups .remove-workspace").click();
+		$("#projectGroups .workspace-menu-button").click();
+		await until(() => !$("#workspaceMenu").hidden, "workspace menu");
+		$("#workspaceMenu .remove-workspace").click();
 		await until(() => !$("#removeWorkspaceModal").hidden, "removal dialog");
 		$("#removeWorkspaceConfirm").click();
 		await until(() => !projects().length, "workspace to be removed");
@@ -1425,20 +1429,229 @@ test("Full Access needs the risk dialog: the host asks, cancel keeps the tier, a
   });
 });
 
+test(
+  "the workspace more menu starts hidden and toggles without folding the project",
+  { skip },
+  async () => {
+    const toggled = await browser.run(`
+		const project = await until(() => $("#projectGroups .project-group"), "workspace project");
+		const button = project.querySelector(".workspace-menu-button");
+		const menu = $("#workspaceMenu");
+		const initial = {
+			hidden: menu.hidden,
+			role: menu.getAttribute("role"),
+			removeRole: menu.querySelector(".remove-workspace").getAttribute("role"),
+			inlineRemove: !!project.querySelector(".remove-workspace"),
+			controls: button.getAttribute("aria-controls"),
+			hasPopup: button.getAttribute("aria-haspopup"),
+			expanded: button.getAttribute("aria-expanded"),
+			label: button.getAttribute("aria-label"),
+			toolbar: [...project.querySelectorAll(".project-actions button")].map((action) =>
+				["workspace-menu-button", "tree-button", "new-project-session"].find((name) => action.classList.contains(name))),
+			folded: project.classList.contains("folded"),
+		};
+		button.click();
+		await until(() => !menu.hidden, "workspace menu to open");
+		const opened = { hidden: menu.hidden, expanded: button.getAttribute("aria-expanded"), folded: project.classList.contains("folded") };
+		button.click();
+		await until(() => menu.hidden, "repeated click to close workspace menu");
+		return { initial, opened, closed: { hidden: menu.hidden, expanded: button.getAttribute("aria-expanded"), folded: project.classList.contains("folded") } };
+	`)
+    assert.equal(toggled.initial.hidden, true)
+    assert.equal(toggled.initial.role, "menu")
+    assert.equal(toggled.initial.removeRole, "menuitem")
+    assert.equal(toggled.initial.inlineRemove, false)
+    assert.equal(toggled.initial.controls, "workspaceMenu")
+    assert.equal(toggled.initial.hasPopup, "menu")
+    assert.equal(toggled.initial.expanded, "false")
+    assert.ok(toggled.initial.label?.trim(), "the more button has an accessible name")
+    assert.deepEqual(toggled.initial.toolbar, ["workspace-menu-button", "tree-button", "new-project-session"])
+    assert.equal(toggled.initial.folded, false)
+    assert.deepEqual(toggled.opened, { hidden: false, expanded: "true", folded: false })
+    assert.deepEqual(toggled.closed, { hidden: true, expanded: "false", folded: false })
+  },
+)
+
+test(
+  "the workspace more menu closes on outside click and Escape returns focus to its trigger",
+  { skip },
+  async () => {
+    const outside = await browser.run(`
+		const project = $("#projectGroups .project-group");
+		const button = project.querySelector(".workspace-menu-button");
+		button.click();
+		await until(() => !$("#workspaceMenu").hidden, "workspace menu to open");
+		document.body.click();
+		await until(() => $("#workspaceMenu").hidden, "outside click to close workspace menu");
+		return { hidden: $("#workspaceMenu").hidden, expanded: button.getAttribute("aria-expanded"), folded: project.classList.contains("folded") };
+	`)
+    assert.deepEqual(outside, { hidden: true, expanded: "false", folded: false })
+
+    const scrolled = await browser.run(`
+		const button = $("#projectGroups .workspace-menu-button");
+		const menu = $("#workspaceMenu");
+		button.click();
+		await until(() => !menu.hidden, "workspace menu before scrolling");
+		await new Promise((resolve) => requestAnimationFrame(resolve));
+		// Only sidebar scrolling moves the trigger; conversation scrolling must not dismiss its menu.
+		document.dispatchEvent(new Event("scroll"));
+		await new Promise((resolve) => requestAnimationFrame(resolve));
+		const documentHidden = menu.hidden;
+		$(".conversation-list").dispatchEvent(new Event("scroll"));
+		await until(() => menu.hidden, "sidebar scroll to close workspace menu");
+		return { documentHidden, sidebarHidden: menu.hidden, expanded: button.getAttribute("aria-expanded") };
+	`)
+    assert.deepEqual(scrolled, { documentHidden: false, sidebarHidden: true, expanded: "false" })
+
+    await browser.run(`
+		$("#projectGroups .workspace-menu-button").click();
+		await until(() => !$("#workspaceMenu").hidden, "workspace menu to reopen");
+		$("#workspaceMenu .remove-workspace").focus();
+	`)
+    await browser.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 })
+    await browser.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 })
+    const escaped = await browser.run(`
+		const project = $("#projectGroups .project-group");
+		const button = project.querySelector(".workspace-menu-button");
+		await until(() => $("#workspaceMenu").hidden && document.activeElement === button, "Escape to close menu and return trigger focus");
+		return {
+			hidden: $("#workspaceMenu").hidden,
+			expanded: button.getAttribute("aria-expanded"),
+			focused: document.activeElement === button,
+			folded: project.classList.contains("folded"),
+			modalHidden: $("#removeWorkspaceModal").hidden,
+		};
+	`)
+    assert.deepEqual(escaped, { hidden: true, expanded: "false", focused: true, folded: false, modalHidden: true })
+  },
+)
+
+test(
+  "the workspace more menu opens the accessible removal dialog without removing files or chats",
+  { skip },
+  async () => {
+    const dialog = await browser.run(`
+		const project = $("#projectGroups .project-group");
+		const button = project.querySelector(".workspace-menu-button");
+		const before = { projects: projects(), sessions: $$(".session-row").map((row) => row.dataset.sessionId) };
+		button.focus(); button.click();
+		await until(() => !$("#workspaceMenu").hidden, "workspace menu to open");
+		$("#workspaceMenu .remove-workspace").click();
+		await until(() => !$("#removeWorkspaceModal").hidden && document.activeElement === $("#removeWorkspaceCancel"), "removal dialog and cancel focus");
+		const section = $("#removeWorkspaceModal [role='dialog']");
+		const opened = {
+			menuHidden: $("#workspaceMenu").hidden,
+			expanded: button.getAttribute("aria-expanded"),
+			modal: section.getAttribute("aria-modal"),
+			labelledBy: section.getAttribute("aria-labelledby"),
+			describedBy: section.getAttribute("aria-describedby"),
+			title: $("#removeWorkspaceTitle").textContent,
+			description: $("#removeWorkspaceDescription").textContent,
+			focus: document.activeElement.id,
+			folded: project.classList.contains("folded"),
+		};
+		// Opening and cancelling exercise semantics without confirming removal.
+		$("#removeWorkspaceCancel").click();
+		await until(() => $("#removeWorkspaceModal").hidden && document.activeElement === button, "cancel to restore trigger focus");
+		return {
+			before, opened,
+			after: { projects: projects(), sessions: $$(".session-row").map((row) => row.dataset.sessionId) },
+			cancelled: $("#removeWorkspaceModal").hidden,
+			focused: document.activeElement === button,
+		};
+	`)
+    assert.equal(dialog.opened.menuHidden, true)
+    assert.equal(dialog.opened.expanded, "false")
+    assert.equal(dialog.opened.modal, "true")
+    assert.equal(dialog.opened.labelledBy, "removeWorkspaceTitle")
+    assert.equal(dialog.opened.describedBy, "removeWorkspaceDescription")
+    assert.equal(dialog.opened.title, "移除 project?")
+    assert.match(dialog.opened.description, /文件和现有聊天不会被删除/)
+    assert.equal(dialog.opened.focus, "removeWorkspaceCancel")
+    assert.equal(dialog.opened.folded, false)
+    assert.equal(dialog.cancelled, true)
+    assert.equal(dialog.focused, true)
+    assert.deepEqual(dialog.after, dialog.before)
+    assert.ok(existsSync(join(workspace, "README.md")), "opening the removal dialog must not delete workspace files")
+  },
+)
+
+test(
+  "the workspace more menu stays visible in a narrow sidebar without folding the project",
+  { skip },
+  async () => {
+    try {
+      await browser.send("Emulation.setDeviceMetricsOverride", {
+        width: 720,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      })
+      const narrow = await browser.run(`
+			await new Promise((resolve) => requestAnimationFrame(resolve));
+			const project = await until(() => $("#projectGroups .project-group"), "project in narrow sidebar");
+			project.querySelector(".workspace-menu-button").click();
+			const menu = await until(() => !$("#workspaceMenu").hidden && $("#workspaceMenu"), "workspace menu in narrow sidebar");
+			await new Promise((resolve) => requestAnimationFrame(resolve));
+			const box = menu.getBoundingClientRect();
+			const remove = menu.querySelector(".remove-workspace");
+			const item = remove.getBoundingClientRect();
+			return {
+				left: box.left,
+				right: box.right,
+				bottom: box.bottom,
+				viewportWidth: innerWidth,
+				viewportHeight: innerHeight,
+				removeVisible: !remove.hidden && getComputedStyle(remove).visibility !== "hidden"
+					&& item.width > 0 && item.height > 0
+					&& item.left >= 0 && item.right <= innerWidth && item.top >= 0 && item.bottom <= innerHeight
+					&& remove.contains(document.elementFromPoint(item.left + item.width / 2, item.top + item.height / 2)),
+				folded: project.classList.contains("folded"),
+			};
+		`)
+      assert.ok(narrow.left >= 8, `menu left ${narrow.left} must retain the viewport margin`)
+      assert.ok(narrow.right <= narrow.viewportWidth, "the menu must fit within the viewport's right edge")
+      assert.ok(narrow.bottom <= narrow.viewportHeight, "the menu must fit within the viewport's bottom edge")
+      assert.equal(narrow.removeVisible, true, "the removal item must be visible and not covered")
+      assert.equal(narrow.folded, false)
+    } finally {
+      try {
+        await browser.run(`
+			if (!$("#workspaceMenu").hidden) document.body.click();
+			await until(() => $("#workspaceMenu").hidden, "narrow sidebar menu to close");
+		`)
+      } finally {
+        await browser.send("Emulation.setDeviceMetricsOverride", {
+          width: 1440,
+          height: 900,
+          deviceScaleFactor: 1,
+          mobile: false,
+        })
+        await browser.run(`await new Promise((resolve) => requestAnimationFrame(resolve));`)
+      }
+    }
+  },
+)
+
 test("workspaces with chats can be removed through the dialog, retained after reload and restored", { skip }, async () => {
   const before = await browser.run(`
     const session = $(".session-row.active").dataset.sessionId;
     const project = $("#projectGroups .project-group");
-    const button = project.querySelector(".remove-workspace");
+    const button = project.querySelector(".workspace-menu-button");
     button.focus(); button.click();
+    await until(() => !$("#workspaceMenu").hidden, "workspace menu");
+    $("#workspaceMenu .remove-workspace").click();
     await until(() => !$("#removeWorkspaceModal").hidden, "removal dialog");
     const title = $("#removeWorkspaceTitle").textContent;
     const description = $("#removeWorkspaceDescription").textContent;
     const focused = document.activeElement.id;
     $("#removeWorkspaceCancel").click();
-    await until(() => $("#removeWorkspaceModal").hidden, "cancel");
+    await until(() => $("#removeWorkspaceModal").hidden && document.activeElement === button, "cancel and restore trigger focus");
     const restoredFocus = document.activeElement === button;
-    button.click(); await until(() => !$("#removeWorkspaceModal").hidden, "reopen");
+    button.click();
+    await until(() => !$("#workspaceMenu").hidden, "workspace menu again");
+    $("#workspaceMenu .remove-workspace").click();
+    await until(() => !$("#removeWorkspaceModal").hidden, "reopen");
     return { session, title, description, focused, restoredFocus };
   `);
   assert.equal(before.title, "移除 project?");
@@ -1449,11 +1662,17 @@ test("workspaces with chats can be removed through the dialog, retained after re
   await browser.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
   const removed = await browser.run(`
     await until(() => $("#removeWorkspaceModal").hidden, "Escape closes dialog");
-    const button = $("#projectGroups .remove-workspace");
-    button.click(); await until(() => !$("#removeWorkspaceModal").hidden, "reopen for close");
+    const button = $("#projectGroups .workspace-menu-button");
+    button.click();
+    await until(() => !$("#workspaceMenu").hidden, "workspace menu for close");
+    $("#workspaceMenu .remove-workspace").click();
+    await until(() => !$("#removeWorkspaceModal").hidden, "reopen for close");
     $("#removeWorkspaceModal header button").click();
     await until(() => $("#removeWorkspaceModal").hidden, "close button");
-    button.click(); await until(() => !$("#removeWorkspaceModal").hidden, "reopen for confirm");
+    button.click();
+    await until(() => !$("#workspaceMenu").hidden, "workspace menu for confirm");
+    $("#workspaceMenu .remove-workspace").click();
+    await until(() => !$("#removeWorkspaceModal").hidden, "reopen for confirm");
     const original = window.fetch; let calls = 0;
     window.fetch = (...args) => {
       if (String(args[0]).startsWith("/api/v1/workspaces?") && args[1]?.method === "DELETE") {

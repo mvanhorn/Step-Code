@@ -14,6 +14,7 @@ export { SearchModal } from "./SearchModal";
 export { SessionMenu } from "./SessionMenu";
 export { SidebarResizer } from "./SidebarResizer";
 export { TagPicker } from "./TagPicker";
+export { WorkspaceMenu } from "./WorkspaceMenu";
 
 /** `.brand-row`, `nav.sidebar-actions`, `section.conversation-list` (legacy index.html 539-640). */
 export function SidebarNav() {

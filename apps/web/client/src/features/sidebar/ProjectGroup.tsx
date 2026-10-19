@@ -2,11 +2,11 @@ import type { MouseEvent } from "react";
 import { useT } from "../../i18n";
 import { basename, cx } from "../../lib/format";
 import { startDraft } from "../../state/session";
+import { useAppStore } from "../../state/store";
 import type { SessionSummary } from "../../state/types";
 import { EmptyState, Icon, IconButton, LEGACY_ICONS } from "../../ui";
 import { openTree } from "../files/actions";
-import { requestWorkspaceRemoval } from "../workspace/actions";
-import { toggleProjectFolded } from "./actions";
+import { closeWorkspaceMenu, toggleProjectFolded, toggleWorkspaceMenu } from "./actions";
 import { SessionRow } from "./SessionRow";
 
 export interface ProjectGroupProps {
@@ -22,8 +22,10 @@ export interface ProjectGroupProps {
 /** `section.project-group[data-cwd]` (legacy `renderSessionLists`, 848-885). */
 export function ProjectGroup({ cwd, sessions, folded, hiddenIds, filteredOut }: ProjectGroupProps) {
 	const t = useT();
+	const menuOpen = useAppStore((state) => state.ui.workspaceMenu?.cwd === cwd);
 	const action = (run: () => void) => (event: MouseEvent<HTMLButtonElement>) => {
 		event.stopPropagation();
+		closeWorkspaceMenu();
 		run();
 	};
 	return (
@@ -38,7 +40,21 @@ export function ProjectGroup({ cwd, sessions, folded, hiddenIds, filteredOut }: 
 			<div className="project-header" onClick={() => toggleProjectFolded(cwd)}>
 				<Icon {...LEGACY_ICONS.folder} />
 				<span className="project-name">{basename(cwd)}</span>
-				<span className="project-actions">
+				<span className={cx("project-actions", menuOpen && "menu-open")}>
+					<IconButton
+						className="project-action workspace-menu-button"
+						data-tooltip={menuOpen ? undefined : t("moreActions")}
+						aria-label={t("moreActions")}
+						aria-haspopup="menu"
+						aria-expanded={menuOpen}
+						aria-controls="workspaceMenu"
+						onClick={(event) => {
+							event.stopPropagation();
+							toggleWorkspaceMenu(cwd, event.currentTarget);
+						}}
+					>
+						<Icon {...LEGACY_ICONS.more} />
+					</IconButton>
 					<IconButton
 						className="project-action tree-button"
 						data-tooltip={t("fileTree")}
@@ -54,14 +70,6 @@ export function ProjectGroup({ cwd, sessions, folded, hiddenIds, filteredOut }: 
 						onClick={action(() => startDraft(cwd))}
 					>
 						<Icon {...LEGACY_ICONS.plus} />
-					</IconButton>
-					<IconButton
-						className="project-action remove-workspace"
-						data-tooltip={t("removeWorkspace")}
-						aria-label={t("removeWorkspace")}
-						onClick={action(() => requestWorkspaceRemoval(cwd))}
-					>
-						<Icon name="close-sm" size="sm" />
 					</IconButton>
 				</span>
 			</div>

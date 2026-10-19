@@ -5,7 +5,7 @@
 
 import type { TagColor } from "../../i18n";
 import { api } from "../../lib/api";
-import { type ConversationView, setState, setToggled, setUi } from "../../state/store";
+import { type ConversationView, getState, setState, setToggled, setUi } from "../../state/store";
 import type { SessionSearchResult } from "../../state/types";
 
 /* ── Global search (legacy 1199-1211) ────────────────────────────────────── */
@@ -42,6 +42,27 @@ export function searchSessionContent(query: string, signal: AbortSignal): Promis
 /** Hide the global search modal (legacy `closeSearch`, 1207-1211); the modal drops its results. */
 export function closeSearch(): void {
 	setUi({ searchOpen: false });
+}
+
+/* ── Workspace overflow menu ─────────────────────────────────────────────── */
+
+export function toggleWorkspaceMenu(cwd: string, anchor: HTMLButtonElement): void {
+	if (getState().ui.workspaceMenu?.cwd === cwd) {
+		closeWorkspaceMenu(true);
+		return;
+	}
+	const rect = anchor.getBoundingClientRect();
+	setUi({ workspaceMenu: { cwd, x: rect.right, y: rect.bottom + 4 }, sessionMenu: null, tagPicker: null });
+}
+
+export function closeWorkspaceMenu(restoreFocus = false): void {
+	const menu = getState().ui.workspaceMenu;
+	setUi({ workspaceMenu: null });
+	if (restoreFocus && menu) {
+		document
+			.querySelector<HTMLButtonElement>(`.project-group[data-cwd="${CSS.escape(menu.cwd)}"] .workspace-menu-button`)
+			?.focus({ preventScroll: true });
+	}
 }
 
 /* ── Session context menu and tag picker ─────────────────────────────────── */
