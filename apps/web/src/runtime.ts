@@ -62,7 +62,14 @@ import { ApprovalBroker, type ApprovalRequest } from "./approval.ts";
 import { type WebAttachment, withTextAttachments } from "./attachments.ts";
 import { ClarificationBroker, type ClarificationEvent } from "./clarification.ts";
 import { feedbackCategoryFor } from "./feedback.ts";
-import { MessageQueue, type QueuedFile, type QueuedMessage, type QueuedMessageView } from "./message-queue.ts";
+import {
+	MessageQueue,
+	type QueuedFile,
+	type QueuedMessage,
+	type QueuedMessageView,
+	SteeringImages,
+	type SteeringMessageView,
+} from "./message-queue.ts";
 import { SelectionBroker, type SelectionEvent, type SelectionRequest, selectionSelect } from "./selection.ts";
 import { type WebSkill, webSkills } from "./skills.ts";
 import { resolveSubagentCliPath } from "./subagent-cli.ts";
@@ -124,7 +131,7 @@ export type WebEvent =
  */
 export interface WebQueueState {
 	readonly queued: readonly QueuedMessageView[];
-	readonly steering: readonly string[];
+	readonly steering: readonly SteeringMessageView[];
 }
 
 export type WebSessionStatus = "idle" | "running" | "waiting" | "completed" | "failed";
@@ -429,6 +436,8 @@ export class WebSession {
 	private livePermission?: StepPermissionPresetId;
 	/** Messages sent while a turn runs; the next one starts when the run settles (see `dispatchQueued`). */
 	private readonly queue = new MessageQueue(() => this.emit({ type: "queue", ...this.queueState() }));
+	/** The images of the kernel's pending steering messages, which it lists as text only. */
+	private readonly steeringImages = new SteeringImages();
 	/** Set by `interrupt`: the run it stops settles without starting the next queued message. */
 	private holdQueue = false;
 	/** The last run ended in an error or abort; its settle leaves the queue for the user. */
@@ -780,10 +789,25 @@ export class WebSession {
 	async steer(text: string, attachments: readonly WebAttachment[] = []): Promise<void> {
 		const images = imagesOf(attachments);
 		await this.session.steer(withTextAttachments(text, attachments), images.length ? images : undefined);
+		const queued = this.session.getSteeringMessages().at(-1);
+		if (queued === undefined || !images.length) return;
+		// The kernel published the steer before its images were recorded here.
+		this.steeringImages.record(
+			queued,
+			attachments.filter((attachment) => attachment.kind === "image"),
+		);
+		this.emit({ type: "queue", ...this.queueState() });
 	}
 
 	queueState(): WebQueueState {
-		return { queued: this.queue.views(), steering: [...this.session.getSteeringMessages()] };
+		return { queued: this.queue.views(), steering: this.steeringViews() };
+	}
+
+	private steeringViews(): SteeringMessageView[] {
+		return this.steeringImages.match(this.session.getSteeringMessages()).map(({ text, images }) => ({
+			text,
+			images: images.map(({ mimeType, data }) => ({ mimeType, data })),
+		}));
 	}
 
 	/** Whether a message sent now has to wait: a run is active or the session waits on the user. */
@@ -1014,15 +1038,20 @@ export class WebSession {
 
 	/**
 	 * Stop the running turn. Queued messages stay queued; steering messages the
-	 * kernel had not delivered yet move back to the front of the queue (their
-	 * images, if any, are lost), so stopping never drops what the user typed.
+	 * kernel had not delivered yet move back to the front of the queue with their
+	 * images, so stopping never drops what the user sent.
 	 */
 	async interrupt(): Promise<void> {
 		this.clarifications.clear();
 		this.holdQueue = true;
 		await this.session.abort();
 		const pending = this.session.clearQueue();
-		this.queue.prependTexts([...pending.steering, ...pending.followUp]);
+		const steering = this.steeringImages.match(pending.steering);
+		this.steeringImages.clear();
+		this.queue.prepend([
+			...steering.map(({ text, images }) => ({ text, attachments: images })),
+			...pending.followUp.map((text) => ({ text, attachments: [] })),
+		]);
 		this.setStatus("idle");
 	}
 
@@ -1084,7 +1113,7 @@ export class WebSession {
 			pendingClarifications: this.clarifications.pendingRequests(),
 			pendingSelections: this.selections.pendingRequests(),
 			queuedMessages: this.queue.views(),
-			steeringMessages: [...this.session.getSteeringMessages()],
+			steeringMessages: this.steeringViews(),
 			model: this.session.model ? { provider: this.session.model.provider, id: this.session.model.id } : undefined,
 			permissionPreset:
 				this.livePermission ??

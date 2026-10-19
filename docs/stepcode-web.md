@@ -1,8 +1,6 @@
 # StepCode Web Host
 
-StepCode Web is a loopback-only Node Host plus a browser projection. It uses the
-official StepCode composition boundary from the current `github-opensource`
-source tree:
+StepCode Web is a loopback-only Node Host plus a browser projection.
 
 - `AgentSessionRuntime` owns the agent lifecycle.
 - `AgentSession` owns the active session and event stream.

@@ -4,6 +4,7 @@ import { type AttachedFile, FILE_MARKER, markAttachedFiles, splitAttachedFiles }
 import { formatBytes, formatTokens } from "../../lib/format";
 import { escapeHtml, renderMarkdown, skillInvocation } from "../../lib/markdown";
 import { copyText } from "../../state/session";
+import { setUi } from "../../state/store";
 import type { MessageTimelineItem } from "../../state/types";
 import { Icon, LEGACY_ICONS, MarkdownView } from "../../ui";
 import { forkAtEntry } from "./actions";
@@ -45,9 +46,8 @@ export const MessageItem = memo(function MessageItem({
 		[role, item.content],
 	);
 	const skill = role === "user" ? skillInvocation(attached.text) : null;
-	const text = useSmoothText(skill ? skill.request : attached.text, live);
-	// A user message can be images only; it still opens a turn, so it gets a row.
-	const content = text || (role === "user" && item.images ? t("imageMessage", { count: item.images }) : text);
+	const content = useSmoothText(skill ? skill.request : attached.text, live);
+	const images = role === "user" ? (item.images ?? []) : [];
 	// Memoised: a streaming turn re-renders the timeline per frame, and parsing every earlier message each time made long sessions crawl.
 	const files = pendingFiles ?? attached.files;
 	const html = useMemo(() => {
@@ -69,6 +69,8 @@ export const MessageItem = memo(function MessageItem({
 					{skill.name}
 				</span>
 			) : null}
+			{/* A user message can be images only; it still opens a turn, so it gets a row. */}
+			{images.length ? <MessageImages images={images} /> : null}
 			{content ? (
 				<MarkdownView
 					ref={bodyRef}
@@ -81,6 +83,30 @@ export const MessageItem = memo(function MessageItem({
 		</article>
 	);
 });
+
+/** A user message's images as thumbnails; clicking one opens `#imagePreview`. */
+function MessageImages({ images }: { readonly images: readonly string[] }) {
+	const t = useT();
+	return (
+		<div className="message-images">
+			{images.map((src, index) => {
+				const name = t("imageNumbered", { index: index + 1 });
+				return (
+					<button
+						// biome-ignore lint/suspicious/noArrayIndexKey: a message's images never reorder.
+						key={index}
+						type="button"
+						className="message-image"
+						aria-label={t("previewImageNamed", { name })}
+						onClick={() => setUi({ imagePreview: { src, name } })}
+					>
+						<img src={src} alt="" />
+					</button>
+				);
+			})}
+		</div>
+	);
+}
 
 /** `403: {"message": "..."}` -> the status and the provider's message; anything else unchanged. */
 function errorDetail(error: string): { readonly status: string; readonly message: string } {

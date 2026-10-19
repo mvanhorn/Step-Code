@@ -2,7 +2,7 @@ import { Fragment, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useLocale, useT } from "../../i18n";
 import { collectTurnChanges } from "../../lib/turn-changes";
 import { setUi, useAppStore } from "../../state/store";
-import type { TimelineItem } from "../../state/types";
+import type { SteeringMessage, TimelineItem } from "../../state/types";
 import { MessageItem } from "./MessageItem";
 import { ThinkingIndicator } from "./ThinkingIndicator";
 import { ApprovalCard, ToolRow } from "./TimelineRows";
@@ -55,7 +55,7 @@ function scrollToEnd(stream: HTMLElement | null): void {
 	if (stream) stream.scrollTop = stream.scrollHeight;
 }
 
-const NO_STEERING: readonly string[] = [];
+const NO_STEERING: readonly SteeringMessage[] = [];
 
 /** Within this many pixels of the end the stream counts as "at the bottom" and follows new output. */
 const STICK_THRESHOLD = 48;
@@ -153,17 +153,29 @@ export function ConversationStream() {
 								</Fragment>
 							);
 						})}
-						{steering.map((text, index) => (
+						{steering.map((message, index) => (
 							<MessageItem
 								// Kernel texts carry no id; equal texts are interchangeable here.
 								// biome-ignore lint/suspicious/noArrayIndexKey: see above.
 								key={`steering-${index}`}
-								item={{ itemId: `message-steering-${index}`, kind: "message", role: "user", content: text }}
+								item={{
+									itemId: `message-steering-${index}`,
+									kind: "message",
+									role: "user",
+									content: message.text,
+									images: message.images.map((image) => `data:${image.mimeType};base64,${image.data}`),
+								}}
 							/>
 						))}
 						{pendingTurn ? (
 							<MessageItem
-								item={{ itemId: "message-pending", kind: "message", role: "user", content: pendingTurn.text }}
+								item={{
+									itemId: "message-pending",
+									kind: "message",
+									role: "user",
+									content: pendingTurn.text,
+									images: pendingTurn.images,
+								}}
 								files={pendingTurn.files}
 							/>
 						) : null}

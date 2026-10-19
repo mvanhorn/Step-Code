@@ -34,7 +34,7 @@ test("the client splits turns at every user message, like the host's revert", ()
 		kind: "message",
 		role: "user",
 		content: "",
-		images: 1,
+		images: ["data:image/png;base64,AAAA"],
 		usage: undefined,
 		timestamp: "2026-10-15T00:00:00.000Z",
 	});

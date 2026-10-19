@@ -372,7 +372,7 @@ paths:
                   steeringMessages:
                     type: array
                     description: Steered messages the running turn has not read yet
-                    items: { type: string }
+                    items: { $ref: "#/components/schemas/SteeringMessage" }
     delete:
       parameters:
         - { $ref: "#/components/parameters/SessionId" }
@@ -1178,7 +1178,21 @@ components:
           items: { $ref: "#/components/schemas/QueuedMessage" }
         steering:
           type: array
-          items: { type: string }
+          items: { $ref: "#/components/schemas/SteeringMessage" }
+    SteeringMessage:
+      type: object
+      description: A steered message the kernel has not delivered yet, with its images
+      required: [text, images]
+      properties:
+        text: { type: string }
+        images:
+          type: array
+          items:
+            type: object
+            required: [mimeType, data]
+            properties:
+              mimeType: { type: string }
+              data: { type: string, description: Base64 image bytes }
     SessionSearchHit:
       type: object
       required: [sessionId, cwd, entryId, ts, snippet]

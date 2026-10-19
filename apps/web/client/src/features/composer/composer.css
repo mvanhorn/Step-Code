@@ -942,21 +942,30 @@
 .queue-row.is-editing {
 	align-items: flex-start;
 }
+/* A flex line, so the attachment chips centre on the text instead of sitting on its baseline. */
 .queue-row-text {
+	display: flex;
 	flex: 1 1 auto;
+	align-items: center;
+	gap: 6px;
 	min-width: 0;
 	overflow: hidden;
 	color: var(--ink);
-	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+.queue-row-preview {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 .queue-row-file {
 	display: inline-flex;
+	flex: none;
 	align-items: center;
 	gap: 2px;
-	margin-left: 6px;
 	color: var(--ink-2);
 	font-size: 12px;
+	line-height: 1;
 }
 .queue-row-editor {
 	flex: 1 1 auto;

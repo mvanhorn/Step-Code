@@ -139,7 +139,13 @@ export interface SessionSnapshot extends SessionSummary {
 	/** Messages sent during a turn, waiting for it to end (src/message-queue.ts). */
 	readonly queuedMessages?: readonly QueuedMessage[];
 	/** Steered messages the kernel has not delivered to the running turn yet. */
-	readonly steeringMessages?: readonly string[];
+	readonly steeringMessages?: readonly SteeringMessage[];
+}
+
+/** A steered message waiting for the running turn (src/message-queue.ts `SteeringMessageView`). */
+export interface SteeringMessage {
+	readonly text: string;
+	readonly images: readonly { readonly mimeType: string; readonly data: string }[];
 }
 
 /** A queued message as the host lists it (src/message-queue.ts `QueuedMessageView`). */
@@ -153,7 +159,7 @@ export interface QueuedMessage {
 /** The `queue` SSE event and the queue routes' response (runtime.ts `WebQueueState`). */
 export interface QueueState {
 	readonly queued: readonly QueuedMessage[];
-	readonly steering: readonly string[];
+	readonly steering: readonly SteeringMessage[];
 }
 
 export interface ClarificationQuestion {
@@ -206,8 +212,8 @@ export interface MessageTimelineItem {
 	readonly entryId?: string;
 	readonly role: string;
 	readonly content: string;
-	/** Images attached to a user message; a message can be images only. */
-	readonly images?: number;
+	/** Data URLs of the images attached to a user message; a message can be images only. */
+	readonly images?: readonly string[];
 	readonly usage?: Usage;
 	readonly timestamp?: string;
 	/** The model request failed (assistant `stopReason: "error"`); the provider's message. */

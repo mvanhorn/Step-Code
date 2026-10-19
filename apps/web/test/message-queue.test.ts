@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { MessageQueue } from "../src/message-queue.ts";
+import { MessageQueue, SteeringImages } from "../src/message-queue.ts";
 
 const image = { name: "shot.png", mimeType: "image/png", data: "AAAA", kind: "image" as const };
 
@@ -55,10 +55,33 @@ test("message queue restores refused items and interrupted kernel messages in fr
 		queue.views().map((item) => item.id).slice(0, 2),
 		[a.id, b.id],
 	);
-	queue.prependTexts(["steered", "follow-up"]);
+	queue.prepend([
+		{ text: "steered", attachments: [] },
+		{ text: "follow-up", attachments: [] },
+	]);
 	assert.deepEqual(
 		queue.views().map((item) => item.text),
 		["steered", "follow-up", "a", "b", "c"],
 	);
 });
 
+test("steering images pair with the kernel's pending texts and drop once delivered", () => {
+	const image = { name: "a.png", mimeType: "image/png", data: "AAAA", kind: "image" as const };
+	const other = { ...image, name: "b.png", data: "BBBB" };
+	const images = new SteeringImages();
+	images.record("look", [image]);
+	images.record("plain", []);
+	images.record("look", [other]);
+	assert.deepEqual(
+		images.match(["look", "plain", "look"]).map((message) => message.images.map((item) => item.name)),
+		[["a.png"], [], ["b.png"]],
+	);
+	// The kernel delivered the oldest "look" (and "plain"): its record goes, the newer one stays.
+	assert.deepEqual(
+		images.match(["look"]).map((message) => message.images.map((item) => item.name)),
+		[["b.png"]],
+	);
+	assert.deepEqual(images.match(["look"])[0].images, [other]);
+	assert.deepEqual(images.match([]), []);
+	assert.deepEqual(images.match(["look"])[0].images, []);
+});

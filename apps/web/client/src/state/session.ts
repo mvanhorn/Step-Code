@@ -186,10 +186,14 @@ function withArgs(input: unknown): { args?: ToolArgs } {
 }
 
 /** Image parts of a message's content. */
-function imageCount(content: unknown): number {
-	return Array.isArray(content)
-		? (content as readonly ContentPart[]).filter((part) => part?.type === "image").length
-		: 0;
+/** The data URLs of a message's image blocks (`{ type: "image", mimeType, data }`). */
+function imageSources(content: unknown): string[] {
+	if (!Array.isArray(content)) return [];
+	return (content as readonly ContentPart[]).flatMap((part) =>
+		part?.type === "image" && typeof part.mimeType === "string" && typeof part.data === "string"
+			? [`data:${part.mimeType};base64,${part.data}`]
+			: [],
+	);
 }
 
 /** Project session entries into timeline rows (legacy `timelineFromEntries`, 2055-2096). */
@@ -206,7 +210,7 @@ export function timelineFromEntries(entries: readonly SessionEntry[] = []): Time
 		const message = entry.message;
 		if (message.role === "toolResult") continue;
 		const text = contentText(message.content);
-		const images = message.role === "user" ? imageCount(message.content) : 0;
+		const images = message.role === "user" ? imageSources(message.content) : [];
 		// A failed request leaves an assistant message with no content; without a row the error was invisible.
 		const error =
 			message.role === "assistant" && message.stopReason === "error"
@@ -220,7 +224,7 @@ export function timelineFromEntries(entries: readonly SessionEntry[] = []): Time
 				kind: "message",
 				role: message.role,
 				content: text,
-				...(images ? { images } : {}),
+				...(images.length ? { images } : {}),
 				...(error ? { error } : {}),
 				usage: entry.usage,
 				timestamp: entry.timestamp,
@@ -465,7 +469,7 @@ function handleAgentEvent(agentEvent: AgentStreamEvent): void {
 		// The prompt entered the loop: show it in place now; the refresh after
 		// its message_end replaces this row with the recorded entry.
 		const content = contentText(agentEvent.message.content);
-		const images = imageCount(agentEvent.message.content);
+		const images = imageSources(agentEvent.message.content);
 		setState((state) => ({
 			pendingTurn: null,
 			timelineItems: upsertItem(state.timelineItems, {
@@ -473,7 +477,7 @@ function handleAgentEvent(agentEvent: AgentStreamEvent): void {
 				kind: "message",
 				role: "user",
 				content,
-				...(images ? { images } : {}),
+				...(images.length ? { images } : {}),
 			}),
 		}));
 	}

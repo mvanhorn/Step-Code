@@ -117,7 +117,7 @@ export function QueueDock() {
 								/>
 							) : (
 								<span className="queue-row-text" title={item.text}>
-									{preview(item.text)}
+									<span className="queue-row-preview">{preview(item.text)}</span>
 									{names.map((name) => (
 										<span className="queue-row-file" key={name} title={t("queueAttachment", { name })}>
 											<Icon name="paperclip" size="xs" />

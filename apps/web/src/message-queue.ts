@@ -52,9 +52,9 @@ export class MessageQueue {
 	}
 
 	/** Put kernel messages taken back after an interrupt in front of the queue, oldest first. */
-	prependTexts(texts: readonly string[]): void {
-		if (!texts.length) return;
-		const restored = texts.map((text) => ({ id: randomUUID(), text, attachments: [], files: [] }));
+	prepend(messages: readonly { readonly text: string; readonly attachments: readonly WebAttachment[] }[]): void {
+		if (!messages.length) return;
+		const restored = messages.map((message) => ({ id: randomUUID(), ...message, files: [] }));
 		this.items = [...restored, ...this.items];
 		this.onChange();
 	}
@@ -108,5 +108,56 @@ export class MessageQueue {
 			attachments: item.attachments.map((attachment) => ({ name: attachment.name, kind: attachment.kind })),
 			files: item.files,
 		}));
+	}
+}
+
+/** An image of a steering message, as the snapshot and the `queue` event carry it. */
+export interface SteeringImage {
+	readonly mimeType: string;
+	readonly data: string;
+}
+
+/** A steering message the kernel has not delivered yet, with its images. */
+export interface SteeringMessageView {
+	readonly text: string;
+	readonly images: readonly SteeringImage[];
+}
+
+/**
+ * The images of steering messages. The kernel lists only the text of a steering
+ * message it has not delivered (`getSteeringMessages`), so the host records the
+ * images under that text: the conversation shows them while the message waits,
+ * and a stop puts them back in the queue with the text.
+ */
+export class SteeringImages {
+	private records: { readonly text: string; readonly images: readonly WebAttachment[] }[] = [];
+
+	record(text: string, images: readonly WebAttachment[]): void {
+		if (images.length) this.records = [...this.records, { text, images }];
+	}
+
+	/**
+	 * Pair the kernel's pending texts with their images. The kernel delivers the
+	 * oldest first, so the pending texts are the newest ones: pairing runs from
+	 * the end. Records no text claims were delivered and are dropped.
+	 */
+	match(texts: readonly string[]): { readonly text: string; readonly images: readonly WebAttachment[] }[] {
+		const left = [...this.records];
+		const claimed = new Set<(typeof this.records)[number]>();
+		const paired: { readonly text: string; readonly images: readonly WebAttachment[] }[] = [];
+		for (let i = texts.length - 1; i >= 0; i -= 1) {
+			const text = texts[i];
+			let index = left.length - 1;
+			while (index >= 0 && left[index].text !== text) index -= 1;
+			const record = index < 0 ? undefined : left.splice(index, 1)[0];
+			if (record) claimed.add(record);
+			paired.unshift({ text, images: record?.images ?? [] });
+		}
+		this.records = this.records.filter((record) => claimed.has(record));
+		return paired;
+	}
+
+	clear(): void {
+		this.records = [];
 	}
 }

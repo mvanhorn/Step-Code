@@ -27,6 +27,7 @@ import type {
 	QueueState,
 	SelectionRequest,
 	SessionSnapshot,
+	SteeringMessage,
 	UploadedFile,
 } from "../../state/types";
 import type { PromptFile } from "./prompt-editor";
@@ -281,11 +282,23 @@ export async function sendMessage(text: string, files: readonly PromptFile[] = [
 	const active = turnActive(state);
 	// A queued or steered message waits for the turn, so only a new turn gets
 	// the immediate message and thinking indicator.
-	const pendingTurn = active ? null : { text, files, userCount: countUserMessages(timelineItems) };
+	const images = attachments.filter((attachment) => attachment.kind === "image");
+	const pendingTurn = active
+		? null
+		: {
+				text,
+				files,
+				images: images.map((image) => `data:${image.mimeType};base64,${image.data}`),
+				userCount: countUserMessages(timelineItems),
+			};
 	setState({ attachments: [], pendingTurn });
 	// A steered message is shown in the conversation now, though the kernel reads it only after the current tool call.
 	const steering = active && steer && state.current ? (state.current.steeringMessages ?? []) : null;
-	if (steering && state.current) setSteering(state.current.id, [...steering, text]);
+	if (steering && state.current)
+		setSteering(state.current.id, [
+			...steering,
+			{ text, images: images.map(({ mimeType, data }) => ({ mimeType, data })) },
+		]);
 	try {
 		const session = await createSessionIfNeeded();
 		const endpoint = !active ? "messages" : steer ? "steer" : "queue";
@@ -305,7 +318,7 @@ export async function sendMessage(text: string, files: readonly PromptFile[] = [
 	}
 }
 
-function setSteering(sessionId: string, steering: readonly string[]): void {
+function setSteering(sessionId: string, steering: readonly SteeringMessage[]): void {
 	const current = getState().current;
 	if (current?.id === sessionId)
 		applyQueueState(sessionId, { queued: current.queuedMessages ?? [], steering: [...steering] });
@@ -359,7 +372,8 @@ async function steerQueued(id?: string): Promise<boolean> {
 	const moved = active ? targets : [first];
 	applyQueueState(current.id, {
 		queued: queued.filter((item) => !moved.includes(item)),
-		steering: active ? [...steering, ...moved.map((item) => item.text)] : steering,
+		// The queue view has no image bytes; the host's response brings them.
+		steering: active ? [...steering, ...moved.map((item) => ({ text: item.text, images: [] }))] : steering,
 	});
 	if (!active) setState({ pendingTurn: { text: first.text, userCount: countUserMessages(state.timelineItems) } });
 	const base = `/api/v1/sessions/${current.id}/queue`;

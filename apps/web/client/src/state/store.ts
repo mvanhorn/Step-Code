@@ -212,6 +212,8 @@ export interface PendingTurn {
 	readonly text: string;
 	/** Files the message names; the host appends their content, so the echoed message has them too. */
 	readonly files?: readonly AttachedFile[];
+	/** Data URLs of the message's images, shown before the host echoes the message. */
+	readonly images?: readonly string[];
 	/** User messages in the timeline when it was sent; one more means the host has recorded it. */
 	readonly userCount: number;
 }
