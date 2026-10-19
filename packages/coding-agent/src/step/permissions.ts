@@ -7,6 +7,7 @@
  */
 
 import type { AgentMessage } from "@step-harness/agent-core";
+import { type AssistantMessage, isRetryableAssistantError } from "@step-harness/providers";
 import type {
 	AgentEndEvent,
 	ExtensionContext,
@@ -833,12 +834,30 @@ export class StepAutoResumeController {
 	}
 
 	handleAgentEnd(event: AgentEndEvent): void {
-		const failure = describeAssistantFailure(event.messages);
+		const failure = findAssistantFailure(event.messages);
 		if (!failure) {
 			this.reset();
 			return;
 		}
-		this.lastFailure = failure;
+		if (!isRetryableAssistantError(failure)) {
+			// A rejected request (invalid parameters, auth, quota, unsupported model
+			// option) fails identically on every continuation. Resuming would only
+			// append another prompt and the same error to the transcript, and the
+			// provider's per-request trace ids defeat the same-failure check below.
+			if (this.options.isEnabled()) {
+				this.reportTelemetry({
+					outcome: "gave_up",
+					trigger: "model_error",
+					probeStatus: "not_run",
+					probeAttempts: 0,
+					consecutiveResumes: this.attempts,
+					giveUpReason: "not_retryable",
+				});
+			}
+			this.reset();
+			return;
+		}
+		this.lastFailure = failure.errorMessage?.trim() ?? "";
 	}
 
 	handleAgentSettled(): void {
@@ -949,14 +968,13 @@ export class StepAutoResumeController {
 export const AUTO_RESUME_PROMPT =
 	"The previous turn was interrupted by a transient model or transport error. Re-read the recent transcript and continue from where it stopped. Do not restart from scratch or repeat tool calls whose results are already present. If the work needs a decision from the user, stop and explain what is needed.";
 
-function describeAssistantFailure(messages: AgentMessage[]): string | undefined {
+/** The last assistant message when it ended in a provider error with a message. */
+function findAssistantFailure(messages: AgentMessage[]): AssistantMessage | undefined {
 	for (let index = messages.length - 1; index >= 0; index -= 1) {
 		const message = messages[index];
 		if (message?.role !== "assistant") continue;
-		const errorMessage =
-			"errorMessage" in message && typeof message.errorMessage === "string" ? message.errorMessage : "";
-		if (message.stopReason !== "error" || errorMessage.trim().length === 0) return undefined;
-		return errorMessage.trim();
+		if (message.stopReason !== "error" || !message.errorMessage?.trim()) return undefined;
+		return message;
 	}
 	return undefined;
 }

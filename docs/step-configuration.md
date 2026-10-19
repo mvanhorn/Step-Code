@@ -88,7 +88,11 @@ Once a new tier is saved, later launches retain it.
 Both Approve for Me and Full Access enable the bounded model-error continuation
 by default; Ask does not resume automatically. Selecting either automatic tier
 enables continuation even if the old tier had saved `autoResume = false`.
-The existing retry limits and backoff remain unchanged. `STEP_AUTO_RESUME` or an
+The existing retry limits and backoff remain unchanged. Continuation applies only
+to transient failures (timeouts, rate limits, 5xx, dropped connections). A
+rejected request such as a 400 `invalid_request`, an authentication failure, or
+an exhausted quota stops without resuming, because every continuation would fail
+the same way. `STEP_AUTO_RESUME` or an
 explicit `autoResume` config value can override continuation at startup without
 granting extra permissions.
 
