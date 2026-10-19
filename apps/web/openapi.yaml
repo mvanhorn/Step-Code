@@ -365,6 +365,14 @@ paths:
                   pendingApprovals:
                     type: array
                     items: { $ref: "#/components/schemas/ApprovalRequest" }
+                  queuedMessages:
+                    type: array
+                    description: Messages sent during a turn that wait for it to end (in memory, lost on host restart)
+                    items: { $ref: "#/components/schemas/QueuedMessage" }
+                  steeringMessages:
+                    type: array
+                    description: Steered messages the running turn has not read yet
+                    items: { type: string }
     delete:
       parameters:
         - { $ref: "#/components/parameters/SessionId" }
@@ -433,8 +441,8 @@ paths:
         "200":
           description: >-
             SSE snapshot and agent/status/approval/clarification_required/clarification_resolved/selection_required/
-            selection_resolved events. clarification_required carries clarification and selection_required carries
-            selection; the resolved events carry id.
+            selection_resolved/queue events. clarification_required carries clarification and selection_required carries
+            selection; the resolved events carry id; queue carries a QueueState (queued, steering).
   /api/v1/sessions/{id}/messages:
     post:
       parameters:
@@ -480,9 +488,103 @@ paths:
                     appends one `<attached_file name path bytes>` block per file after the
                     text: a UTF-8 file's content (cut past 40 000 characters, saying where
                     to continue), or for any other file `type="binary"` and where to read it.
+                attachments: { type: array, description: "Paperclip files: name, mimeType, base64 data" }
       responses:
-        "202": { description: Steer accepted }
-        "400": { description: text is missing or an upload id is invalid }
+        "202": { description: Steer accepted; the running turn reads it before its next model call }
+        "400": { description: text is missing, an attachment or upload id is invalid, or the kernel refused the steer (an extension command) }
+  /api/v1/sessions/{id}/queue:
+    post:
+      summary: Queue a message sent during a turn
+      description: >-
+        The message waits, editable, until the running turn settles; then the Host sends the oldest queued message as
+        the next turn, one turn per message. An interrupted or failed turn leaves the queue as it is. When no turn runs
+        and nothing is queued, the message starts at once. Changes are also published as the `queue` SSE event.
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: { type: string }
+                files:
+                  type: array
+                  items: { type: string }
+                  description: Upload ids; their content is added when the message is dispatched.
+                attachments: { type: array, description: "Paperclip files: name, mimeType, base64 data" }
+      responses:
+        "202":
+          description: Queued; the new queue state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QueueState" }
+        "400": { description: text is missing, or an attachment or upload id is invalid }
+  /api/v1/sessions/{id}/queue/steer:
+    post:
+      summary: Steer every queued message into the running turn
+      description: >-
+        Without a running turn the oldest queued message starts as a new turn instead. Messages the kernel refuses to
+        steer (extension commands) stay queued.
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+      responses:
+        "202":
+          description: The new queue state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QueueState" }
+        "404": { description: The queue is empty }
+        "409": { description: The kernel refused a steer, or the session waits on the user }
+  /api/v1/sessions/{id}/queue/{itemId}:
+    patch:
+      summary: Replace a queued message's text
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+        - { name: itemId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: { type: string }
+      responses:
+        "200":
+          description: The new queue state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QueueState" }
+        "400": { description: text is missing }
+        "404": { description: Not queued (already dispatched or removed) }
+    delete:
+      summary: Remove a queued message
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+        - { name: itemId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: The new queue state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QueueState" }
+        "404": { description: Not queued (already dispatched or removed) }
+  /api/v1/sessions/{id}/queue/{itemId}/steer:
+    post:
+      summary: Steer one queued message into the running turn (or start it now when no turn runs)
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+        - { name: itemId, in: path, required: true, schema: { type: string } }
+      responses:
+        "202":
+          description: The new queue state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QueueState" }
+        "404": { description: Not queued (already dispatched or removed) }
+        "409": { description: The kernel refused the steer, or the session waits on the user }
   /api/v1/sessions/{id}/interrupt:
     post:
       parameters:
@@ -1047,6 +1149,36 @@ paths:
         "200": { description: Workspace file contents }
 components:
   schemas:
+    QueuedMessage:
+      type: object
+      required: [id, text, attachments, files]
+      properties:
+        id: { type: string }
+        text: { type: string, description: The text as typed; file contents are added at dispatch }
+        attachments:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              kind: { type: string, enum: [image, text] }
+        files:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              name: { type: string }
+    QueueState:
+      type: object
+      required: [queued, steering]
+      properties:
+        queued:
+          type: array
+          items: { $ref: "#/components/schemas/QueuedMessage" }
+        steering:
+          type: array
+          items: { type: string }
     SessionSearchHit:
       type: object
       required: [sessionId, cwd, entryId, ts, snippet]

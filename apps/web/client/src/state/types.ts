@@ -136,6 +136,24 @@ export interface SessionSnapshot extends SessionSummary {
 	readonly pendingSelections?: readonly SelectionRequest[];
 	/** User entry ids of turns whose file changes were reverted (runtime.ts `revertTurn`). */
 	readonly revertedTurns?: readonly string[];
+	/** Messages sent during a turn, waiting for it to end (src/message-queue.ts). */
+	readonly queuedMessages?: readonly QueuedMessage[];
+	/** Steered messages the kernel has not delivered to the running turn yet. */
+	readonly steeringMessages?: readonly string[];
+}
+
+/** A queued message as the host lists it (src/message-queue.ts `QueuedMessageView`). */
+export interface QueuedMessage {
+	readonly id: string;
+	readonly text: string;
+	readonly attachments: readonly { readonly name: string; readonly kind: "image" | "text" }[];
+	readonly files: readonly { readonly id: string; readonly name: string }[];
+}
+
+/** The `queue` SSE event and the queue routes' response (runtime.ts `WebQueueState`). */
+export interface QueueState {
+	readonly queued: readonly QueuedMessage[];
+	readonly steering: readonly string[];
 }
 
 export interface ClarificationQuestion {

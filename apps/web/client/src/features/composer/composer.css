@@ -869,3 +869,149 @@
 	white-space: pre-wrap;
 	overflow-wrap: anywhere;
 }
+/*
+ * `.queue-dock`: messages sent during a turn, attached to the top edge of the
+ * composer card (inset, square bottom, tucked under the card's border).
+ */
+.queue-dock {
+	position: relative;
+	z-index: 1;
+	margin: 0 14px -1px;
+	padding: 2px 0;
+	border: 1px solid var(--line);
+	border-bottom: 0;
+	border-radius: var(--radius-panel) var(--radius-panel) 0 0;
+	background: var(--surface-soft);
+}
+.queue-dock[hidden] {
+	display: none;
+}
+.queue-dock-header {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	width: 100%;
+	height: var(--control-h-lg);
+	padding: 4px 12px;
+	border: 0;
+	border-radius: var(--radius-row);
+	background: transparent;
+	color: var(--ink);
+	font-size: 13px;
+	text-align: left;
+	cursor: pointer;
+}
+.queue-dock-header:disabled {
+	cursor: default;
+}
+.queue-dock-lead {
+	flex: none;
+	color: var(--ink-3);
+}
+.queue-dock-count {
+	flex: 1 1 auto;
+	min-width: 0;
+	font-weight: 500;
+}
+.queue-dock-chevron {
+	flex: none;
+	color: var(--ink-3);
+	transition: transform var(--fast);
+}
+.queue-dock-chevron.is-collapsed {
+	transform: rotate(180deg);
+}
+.queue-dock-list {
+	max-height: 180px;
+	margin: 0;
+	padding: 0;
+	overflow-y: auto;
+	list-style: none;
+}
+.queue-row {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	min-height: var(--control-h-lg);
+	padding: 4px 6px 4px 12px;
+	font-size: 13px;
+}
+.queue-row + .queue-row {
+	box-shadow: inset 0 1px 0 var(--line);
+}
+.queue-row.is-editing {
+	align-items: flex-start;
+}
+.queue-row-text {
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	color: var(--ink);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.queue-row-file {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	margin-left: 6px;
+	color: var(--ink-2);
+	font-size: 12px;
+}
+.queue-row-editor {
+	flex: 1 1 auto;
+	min-width: 0;
+	padding: 3px 6px;
+	resize: none;
+	border: 1px solid var(--focus-border);
+	border-radius: var(--radius-input);
+	outline: 0;
+	background: var(--surface);
+	color: var(--ink);
+	font: inherit;
+	line-height: 1.5;
+}
+.queue-row-actions {
+	display: flex;
+	flex: none;
+	gap: 2px;
+}
+.queue-action {
+	display: inline-grid;
+	place-items: center;
+	width: 26px;
+	height: 26px;
+	border: 0;
+	border-radius: var(--radius-control);
+	background: transparent;
+	color: var(--ink-2);
+	cursor: pointer;
+}
+/* "立即": icon plus label, so it reads as the row's main action. */
+.queue-action--now {
+	display: inline-flex;
+	gap: 3px;
+	width: auto;
+	padding: 0 8px 0 6px;
+	font: inherit;
+	font-size: 12px;
+}
+.queue-action:hover:not(:disabled) {
+	background: var(--hover);
+	color: var(--ink);
+}
+.queue-action:disabled {
+	cursor: default;
+	opacity: 0.45;
+}
+/*
+ * The shared `.list-action` tooltip hangs below its button. Inside the
+ * scrolling list that overflows the last row, so hovering it showed a
+ * scrollbar that pushed the icons left. Beside the button it stays inside
+ * the row: the tooltip (about 24px) is shorter than a row (36px).
+ */
+.queue-action.list-action[data-tooltip]::after {
+	top: 50%;
+	right: calc(100% + 6px);
+	transform: translateY(-50%);
+}

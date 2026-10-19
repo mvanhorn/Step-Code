@@ -12,6 +12,7 @@ import {
 	FULL_ACCESS_RISK_CANCEL,
 } from "../../lib/permissions";
 import {
+	applyQueueState,
 	countUserMessages,
 	createSessionIfNeeded,
 	forgetSelection,
@@ -23,6 +24,7 @@ import type {
 	Attachment,
 	ClarificationReply,
 	ClarificationRequest,
+	QueueState,
 	SelectionRequest,
 	SessionSnapshot,
 	UploadedFile,
@@ -258,33 +260,119 @@ export function removeAttachment(index: number): void {
 
 /* ── Sending (legacy `#composer` submit, 3523-3549) ──────────────────────── */
 
+/** A turn is in progress (running or waiting on the user), so a new message has to wait for it. */
+export function turnActive(state: AppState): boolean {
+	return state.current?.status === "running" || state.current?.status === "waiting";
+}
+
 /**
  * Send `text` with the staged attachments, creating the session first when
- * this is a draft. The caller has already cleared the prompt; on failure the
- * attachments are restored here and false is returned so the caller can put
- * the text back.
+ * this is a draft. During a turn the message is queued on the host and shown
+ * in the queue dock until the turn ends; `steer` instead hands it to the
+ * running turn, which reads it before its next model call. The caller has
+ * already cleared the prompt; on failure the attachments are restored here and
+ * false is returned so the caller can put the text back.
  */
-export async function sendMessage(text: string, files: readonly PromptFile[] = []): Promise<boolean> {
+export async function sendMessage(text: string, files: readonly PromptFile[] = [], steer = false): Promise<boolean> {
 	// Attachments are sent with the message and dropped afterwards, so a failed
 	// send has to put both back.
-	const { attachments, current, timelineItems } = getState();
-	// A message steered into a running turn waits for the current step, so only
-	// a new turn gets the immediate message and thinking indicator.
-	const pendingTurn =
-		current?.status === "running" ? null : { text, files, userCount: countUserMessages(timelineItems) };
+	const state = getState();
+	const { attachments, timelineItems } = state;
+	const active = turnActive(state);
+	// A queued or steered message waits for the turn, so only a new turn gets
+	// the immediate message and thinking indicator.
+	const pendingTurn = active ? null : { text, files, userCount: countUserMessages(timelineItems) };
 	setState({ attachments: [], pendingTurn });
+	// A steered message is shown in the conversation now, though the kernel reads it only after the current tool call.
+	const steering = active && steer && state.current ? (state.current.steeringMessages ?? []) : null;
+	if (steering && state.current) setSteering(state.current.id, [...steering, text]);
 	try {
 		const session = await createSessionIfNeeded();
-		const endpoint = session.status === "running" ? "steer" : "messages";
-		await api(`/api/v1/sessions/${session.id}/${endpoint}`, {
+		const endpoint = !active ? "messages" : steer ? "steer" : "queue";
+		// `files`: upload ids of the prompt's file chips; the host adds their content.
+		const body = JSON.stringify({ text, attachments, files: files.map((file) => file.id) });
+		const result = await api<QueueState | { ok: true }>(`/api/v1/sessions/${session.id}/${endpoint}`, {
 			method: "POST",
-			// `files`: upload ids of the prompt's file chips; the host adds their content.
-			body: JSON.stringify({ text, attachments, files: files.map((file) => file.id) }),
+			body,
 		});
+		if ("queued" in result) applyQueueState(session.id, result);
 		return true;
 	} catch (error) {
 		setState({ attachments, pendingTurn: null });
+		if (steering && state.current) setSteering(state.current.id, steering);
 		showError(errorMessage(error));
+		return false;
+	}
+}
+
+function setSteering(sessionId: string, steering: readonly string[]): void {
+	const current = getState().current;
+	if (current?.id === sessionId)
+		applyQueueState(sessionId, { queued: current.queuedMessages ?? [], steering: [...steering] });
+}
+
+/* ── Queued messages (the dock above the composer) ───────────────────────── */
+
+/**
+ * Change one queued message: edit its text, remove it, or steer it into the
+ * running turn (`id` undefined with "steer": every queued message). Resolves
+ * false when the host refused, e.g. the message has started meanwhile.
+ */
+export async function updateQueued(
+	action: { kind: "edit"; id: string; text: string } | { kind: "remove"; id: string } | { kind: "steer"; id?: string },
+): Promise<boolean> {
+	if (action.kind === "steer") return steerQueued(action.id);
+	const current = getState().current;
+	if (!current) return false;
+	const base = `/api/v1/sessions/${current.id}/queue`;
+	try {
+		const result =
+			action.kind === "edit"
+				? await apiSend<QueueState>(`${base}/${encodeURIComponent(action.id)}`, "PATCH", { text: action.text })
+				: await apiSend<QueueState>(`${base}/${encodeURIComponent(action.id)}`, "DELETE");
+		applyQueueState(current.id, result);
+		return true;
+	} catch {
+		// It fails when the message already left the queue; the host's reason adds nothing.
+		showError(t(action.kind === "edit" ? "queueEditFailed" : "queueRemoveFailed"));
+		return false;
+	}
+}
+
+/**
+ * "立即": steer queued messages (`id`, or all of them) into the running turn.
+ * The kernel reads them only after the current tool call, but they leave the
+ * dock and show in the conversation before the request returns (the host's
+ * queue state replaces this guess when it arrives). With no turn running the
+ * host starts the first one as a new turn, so that one becomes the pending turn.
+ */
+async function steerQueued(id?: string): Promise<boolean> {
+	const state = getState();
+	const current = state.current;
+	if (!current) return false;
+	const queued = current.queuedMessages ?? [];
+	const steering = current.steeringMessages ?? [];
+	const targets = id ? queued.filter((item) => item.id === id) : queued;
+	const [first] = targets;
+	if (!first) return false;
+	const active = turnActive(state);
+	const moved = active ? targets : [first];
+	applyQueueState(current.id, {
+		queued: queued.filter((item) => !moved.includes(item)),
+		steering: active ? [...steering, ...moved.map((item) => item.text)] : steering,
+	});
+	if (!active) setState({ pendingTurn: { text: first.text, userCount: countUserMessages(state.timelineItems) } });
+	const base = `/api/v1/sessions/${current.id}/queue`;
+	try {
+		applyQueueState(
+			current.id,
+			await apiSend<QueueState>(id ? `${base}/${encodeURIComponent(id)}/steer` : `${base}/steer`, "POST"),
+		);
+		return true;
+	} catch (error) {
+		applyQueueState(current.id, { queued, steering });
+		if (!active) setState({ pendingTurn: null });
+		showError(`${t("queueSteerFailed")} ${errorMessage(error)}`);
 		return false;
 	}
 }

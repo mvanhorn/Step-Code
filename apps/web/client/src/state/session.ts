@@ -27,6 +27,7 @@ import type {
 	DraftModels,
 	FileChange,
 	LoginReport,
+	QueueState,
 	SelectionRequest,
 	SessionEntry,
 	SessionSnapshot,
@@ -332,6 +333,15 @@ export function countUserMessages(items: readonly TimelineItem[]): number {
 	return items.filter((item) => item.kind === "message" && item.role === "user").length;
 }
 
+/** Show `queue` as the session's pending messages, from the stream or a queue route's response. */
+export function applyQueueState(sessionId: string, queue: QueueState): void {
+	setState((state) =>
+		state.current?.id === sessionId
+			? { current: { ...state.current, queuedMessages: queue.queued, steeringMessages: queue.steering } }
+			: {},
+	);
+}
+
 /* ── Live stream ─────────────────────────────────────────────────────────── */
 
 let stream: EventSource | null = null;
@@ -540,6 +550,9 @@ export function connectStream(id: string): void {
 					? { ...state.current, status: payload.status, unread: payload.unread }
 					: state.current,
 		}));
+	});
+	source.addEventListener("queue", (event) => {
+		if (stream === source) applyQueueState(id, JSON.parse((event as MessageEvent).data) as QueueState);
 	});
 	source.addEventListener("approval_required", (event) => {
 		const approval = JSON.parse((event as MessageEvent).data).approval as ApprovalRequest;

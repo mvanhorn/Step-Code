@@ -44,6 +44,10 @@ export interface PromptInputProps {
 	readonly disabled: boolean;
 	/** Enter without Shift, outside an IME composition. */
 	readonly onSubmit: () => void;
+	/** Cmd/Ctrl+Enter: the steer variant of a send. Without it the chord submits like Enter. */
+	readonly onSteer?: () => void;
+	/** Overrides the default placeholder, e.g. the queue hints while a turn runs. */
+	readonly placeholder?: string;
 	/** Every edit, with the new text (the slash menu follows it). */
 	readonly onValueInput?: (value: string) => void;
 	/** Offered each key first; returning true means an open menu used it. */
@@ -51,7 +55,15 @@ export interface PromptInputProps {
 }
 
 /** Uncontrolled: the composer reads and resets the content through the ref on send. */
-export function PromptInput({ promptRef, disabled, onSubmit, onValueInput, onMenuKey }: PromptInputProps) {
+export function PromptInput({
+	promptRef,
+	disabled,
+	onSubmit,
+	onSteer,
+	placeholder: placeholderOverride,
+	onValueInput,
+	onMenuKey,
+}: PromptInputProps) {
 	const t = useT();
 	const ime = useImeGuard();
 	const focusRequest = useAppStore((state) => state.ui.promptFocusRequest);
@@ -195,10 +207,11 @@ export function PromptInput({ promptRef, disabled, onSubmit, onValueInput, onMen
 			if (promptRef.current) insertLineBreak(promptRef.current);
 			return;
 		}
-		onSubmit();
+		if ((event.metaKey || event.ctrlKey) && onSteer) onSteer();
+		else onSubmit();
 	};
 
-	const placeholder = t("messagePlaceholder");
+	const placeholder = placeholderOverride ?? t("messagePlaceholder");
 	return (
 		<>
 			<FileDropOverlay open={dropActive} />

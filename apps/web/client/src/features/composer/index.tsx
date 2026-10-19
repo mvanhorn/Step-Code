@@ -12,7 +12,7 @@ import { interruptCurrent } from "../../state/session";
 import { getState, setUi, useAppStore } from "../../state/store";
 import { Icon } from "../../ui";
 import { AttachControls, AttachmentList } from "./Attachments";
-import { sendMessage } from "./actions";
+import { sendMessage, turnActive, updateQueued } from "./actions";
 import { ClarificationPanel } from "./ClarificationPanel";
 import { ModelMenu } from "./ModelMenu";
 import { ModeMenu } from "./ModeMenu";
@@ -27,6 +27,7 @@ import {
 	snapshotPrompt,
 	waitForUploads,
 } from "./prompt-editor";
+import { QueueDock } from "./QueueDock";
 import { type SlashItem, SlashMenu, type SlashMenuHandle, slashQuery } from "./SlashMenu";
 import { UsageMenu } from "./UsageMenu";
 
@@ -54,9 +55,12 @@ export function Composer({ workspaceControl }: ComposerProps) {
 	const slash = useRef<SlashMenuHandle | null>(null);
 	const status = useAppStore((state) => state.current?.status);
 	const waiting = status === "waiting";
+	/** During a turn Enter queues the message and Cmd/Ctrl+Enter steers it (see `sendMessage`). */
+	const active = useAppStore(turnActive);
+	const queuedCount = useAppStore((state) => state.current?.queuedMessages?.length ?? 0);
 	/*
 	 * Whether `#prompt` holds text to send. While a turn runs, `#sendButton` is the stop button
-	 * until the user types; then it sends (steers) again. Edits that bypass `input`
+	 * until the user types; then it queues the message. Edits that bypass `input`
 	 * (`setPromptText`, `restorePrompt`) call `syncHasText` themselves.
 	 */
 	const [hasText, setHasText] = useState(false);
@@ -100,8 +104,7 @@ export function Composer({ workspaceControl }: ComposerProps) {
 
 	/** True from Enter until the prompt is cleared, so a second Enter while uploads finish sends nothing. */
 	const sending = useRef(false);
-	const submit = async (event: FormEvent<HTMLFormElement>) => {
-		event.preventDefault();
+	const submit = async (steer: boolean) => {
 		const editor = prompt.current;
 		if (!editor || sending.current) return;
 		sending.current = true;
@@ -116,7 +119,7 @@ export function Composer({ workspaceControl }: ComposerProps) {
 			const draft = snapshotPrompt(editor);
 			setPromptText(editor, "");
 			setHasText(false);
-			if (!(await sendMessage(text, files))) {
+			if (!(await sendMessage(text, files, steer))) {
 				restorePrompt(editor, draft);
 				syncHasText();
 			}
@@ -125,17 +128,41 @@ export function Composer({ workspaceControl }: ComposerProps) {
 		}
 	};
 
+	const onFormSubmit = (event: FormEvent<HTMLFormElement>) => {
+		event.preventDefault();
+		void submit(false);
+	};
+
+	/** Cmd/Ctrl+Enter during a turn: steer the typed text, or with an empty prompt every queued message. */
+	const steer = () => {
+		const editor = prompt.current;
+		if (!active || !editor) {
+			form.current?.requestSubmit();
+			return;
+		}
+		if (promptText(editor).trim()) {
+			void submit(true);
+			return;
+		}
+		if (queuedCount) void updateQueued({ kind: "steer" });
+	};
+
 	return (
-		<form className="composer" id="composer" ref={form} onSubmit={(event) => void submit(event)}>
+		<form className="composer" id="composer" ref={form} onSubmit={(event) => onFormSubmit(event)}>
 			<SlashMenu handle={slash} query={query} promptRef={prompt} onPick={pickSlash} />
 			<ClarificationPanel />
 			{workspaceControl}
+			<QueueDock />
 			<div className="composer-card">
 				<AttachmentList />
 				<PromptInput
 					promptRef={prompt}
 					disabled={waiting}
 					onSubmit={() => form.current?.requestSubmit()}
+					onSteer={steer}
+					placeholder={
+						active ? t(queuedCount ? "queuePlaceholderSteerAll" : "queuePlaceholderRunning") : undefined
+					}
 					onValueInput={onValueInput}
 					onMenuKey={(key) => slash.current?.key(key) ?? false}
 				/>
@@ -162,8 +189,8 @@ export function Composer({ workspaceControl }: ComposerProps) {
 								className="send-button"
 								id="sendButton"
 								type="submit"
-								title={t("sendMessage")}
-								aria-label={t("sendMessage")}
+								title={active ? t("queueMessage") : t("sendMessage")}
+								aria-label={active ? t("queueMessage") : t("sendMessage")}
 								disabled={waiting}
 							>
 								<Icon name="send" />

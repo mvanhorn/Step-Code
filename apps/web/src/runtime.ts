@@ -62,6 +62,7 @@ import { ApprovalBroker, type ApprovalRequest } from "./approval.ts";
 import { type WebAttachment, withTextAttachments } from "./attachments.ts";
 import { ClarificationBroker, type ClarificationEvent } from "./clarification.ts";
 import { feedbackCategoryFor } from "./feedback.ts";
+import { MessageQueue, type QueuedFile, type QueuedMessage, type QueuedMessageView } from "./message-queue.ts";
 import { SelectionBroker, type SelectionEvent, type SelectionRequest, selectionSelect } from "./selection.ts";
 import { type WebSkill, webSkills } from "./skills.ts";
 import { resolveSubagentCliPath } from "./subagent-cli.ts";
@@ -73,10 +74,12 @@ import {
 	TurnReverter,
 	turnRevertNotice,
 } from "./turn-changes.ts";
+import { withUploadedFiles } from "./uploads.ts";
 import { claimWebSessionWriter } from "./writer-lease.ts";
 
 // Re-exported so the server and tests have one import site for attachment types.
 export { classifyAttachment, MAX_ATTACHMENT_BYTES, type WebAttachment, withTextAttachments } from "./attachments.ts";
+export type { QueuedFile, QueuedMessageView } from "./message-queue.ts";
 
 /** How long a session may spend discovering the account's model catalog. */
 const MODEL_CATALOG_REFRESH_TIMEOUT_MS = 10_000;
@@ -111,7 +114,18 @@ export type WebEvent =
 	| { type: "agent"; event: AgentSessionEvent }
 	| { type: "approval_required"; approval: ApprovalRequest }
 	| { type: "status"; status: WebSessionStatus; unread: boolean }
+	| ({ type: "queue" } & WebQueueState)
 	| { type: "error"; message: string };
+
+/**
+ * Messages the user sent during a turn and nothing has run yet: `queued` waits
+ * for the turn to end (editable), `steering` is already in the kernel and is
+ * delivered before its next model call (read-only).
+ */
+export interface WebQueueState {
+	readonly queued: readonly QueuedMessageView[];
+	readonly steering: readonly string[];
+}
 
 export type WebSessionStatus = "idle" | "running" | "waiting" | "completed" | "failed";
 
@@ -355,6 +369,13 @@ export async function predictDraftModel(
 	};
 }
 
+/** The image attachments as kernel image content; text attachments are inlined by `withTextAttachments`. */
+function imagesOf(attachments: readonly WebAttachment[]): { type: "image"; data: string; mimeType: string }[] {
+	return attachments
+		.filter((attachment) => attachment.kind === "image")
+		.map((attachment) => ({ type: "image" as const, data: attachment.data, mimeType: attachment.mimeType }));
+}
+
 /** Same provider and model id, which is all a resolved model needs to match. */
 function modelsMatch(left: { provider: string; id: string }, right: { provider: string; id: string }): boolean {
 	return left.provider === right.provider && left.id === right.id;
@@ -406,6 +427,12 @@ export class WebSession {
 	 * Approve for Me.
 	 */
 	private livePermission?: StepPermissionPresetId;
+	/** Messages sent while a turn runs; the next one starts when the run settles (see `dispatchQueued`). */
+	private readonly queue = new MessageQueue(() => this.emit({ type: "queue", ...this.queueState() }));
+	/** Set by `interrupt`: the run it stops settles without starting the next queued message. */
+	private holdQueue = false;
+	/** The last run ended in an error or abort; its settle leaves the queue for the user. */
+	private lastRunFailed = false;
 
 	private constructor(
 		id: string,
@@ -633,17 +660,28 @@ export class WebSession {
 		this.session = session;
 		void this.adoptFallbackModel(session);
 		this.unsubscribeSession = session.subscribe((event) => {
-			if (event.type === "agent_start") this.setStatus("running");
+			if (event.type === "agent_start") {
+				this.setStatus("running");
+				this.holdQueue = false;
+				this.lastRunFailed = false;
+			}
 			if (event.type === "agent_settled") this.setStatus("completed", true);
-			if (
-				event.type === "agent_end" &&
-				event.messages.some(
-					(message: { role: string; stopReason?: string }) =>
-						message.role === "assistant" && message.stopReason === "error",
-				)
-			)
-				this.setStatus("failed", true);
+			if (event.type === "agent_end") {
+				const stops = event.messages.flatMap((message) =>
+					message.role === "assistant" ? [message.stopReason] : [],
+				);
+				if (stops.includes("error")) this.setStatus("failed", true);
+				this.lastRunFailed = stops.includes("error") || stops.includes("aborted");
+			}
+			if (event.type === "queue_update") this.emit({ type: "queue", ...this.queueState() });
 			this.emit({ type: "agent", event });
+			if (event.type === "agent_settled") {
+				const hold = this.holdQueue || this.lastRunFailed;
+				this.holdQueue = false;
+				// Deferred: the kernel finishes settling after its listeners return,
+				// and an extension may have started a follow-up run in the meantime.
+				if (!hold) setImmediate(() => this.dispatchQueued());
+			}
 		});
 		void session.bindExtensions({
 			mode: "rpc",
@@ -722,20 +760,112 @@ export class WebSession {
 		return this.reverter.isBusy();
 	}
 
-	async send(text: string, attachments: readonly WebAttachment[] = []): Promise<void> {
+	/**
+	 * Start a turn with `text`. `followUp` is for queued messages: should a run
+	 * have started since the caller looked, the kernel queues the message after
+	 * it instead of rejecting it.
+	 */
+	async send(text: string, attachments: readonly WebAttachment[] = [], followUp = false): Promise<void> {
 		if (this.isReverting()) throw new Error("Wait for the revert to finish");
 		this.unread = false;
-		const images = attachments
-			.filter((attachment) => attachment.kind === "image")
-			.map((attachment) => ({ type: "image" as const, data: attachment.data, mimeType: attachment.mimeType }));
+		const images = imagesOf(attachments);
 		await this.session.prompt(withTextAttachments(text, attachments), {
 			source: "rpc",
 			...(images.length ? { images } : {}),
+			...(followUp ? { streamingBehavior: "followUp" as const } : {}),
 		});
 	}
 
-	async steer(text: string): Promise<void> {
-		await this.session.steer(text);
+	/** Hand `text` to the running turn, read before its next model call; refused for extension commands. */
+	async steer(text: string, attachments: readonly WebAttachment[] = []): Promise<void> {
+		const images = imagesOf(attachments);
+		await this.session.steer(withTextAttachments(text, attachments), images.length ? images : undefined);
+	}
+
+	queueState(): WebQueueState {
+		return { queued: this.queue.views(), steering: [...this.session.getSteeringMessages()] };
+	}
+
+	/** Whether a message sent now has to wait: a run is active or the session waits on the user. */
+	private mustQueue(): boolean {
+		return this.session.isStreaming || this.status === "waiting" || this.isReverting();
+	}
+
+	/**
+	 * Accept a message sent while a turn runs. It waits in the queue, editable,
+	 * until the run settles. When nothing runs (the turn ended while the request
+	 * was in flight) and nothing is queued before it, it starts at once.
+	 */
+	enqueue(input: { text: string; attachments: readonly WebAttachment[]; files: readonly QueuedFile[] }): void {
+		const item = this.queue.add(input);
+		if (!this.mustQueue() && this.queue.size === 1) this.dispatchQueued(item.id);
+	}
+
+	editQueued(id: string, text: string): boolean {
+		return this.queue.edit(id, text);
+	}
+
+	removeQueued(id: string): boolean {
+		return this.queue.take(id) !== undefined;
+	}
+
+	/**
+	 * Start the next queued message (or `id`) as a new turn, unless one must
+	 * still wait. Its run's settle dispatches the one after it.
+	 */
+	private dispatchQueued(id?: string): boolean {
+		if (this.mustQueue()) return false;
+		const item = id ? this.queue.take(id) : this.queue.shift();
+		if (!item) return false;
+		void this.sendQueued(item).catch((caught: unknown) => {
+			this.publishError(caught instanceof Error ? caught.message : String(caught));
+		});
+		return true;
+	}
+
+	private async sendQueued(item: QueuedMessage): Promise<void> {
+		const text = await withUploadedFiles(
+			item.text,
+			item.files.map((file) => file.id),
+		);
+		await this.send(text, item.attachments, true);
+	}
+
+	/**
+	 * "Steer" queued messages (`ids`, or all of them): hand each to the running
+	 * turn, which reads it before its next model call. With no run active the
+	 * first one starts a new turn instead and the rest keep waiting. A message
+	 * the kernel refuses to steer (an extension command) stays queued and its
+	 * error is thrown after the others were handed over.
+	 */
+	async steerQueued(ids?: readonly string[]): Promise<boolean> {
+		const known = new Set(this.queue.views().map((item) => item.id));
+		const targets = ids ? ids.filter((id) => known.has(id)) : [...known];
+		if (!targets.length) return false;
+		if (!this.session.isStreaming) {
+			if (this.status === "waiting" || this.isReverting())
+				throw new Error("The session is waiting; try again later");
+			return this.dispatchQueued(targets[0]);
+		}
+		const refused: QueuedMessage[] = [];
+		let failure: unknown;
+		for (const id of targets) {
+			const item = this.queue.take(id);
+			if (!item) continue;
+			try {
+				const text = await withUploadedFiles(
+					item.text,
+					item.files.map((file) => file.id),
+				);
+				await this.steer(text, item.attachments);
+			} catch (caught) {
+				refused.push(item);
+				failure ??= caught;
+			}
+		}
+		this.queue.restore(refused);
+		if (failure) throw failure;
+		return true;
 	}
 
 	async rename(name: string): Promise<void> {
@@ -882,9 +1012,17 @@ export class WebSession {
 		return decided;
 	}
 
+	/**
+	 * Stop the running turn. Queued messages stay queued; steering messages the
+	 * kernel had not delivered yet move back to the front of the queue (their
+	 * images, if any, are lost), so stopping never drops what the user typed.
+	 */
 	async interrupt(): Promise<void> {
 		this.clarifications.clear();
+		this.holdQueue = true;
 		await this.session.abort();
+		const pending = this.session.clearQueue();
+		this.queue.prependTexts([...pending.steering, ...pending.followUp]);
 		this.setStatus("idle");
 	}
 
@@ -945,6 +1083,8 @@ export class WebSession {
 			pendingApprovals: this.broker.pendingRequests(),
 			pendingClarifications: this.clarifications.pendingRequests(),
 			pendingSelections: this.selections.pendingRequests(),
+			queuedMessages: this.queue.views(),
+			steeringMessages: [...this.session.getSteeringMessages()],
 			model: this.session.model ? { provider: this.session.model.provider, id: this.session.model.id } : undefined,
 			permissionPreset:
 				this.livePermission ??

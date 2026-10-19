@@ -40,6 +40,7 @@ import {
 	MAX_ATTACHMENT_BYTES,
 	mcpStatuses,
 	projectEntry,
+	type QueuedFile,
 	type WebAttachment,
 	WebSessionStore,
 } from "./runtime.ts";
@@ -65,6 +66,7 @@ import {
 import { TurnRevertError } from "./turn-changes.ts";
 import {
 	MAX_UPLOAD_BYTES,
+	resolveUpload,
 	saveUpload,
 	UploadNotFoundError,
 	UploadTooLargeError,
@@ -152,6 +154,28 @@ async function withFiles(text: string, raw: unknown): Promise<string | Error> {
 		if (caught instanceof UploadNotFoundError) return caught;
 		throw caught;
 	}
+}
+
+/**
+ * The file chips of a queued message (`files`: upload ids in chip order) with
+ * their names for the queue row. Their content is added when the message is
+ * dispatched, so an edit only ever sees the typed text.
+ */
+async function readQueuedFiles(raw: unknown): Promise<QueuedFile[] | Error> {
+	if (raw === undefined || raw === null) return [];
+	if (!Array.isArray(raw) || raw.some((id) => typeof id !== "string")) {
+		return new Error("files must be an array of upload ids");
+	}
+	const files: QueuedFile[] = [];
+	for (const id of new Set(raw as string[])) {
+		try {
+			files.push({ id, name: (await resolveUpload(id)).name });
+		} catch (caught) {
+			if (caught instanceof UploadNotFoundError) return caught;
+			throw caught;
+		}
+	}
+	return files;
 }
 
 function authorized(request: IncomingMessage): boolean {
@@ -671,12 +695,55 @@ const server = createServer(async (request, response) => {
 			if (parts[4] === "steer" && method === "POST") {
 				const input = await body(request);
 				if (typeof input.text !== "string" || !input.text.trim()) return error(response, 400, "text is required");
+				const attachments = readAttachments(input.attachments);
+				if (attachments instanceof Error) return error(response, 400, attachments.message);
 				const text = await withFiles(input.text, input.files);
 				if (text instanceof Error) return error(response, 400, text.message);
-				void session.steer(text).catch((caught) => {
-					session.publishError(caught instanceof Error ? caught.message : String(caught));
-				});
+				// Queuing a steer is immediate; a refusal (an extension command) is this request's error.
+				try {
+					await session.steer(text, attachments ?? []);
+				} catch (caught) {
+					return error(response, 400, caught instanceof Error ? caught.message : String(caught));
+				}
 				return json(response, 202, { ok: true });
+			}
+			if (parts[4] === "queue") {
+				const itemId = parts[5] ? decodeURIComponent(parts[5]) : undefined;
+				if (parts.length === 5 && method === "POST") {
+					const input = await body(request);
+					if (typeof input.text !== "string" || !input.text.trim())
+						return error(response, 400, "text is required");
+					const attachments = readAttachments(input.attachments);
+					if (attachments instanceof Error) return error(response, 400, attachments.message);
+					const files = await readQueuedFiles(input.files);
+					if (files instanceof Error) return error(response, 400, files.message);
+					session.enqueue({ text: input.text.trim(), attachments: attachments ?? [], files });
+					return json(response, 202, session.queueState());
+				}
+				// `queue/steer` steers every queued message; `queue/<id>/steer` one of them.
+				const steerAll = parts.length === 6 && parts[5] === "steer";
+				const steerOne = parts.length === 7 && parts[6] === "steer" && itemId;
+				if ((steerAll || steerOne) && method === "POST") {
+					try {
+						const steered = await session.steerQueued(steerOne ? [steerOne] : undefined);
+						if (!steered) return error(response, 404, "Queued message not found");
+					} catch (caught) {
+						return error(response, 409, caught instanceof Error ? caught.message : String(caught));
+					}
+					return json(response, 202, session.queueState());
+				}
+				if (itemId && parts.length === 6 && method === "PATCH") {
+					const input = await body(request);
+					if (typeof input.text !== "string" || !input.text.trim())
+						return error(response, 400, "text is required");
+					if (!session.editQueued(itemId, input.text.trim()))
+						return error(response, 404, "Queued message not found");
+					return json(response, 200, session.queueState());
+				}
+				if (itemId && parts.length === 6 && method === "DELETE") {
+					if (!session.removeQueued(itemId)) return error(response, 404, "Queued message not found");
+					return json(response, 200, session.queueState());
+				}
 			}
 			if (parts[4] === "interrupt" && method === "POST") {
 				await session.interrupt();

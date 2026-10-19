@@ -55,6 +55,8 @@ function scrollToEnd(stream: HTMLElement | null): void {
 	if (stream) stream.scrollTop = stream.scrollHeight;
 }
 
+const NO_STEERING: readonly string[] = [];
+
 /** Within this many pixels of the end the stream counts as "at the bottom" and follows new output. */
 const STICK_THRESHOLD = 48;
 
@@ -67,6 +69,8 @@ const STICK_THRESHOLD = 48;
 export function ConversationStream() {
 	const items = useAppStore((state) => state.timelineItems);
 	const pendingTurn = useAppStore((state) => state.pendingTurn);
+	// Sent with "立即" or Cmd/Ctrl+Enter: the kernel reads them after the current tool call; shown already.
+	const steering = useAppStore((state) => state.current?.steeringMessages ?? NO_STEERING);
 	const sessionId = useAppStore((state) => state.current?.id ?? "");
 	const cwd = useAppStore((state) => state.current?.cwd ?? "");
 	const status = useAppStore((state) => state.current?.status);
@@ -82,11 +86,11 @@ export function ConversationStream() {
 	const turns = useMemo(() => collectTurnChanges(items, cwd), [items, cwd]);
 
 	// A new session or a sent message: follow the bottom again.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: the session id and the pending message are the triggers.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the session id and the pending messages are the triggers.
 	useLayoutEffect(() => {
 		stick.current = true;
 		scrollToEnd(streamRef.current);
-	}, [sessionId, pendingTurn]);
+	}, [sessionId, pendingTurn, steering.length]);
 	// biome-ignore lint/correctness/useExhaustiveDependencies: items and locale change the content height.
 	useLayoutEffect(() => {
 		if (stick.current) scrollToEnd(streamRef.current);
@@ -129,7 +133,7 @@ export function ConversationStream() {
 	return (
 		<div className="stream" id="stream" ref={streamRef} onScroll={onScroll}>
 			<div className="stream-inner" id="streamInner" ref={innerRef}>
-				{items.length || pendingTurn ? (
+				{items.length || pendingTurn || steering.length ? (
 					<>
 						{items.map((item, index) => {
 							const card = cardAfter.get(index);
@@ -149,6 +153,14 @@ export function ConversationStream() {
 								</Fragment>
 							);
 						})}
+						{steering.map((text, index) => (
+							<MessageItem
+								// Kernel texts carry no id; equal texts are interchangeable here.
+								// biome-ignore lint/suspicious/noArrayIndexKey: see above.
+								key={`steering-${index}`}
+								item={{ itemId: `message-steering-${index}`, kind: "message", role: "user", content: text }}
+							/>
+						))}
 						{pendingTurn ? (
 							<MessageItem
 								item={{ itemId: "message-pending", kind: "message", role: "user", content: pendingTurn.text }}
