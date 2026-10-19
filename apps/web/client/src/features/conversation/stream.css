@@ -725,12 +725,6 @@
 .turn-change-file[data-tooltip]:focus-visible::after {
 	display: block;
 }
-.turn-changes-note {
-	padding: 8px 12px;
-	border-top: 1px solid var(--line);
-	color: var(--ink-3);
-	font-size: 12px;
-}
 .turn-changes-more {
 	gap: 6px;
 	font-weight: 500;
