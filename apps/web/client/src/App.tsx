@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { Composer, SelectionDialog } from "./features/composer";
+import { Composer, ImagePreview, SelectionDialog } from "./features/composer";
 import { ChildAgentView, ConversationStream, FeedbackModal, TaskBanner } from "./features/conversation";
 import { FileTreePanel, PreviewPanel, PreviewShowButton } from "./features/files";
 import { LoginGate } from "./features/login";
@@ -28,7 +28,7 @@ import { IconSprite } from "./ui";
  *     aside#previewPanel files
  *   #settingsView      settings: full-window settings page (menu + page) over the workspace
  *   #tagPicker, #feedbackModal, #searchModal, #workspaceBrowserModal, #removeWorkspaceModal, #selectionDialog,
- *   #loggedOutOverlay
+ *   #imagePreview (composer: enlarged image attachment), #loggedOutOverlay
  *   #loginGate         login: Desktop sign-in, above everything while no credential exists
  */
 export function App() {
@@ -87,6 +87,7 @@ export function App() {
 			<WorkspaceBrowserModal />
 			<RemoveWorkspaceModal />
 			<SelectionDialog />
+			<ImagePreview />
 			<LoggedOutOverlay />
 			<LoginGate />
 			<ShellEffects />

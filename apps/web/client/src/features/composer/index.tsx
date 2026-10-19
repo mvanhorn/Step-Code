@@ -16,10 +16,19 @@ import { ClarificationPanel } from "./ClarificationPanel";
 import { ModelMenu } from "./ModelMenu";
 import { ModeMenu } from "./ModeMenu";
 import { PolicyMenu } from "./PolicyMenu";
-import { PromptInput, resizePrompt } from "./PromptInput";
+import { PromptInput } from "./PromptInput";
+import {
+	placeCaretAtEnd,
+	promptText,
+	restorePrompt,
+	setPromptText,
+	snapshotPrompt,
+	waitForUploads,
+} from "./prompt-editor";
 import { type SlashItem, SlashMenu, type SlashMenuHandle, slashQuery } from "./SlashMenu";
 import { UsageMenu } from "./UsageMenu";
 
+export { ImagePreview } from "./ImagePreview";
 export { SelectionDialog } from "./SelectionDialog";
 
 export interface ComposerProps {
@@ -36,7 +45,7 @@ type ComposerMenu = "policy" | "mode" | "model";
 
 export function Composer({ workspaceControl }: ComposerProps) {
 	const form = useRef<HTMLFormElement | null>(null);
-	const prompt = useRef<HTMLTextAreaElement | null>(null);
+	const prompt = useRef<HTMLDivElement | null>(null);
 	const [openMenu, setOpenMenu] = useState<ComposerMenu | null>(null);
 	const [query, setQuery] = useState<string | null>(null);
 	const slash = useRef<SlashMenuHandle | null>(null);
@@ -58,47 +67,52 @@ export function Composer({ workspaceControl }: ComposerProps) {
 	};
 
 	const pickSlash = useCallback((item: SlashItem) => {
-		const textarea = prompt.current;
-		if (!textarea) return;
+		const editor = prompt.current;
+		if (!editor) return;
 		setQuery(null);
 		if (item.kind === "mcp") {
 			// A status view, not a prompt: nothing is sent.
-			textarea.value = "";
+			setPromptText(editor, "");
 			setUi({ slashMenu: "mcp" });
 		} else {
 			// The kernel runs `/<command> [args]` and expands `/skill:<name> [request]`
 			// into the skill's instructions on send.
-			textarea.value = item.kind === "command" ? `/${item.key} ` : `/skill:${item.key} `;
+			setPromptText(editor, item.kind === "command" ? `/${item.key} ` : `/skill:${item.key} `);
 			setUi({ slashMenu: null });
 		}
-		resizePrompt(textarea);
-		textarea.focus();
-		textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+		editor.focus();
+		placeCaretAtEnd(editor);
 	}, []);
 
-	const submit = (event: FormEvent<HTMLFormElement>) => {
+	/** True from Enter until the prompt is cleared, so a second Enter while uploads finish sends nothing. */
+	const sending = useRef(false);
+	const submit = async (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
-		const textarea = prompt.current;
-		if (!textarea) return;
-		const text = textarea.value.trim();
-		if (!text) return;
-		setQuery(null);
-		setUi({ slashMenu: null });
-		textarea.value = "";
-		resizePrompt(textarea);
-		void sendMessage(text).then((sent) => {
-			if (sent) return;
-			textarea.value = text;
-			resizePrompt(textarea);
-		});
+		const editor = prompt.current;
+		if (!editor || sending.current) return;
+		sending.current = true;
+		try {
+			// A chip has its path only once its upload settles; a failed one is removed.
+			await waitForUploads();
+			const text = promptText(editor).trim();
+			if (!text) return;
+			setQuery(null);
+			setUi({ slashMenu: null });
+			const draft = snapshotPrompt(editor);
+			setPromptText(editor, "");
+			if (!(await sendMessage(text))) restorePrompt(editor, draft);
+		} finally {
+			sending.current = false;
+		}
 	};
 
 	return (
-		<form className="composer" id="composer" ref={form} onSubmit={submit}>
+		<form className="composer" id="composer" ref={form} onSubmit={(event) => void submit(event)}>
 			<SlashMenu handle={slash} query={query} promptRef={prompt} onPick={pickSlash} />
 			<ClarificationPanel />
 			{workspaceControl}
 			<div className="composer-card">
+				<AttachmentList />
 				<PromptInput
 					promptRef={prompt}
 					disabled={waiting}
@@ -106,7 +120,6 @@ export function Composer({ workspaceControl }: ComposerProps) {
 					onValueInput={onValueInput}
 					onMenuKey={(key) => slash.current?.key(key) ?? false}
 				/>
-				<AttachmentList />
 				<div className="composer-controls">
 					<AttachControls />
 					<PolicyMenu {...menu("policy")} />

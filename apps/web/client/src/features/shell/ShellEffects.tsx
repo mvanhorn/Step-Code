@@ -28,6 +28,7 @@ function handleEscape(): void {
 	// Escape dismisses it, which the kernel reads as "cancel".
 	const selection = pendingSelection(state);
 	if (selection) void answerSelection(selection, undefined);
+	else if (ui.imagePreview) setUi({ imagePreview: null });
 	else if (ui.workspaceRemoval) closeWorkspaceRemoval();
 	else if (ui.slashMenu) setUi({ slashMenu: null });
 	else if (ui.changesMenu) setUi({ changesMenu: null });

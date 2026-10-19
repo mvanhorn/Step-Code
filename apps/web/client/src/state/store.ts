@@ -185,6 +185,8 @@ export interface UiState {
 	readonly revealEntry: { readonly sessionId: string; readonly entryId: string } | null;
 	/** `#childAgentView`: a child agent's read-only transcript covering the conversation of `parentId`. */
 	readonly childView: ChildView | null;
+	/** `#imagePreview`: a staged image attachment shown enlarged; `src` is its data URL. */
+	readonly imagePreview: { readonly src: string; readonly name: string } | null;
 }
 
 export interface ChildView {
@@ -375,6 +377,7 @@ export function createInitialState(): AppState {
 			slashMenu: null,
 			revealEntry: null,
 			childView: null,
+			imagePreview: null,
 		},
 		toast: null,
 	};

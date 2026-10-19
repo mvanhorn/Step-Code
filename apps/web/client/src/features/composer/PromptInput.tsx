@@ -1,43 +1,56 @@
-/** `#prompt`: auto-growing textarea, Enter sends (IME-safe), Shift+Enter newline (legacy app.js 3256-3273, 3576-3583). */
+/**
+ * `#prompt`: the composer's contenteditable editor. Enter sends (IME-safe), Shift+Enter breaks the line
+ * (legacy app.js 3256-3273, 3576-3583). It is contenteditable rather than a textarea so files pasted or
+ * dropped from Finder / Explorer sit inline as chips (see prompt-editor.ts); everything else stays plain text.
+ */
 
-import { type KeyboardEvent, type RefObject, useEffect } from "react";
+import {
+	type ClipboardEvent,
+	type DragEvent,
+	type KeyboardEvent,
+	type RefObject,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { useT } from "../../i18n";
+import { errorMessage } from "../../lib/api";
 import { useImeGuard } from "../../lib/ime";
-import { useAppStore } from "../../state/store";
+import { showError } from "../../state/session";
+import { getState, useAppStore } from "../../state/store";
+import { addAttachments, uploadFile } from "./actions";
+import { FileDropOverlay } from "./FileDropOverlay";
+import {
+	insertFileChip,
+	insertLineBreak,
+	insertTextAtCaret,
+	placeCaretAtEnd,
+	placeCaretAtPoint,
+	promptText,
+	tidyEmptyPrompt,
+} from "./prompt-editor";
 
-/** Composer growth limits, read once from CSS so the knobs stay in :root. */
-let limits: { readonly min: number; readonly max: number } | null = null;
-
-function readCssPx(element: Element, name: string, fallback: number): number {
-	const value = Number.parseInt(getComputedStyle(element).getPropertyValue(name), 10);
-	return Number.isFinite(value) ? value : fallback;
+/** A drag from the file manager; text or element drags inside the page carry no `Files`. */
+function draggingFiles(event: globalThis.DragEvent): boolean {
+	return event.dataTransfer?.types.includes("Files") ?? false;
 }
 
-/** Fit the textarea to its content between `--textarea-min-h` and `--textarea-max-h`. */
-export function resizePrompt(prompt: HTMLTextAreaElement | null): void {
-	if (!prompt) return;
-	limits ??= {
-		min: readCssPx(prompt, "--textarea-min-h", 64),
-		max: readCssPx(prompt, "--textarea-max-h", 320),
-	};
-	// Reset first so a shrinking value is measured against the minimum, not the
-	// previously grown height.
-	prompt.style.height = `${limits.min}px`;
-	prompt.style.height = `${Math.min(limits.max, Math.max(limits.min, prompt.scrollHeight))}px`;
-}
+/** Image types the models accept as image content; other images are sent as files. */
+const MODEL_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 
 export interface PromptInputProps {
-	readonly promptRef: RefObject<HTMLTextAreaElement | null>;
+	readonly promptRef: RefObject<HTMLDivElement | null>;
 	readonly disabled: boolean;
 	/** Enter without Shift, outside an IME composition. */
 	readonly onSubmit: () => void;
-	/** Every edit, with the new value (the slash menu follows it). */
+	/** Every edit, with the new text (the slash menu follows it). */
 	readonly onValueInput?: (value: string) => void;
 	/** Offered each key first; returning true means an open menu used it. */
 	readonly onMenuKey?: (key: string) => boolean;
 }
 
-/** Uncontrolled, as legacy: the value is read and reset through the ref on send. */
+/** Uncontrolled: the composer reads and resets the content through the ref on send. */
 export function PromptInput({ promptRef, disabled, onSubmit, onValueInput, onMenuKey }: PromptInputProps) {
 	const t = useT();
 	const ime = useImeGuard();
@@ -45,29 +58,177 @@ export function PromptInput({ promptRef, disabled, onSubmit, onValueInput, onMen
 	useEffect(() => {
 		if (focusRequest) promptRef.current?.focus();
 	}, [focusRequest, promptRef]);
-	const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+	useEffect(() => {
+		const root = promptRef.current;
+		if (!root) return;
+		// Cmd/Ctrl+B, I, U and friends would add markup the message cannot carry.
+		const blockFormatting = (event: InputEvent) => {
+			if (event.inputType.startsWith("format")) event.preventDefault();
+		};
+		root.addEventListener("beforeinput", blockFormatting);
+		return () => root.removeEventListener("beforeinput", blockFormatting);
+	}, [promptRef]);
+
+	const changed = useCallback(() => {
+		const root = promptRef.current;
+		if (!root) return;
+		tidyEmptyPrompt(root);
+		onValueInput?.(promptText(root));
+	}, [promptRef, onValueInput]);
+
+	/** Images become attachments (sent as image content); every other file an inline chip uploaded to the host. */
+	const stageFiles = useCallback(
+		(files: readonly File[]) => {
+			const root = promptRef.current;
+			if (!root) return;
+			const images = files.filter((file) => MODEL_IMAGE_TYPES.has(file.type));
+			if (images.length) void addAttachments(images);
+			for (const file of files) {
+				if (MODEL_IMAGE_TYPES.has(file.type)) continue;
+				insertFileChip(root, file.name, uploadFile(file), (error) => {
+					showError(t("fileUploadFailed", { name: file.name, reason: errorMessage(error) }));
+					changed();
+				});
+			}
+			changed();
+		},
+		[promptRef, changed, t],
+	);
+
+	/*
+	 * Files dragged anywhere over the window show `.file-drop-overlay`. It
+	 * ignores the pointer, so a drop on `#prompt` still reaches `onDrop` below
+	 * and lands at the pointer; a drop anywhere else lands at the prompt's end.
+	 * Every file drop is cancelled: the browser default opens the file in place
+	 * of the app. dragenter/dragleave fire for each element crossed, hence the
+	 * depth count.
+	 */
+	const [dropActive, setDropActive] = useState(false);
+	const disabledRef = useRef(disabled);
+	disabledRef.current = disabled;
+	const stageRef = useRef(stageFiles);
+	stageRef.current = stageFiles;
+	useEffect(() => {
+		let depth = 0;
+		const accepting = () => !disabledRef.current && !getState().ui.loginRequired;
+		const reset = () => {
+			depth = 0;
+			setDropActive(false);
+		};
+		const onEnter = (event: globalThis.DragEvent) => {
+			if (!draggingFiles(event)) return;
+			depth += 1;
+			if (accepting()) setDropActive(true);
+		};
+		const onLeave = (event: globalThis.DragEvent) => {
+			if (!draggingFiles(event)) return;
+			depth = Math.max(0, depth - 1);
+			if (!depth) setDropActive(false);
+		};
+		const onOver = (event: globalThis.DragEvent) => {
+			if (!draggingFiles(event)) return;
+			event.preventDefault();
+			if (event.dataTransfer) event.dataTransfer.dropEffect = accepting() ? "copy" : "none";
+		};
+		const onDropAnywhere = (event: globalThis.DragEvent) => {
+			if (!draggingFiles(event)) return;
+			reset();
+			// `#prompt` handled it (React's root listener runs before this window listener).
+			if (event.defaultPrevented) return;
+			event.preventDefault();
+			const root = promptRef.current;
+			const files = [...(event.dataTransfer?.files ?? [])];
+			if (!root || !files.length || !accepting()) return;
+			root.focus();
+			placeCaretAtEnd(root);
+			stageRef.current(files);
+		};
+		window.addEventListener("dragenter", onEnter);
+		window.addEventListener("dragleave", onLeave);
+		window.addEventListener("dragover", onOver);
+		window.addEventListener("drop", onDropAnywhere);
+		window.addEventListener("dragend", reset);
+		return () => {
+			window.removeEventListener("dragenter", onEnter);
+			window.removeEventListener("dragleave", onLeave);
+			window.removeEventListener("dragover", onOver);
+			window.removeEventListener("drop", onDropAnywhere);
+			window.removeEventListener("dragend", reset);
+		};
+	}, [promptRef]);
+
+	const onPaste = (event: ClipboardEvent<HTMLDivElement>) => {
+		const root = promptRef.current;
+		if (!root) return;
+		const data = event.clipboardData;
+		const files = [...data.files];
+		// Rich markup is never pasted: the message is plain text.
+		event.preventDefault();
+		// Office documents and spreadsheets put a rendered image next to their
+		// rich and plain text; the user meant the text. A screenshot, an image
+		// copied from a page, or files copied in Finder / Explorer have no such pair.
+		const officeCopy = data.types.includes("text/html") && data.getData("text/plain").trim();
+		if (files.length && !officeCopy) stageFiles(files);
+		else insertTextAtCaret(root, data.getData("text/plain"));
+	};
+
+	const onDrop = (event: DragEvent<HTMLDivElement>) => {
+		const root = promptRef.current;
+		const files = [...event.dataTransfer.files];
+		// Dropped text keeps the browser's default; the serialiser reads any markup it adds as text.
+		if (!root || !files.length || disabled) return;
+		event.preventDefault();
+		root.focus();
+		placeCaretAtPoint(root, event.clientX, event.clientY);
+		stageFiles(files);
+	};
+
+	const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
 		if (ime.isComposing(event)) return;
 		if (!event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey && onMenuKey?.(event.key)) {
 			event.preventDefault();
 			return;
 		}
-		if (event.key !== "Enter" || event.shiftKey) return;
+		if (event.key !== "Enter") return;
 		event.preventDefault();
+		if (event.shiftKey) {
+			if (promptRef.current) insertLineBreak(promptRef.current);
+			return;
+		}
 		onSubmit();
 	};
+
+	const placeholder = t("messagePlaceholder");
 	return (
-		<textarea
-			id="prompt"
-			ref={promptRef}
-			rows={3}
-			placeholder={t("messagePlaceholder")}
-			disabled={disabled}
-			{...ime.handlers}
-			onInput={(event) => {
-				resizePrompt(event.currentTarget);
-				onValueInput?.(event.currentTarget.value);
-			}}
-			onKeyDown={onKeyDown}
-		/>
+		<>
+			<FileDropOverlay open={dropActive} />
+			{/* biome-ignore lint/a11y/useSemanticElements: a textarea cannot hold the inline file chips; this is a contenteditable textbox. */}
+			<div
+				id="prompt"
+				ref={promptRef}
+				className="prompt-editor"
+				role="textbox"
+				aria-multiline="true"
+				aria-label={placeholder}
+				aria-placeholder={placeholder}
+				aria-disabled={disabled || undefined}
+				data-placeholder={placeholder}
+				contentEditable={!disabled}
+				tabIndex={disabled ? -1 : 0}
+				onCompositionStart={ime.handlers.onCompositionStart}
+				onCompositionEnd={() => {
+					ime.handlers.onCompositionEnd();
+					// Chrome fires the composition's last input before compositionend.
+					changed();
+				}}
+				onInput={(event) => {
+					// Mid-composition text is provisional, and tidying the DOM would break the IME.
+					if (!(event.nativeEvent as InputEvent).isComposing) changed();
+				}}
+				onKeyDown={onKeyDown}
+				onPaste={onPaste}
+				onDrop={onDrop}
+			/>
+		</>
 	);
 }

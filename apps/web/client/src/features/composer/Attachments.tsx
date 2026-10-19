@@ -2,7 +2,8 @@
 
 import { type ChangeEvent, useRef } from "react";
 import { useT } from "../../i18n";
-import { useAppStore } from "../../state/store";
+import { cx } from "../../lib/format";
+import { setUi, useAppStore } from "../../state/store";
 import type { Attachment } from "../../state/types";
 import { Icon, IconButton } from "../../ui";
 import { addAttachments, removeAttachment } from "./actions";
@@ -24,17 +25,43 @@ function chipKey(attachment: Attachment): number {
 	return key;
 }
 
-/** `#attachmentList`: one chip per staged file, hidden while there are none. */
+/** An image attachment's thumbnail; clicking it opens `#imagePreview`. */
+function ImageThumb({ attachment }: { readonly attachment: Attachment }) {
+	const t = useT();
+	const src = `data:${attachment.mimeType};base64,${attachment.data}`;
+	const label = t("previewImageNamed", { name: attachment.name });
+	return (
+		<button
+			type="button"
+			className="attachment-thumb"
+			title={attachment.name}
+			aria-label={label}
+			onClick={() => setUi({ imagePreview: { src, name: attachment.name } })}
+		>
+			<img src={src} alt="" />
+		</button>
+	);
+}
+
+/** `#attachmentList`: one chip per staged file (a thumbnail for images), hidden while there are none. */
 export function AttachmentList() {
 	const t = useT();
 	const attachments = useAppStore((state) => state.attachments);
 	return (
 		<div className="attachment-list" id="attachmentList" hidden={!attachments.length}>
 			{attachments.map((attachment, index) => (
-				<span className="attachment-chip" key={chipKey(attachment)}>
-					<span title={attachment.name}>{attachment.name}</span>
+				<span
+					className={cx("attachment-chip", attachment.kind === "image" && "attachment-chip--image")}
+					key={chipKey(attachment)}
+				>
+					{attachment.kind === "image" ? (
+						<ImageThumb attachment={attachment} />
+					) : (
+						<span title={attachment.name}>{attachment.name}</span>
+					)}
 					<button
 						type="button"
+						className="attachment-remove"
 						title={t("removeAttachment")}
 						aria-label={t("removeAttachment")}
 						onClick={() => removeAttachment(index)}

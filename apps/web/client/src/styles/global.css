@@ -52,7 +52,7 @@
   --input-h: 28px; /* tag create input */
   --brand-row-h: 64px;
   --textarea-min-h: 64px;
-  --textarea-max-h: 320px; /* read by resizePrompt(), not by CSS */
+  --textarea-max-h: 320px; /* #prompt grows to this, then scrolls */
   --textarea-pad-x: 7px;
   /* ── Icon sizes ──────────────────────────────────────────────────── */
   --icon-2xs: 10px; /* chevrons and the tool marker */

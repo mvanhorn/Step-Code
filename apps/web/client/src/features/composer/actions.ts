@@ -25,6 +25,7 @@ import type {
 	ClarificationRequest,
 	SelectionRequest,
 	SessionSnapshot,
+	UploadedFile,
 } from "../../state/types";
 
 export async function replyToClarification(
@@ -236,6 +237,18 @@ export async function addAttachments(files: readonly File[]): Promise<void> {
 			showError((error instanceof Error && error.message) || t("attachmentUnreadable"));
 		}
 	}
+}
+
+/**
+ * Copy a pasted or dropped file to the host, which answers with the path the
+ * message will name. The browser never sees the file's original path.
+ */
+export function uploadFile(file: File): Promise<UploadedFile> {
+	return api<UploadedFile>(`/api/v1/uploads?${new URLSearchParams({ name: file.name })}`, {
+		method: "POST",
+		body: file,
+		headers: { "content-type": "application/octet-stream" },
+	});
 }
 
 export function removeAttachment(index: number): void {

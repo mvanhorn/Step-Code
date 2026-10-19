@@ -44,6 +44,48 @@
 .composer textarea::placeholder {
 	color: var(--ink-3);
 }
+/* #prompt: a contenteditable that grows with its content, then scrolls. */
+.prompt-editor {
+	min-height: var(--textarea-min-h);
+	max-height: var(--textarea-max-h);
+	padding: 2px var(--textarea-pad-x);
+	overflow-y: auto;
+	outline: 0;
+	font-size: 15px;
+	line-height: 1.65;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	cursor: text;
+}
+.prompt-editor:empty::before {
+	content: attr(data-placeholder);
+	color: var(--ink-3);
+	pointer-events: none;
+}
+.prompt-editor[aria-disabled="true"] {
+	cursor: not-allowed;
+	opacity: 0.6;
+}
+/* A pasted or dropped file, inline in the text; the message names its stored path. */
+.prompt-file {
+	display: inline-flex;
+	align-items: center;
+	gap: 3px;
+	max-width: 260px;
+	margin: 0 2px;
+	vertical-align: baseline;
+	color: var(--accent);
+	white-space: nowrap;
+	user-select: all;
+	cursor: default;
+}
+.prompt-file > span {
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.prompt-file[data-state="uploading"] {
+	opacity: 0.55;
+}
 .composer-controls {
 	display: flex;
 	align-items: center;
@@ -342,12 +384,13 @@
 .control-popover-goal input:focus {
 	border-color: var(--focus-border);
 }
-/* Pending attachments, shown between the textarea and the control row. */
+/* Pending attachments, shown above #prompt. */
 .attachment-list {
 	display: flex;
 	flex-wrap: wrap;
+	align-items: flex-end;
 	gap: 6px;
-	margin-top: 8px;
+	margin-bottom: 8px;
 }
 .attachment-chip {
 	display: inline-flex;
@@ -367,7 +410,7 @@
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
-.attachment-chip button {
+.attachment-remove {
 	display: grid;
 	place-items: center;
 	flex: none;
@@ -376,9 +419,145 @@
 	border-radius: 50%;
 	color: var(--ink-3);
 }
-.attachment-chip button:hover {
+.attachment-remove:hover {
 	background: var(--selected);
 	color: var(--ink);
+}
+/* An image attachment: a thumbnail that opens #imagePreview, with the remove button on its corner. */
+.attachment-chip--image {
+	position: relative;
+	width: 56px;
+	height: 56px;
+	padding: 0;
+	border-radius: var(--radius-surface);
+	overflow: visible;
+}
+.attachment-thumb {
+	display: block;
+	width: 100%;
+	height: 100%;
+	overflow: hidden;
+	border-radius: inherit;
+	cursor: zoom-in;
+}
+.attachment-thumb:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 1px;
+}
+.attachment-thumb img {
+	display: block;
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+}
+.attachment-chip--image .attachment-remove {
+	position: absolute;
+	top: -6px;
+	right: -6px;
+	border: 1px solid var(--line);
+	background: var(--surface);
+	box-shadow: 0 1px 3px var(--shadow);
+	opacity: 0;
+	transition: opacity var(--fast);
+}
+.attachment-chip--image:hover .attachment-remove,
+.attachment-chip--image:focus-within .attachment-remove {
+	opacity: 1;
+}
+.attachment-chip--image .attachment-remove:hover {
+	background: var(--surface-soft);
+}
+/* #imagePreview: the enlarged attachment over a dimmed window. */
+.image-preview-overlay {
+	z-index: 100;
+	padding: 48px;
+	background: rgb(0 0 0 / 62%);
+}
+.image-preview-dialog {
+	position: relative;
+	display: grid;
+	place-items: center;
+	max-width: 100%;
+	max-height: 100%;
+	border: 0;
+	background: transparent;
+	box-shadow: none;
+}
+.image-preview-dialog img {
+	display: block;
+	max-width: calc(100vw - 96px);
+	max-height: calc(100vh - 96px);
+	border-radius: var(--radius-surface);
+	object-fit: contain;
+	box-shadow: 0 24px 64px rgb(0 0 0 / 40%);
+}
+.image-preview-close {
+	position: fixed;
+	top: 16px;
+	right: 16px;
+	border-radius: 50%;
+	background: rgb(255 255 255 / 14%);
+	color: #fff;
+}
+.image-preview-close:hover {
+	background: rgb(255 255 255 / 26%);
+}
+/* #fileDropOverlay: shown while files are dragged over the window; it never takes the pointer. */
+.file-drop-overlay {
+	position: fixed;
+	inset: 0;
+	z-index: 110;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	background: color-mix(in srgb, var(--canvas) 72%, transparent);
+	backdrop-filter: blur(14px);
+	pointer-events: none;
+}
+.file-drop-art {
+	position: relative;
+	width: 104px;
+	height: 80px;
+	margin-bottom: 14px;
+}
+.file-drop-card {
+	position: absolute;
+	display: grid;
+	place-items: center;
+	width: 56px;
+	height: 56px;
+	border-radius: var(--radius-surface);
+	color: #fff;
+	box-shadow: 0 8px 20px var(--shadow);
+}
+.file-drop-card .icon {
+	width: 28px;
+	height: 28px;
+}
+.file-drop-card--file {
+	top: 0;
+	right: 6px;
+	background: color-mix(in srgb, var(--accent) 70%, #fff);
+	transform: rotate(14deg);
+}
+.file-drop-card--image {
+	bottom: 0;
+	left: 10px;
+	background: var(--accent);
+	transform: rotate(-8deg);
+}
+.file-drop-title {
+	margin: 0;
+	color: var(--ink);
+	font-size: 18px;
+	font-weight: 600;
+}
+.file-drop-hint {
+	margin: 0;
+	color: var(--ink-3);
+	font-size: 13px;
 }
 .send-button {
 	display: grid;
@@ -396,16 +575,6 @@
 .send-button:disabled {
 	cursor: not-allowed;
 	opacity: 0.28;
-}
-.stop-button {
-	height: var(--control-h);
-	padding: 0 var(--control-pad-x);
-	border-radius: var(--radius-row);
-	color: var(--ink);
-	font-size: 12px;
-}
-.stop-button:hover {
-	background: var(--hover);
 }
 .control-segment-none {
 	padding: 3px 4px;

@@ -229,7 +229,7 @@ export interface SlashMenuHandle {
 export interface SlashMenuProps {
 	readonly handle: RefObject<SlashMenuHandle | null>;
 	/** The prompt: pressing in it does not dismiss the menu. */
-	readonly promptRef: RefObject<HTMLTextAreaElement | null>;
+	readonly promptRef: RefObject<HTMLDivElement | null>;
 	/** The prompt's slash query, or null when the prompt is not a single `/word`. */
 	readonly query: string | null;
 	readonly onPick: (item: SlashItem) => void;

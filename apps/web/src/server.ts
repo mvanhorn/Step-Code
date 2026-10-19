@@ -63,6 +63,7 @@ import {
 	updateMarketplace,
 } from "./settings.ts";
 import { TurnRevertError } from "./turn-changes.ts";
+import { MAX_UPLOAD_BYTES, saveUpload, UploadTooLargeError } from "./uploads.ts";
 import { WORKSPACES_FILE, WorkspaceRegistry } from "./workspaces.ts";
 
 const moduleRoot = resolve(fileURLToPath(new URL(".", import.meta.url)));
@@ -508,6 +509,19 @@ const server = createServer(async (request, response) => {
 		}
 		if (parts[2] === "workspaces" && parts[3] === "pick" && parts.length === 4 && method === "POST") {
 			return pickWorkspaceFolder(request, response);
+		}
+		if (parts[2] === "uploads" && parts.length === 3 && method === "POST") {
+			const name = url.searchParams.get("name") ?? "";
+			if (!name.trim()) return error(response, 400, "name is required");
+			if (Number(request.headers["content-length"] ?? 0) > MAX_UPLOAD_BYTES) {
+				return error(response, 413, `File exceeds the ${MAX_UPLOAD_BYTES} byte limit`);
+			}
+			try {
+				return json(response, 201, await saveUpload(request, name));
+			} catch (caught) {
+				if (caught instanceof UploadTooLargeError) return error(response, 413, caught.message);
+				throw caught;
+			}
 		}
 		if (parts[2] === "directories" && method === "GET") {
 			return json(response, 200, await directoryList(url.searchParams.get("path") ?? defaultWorkspace()));

@@ -352,6 +352,13 @@ export interface Attachment {
 	readonly kind: "image" | "text";
 }
 
+/** POST /api/v1/uploads (uploads.ts `SavedUpload`): the host's copy of a pasted file. */
+export interface UploadedFile {
+	readonly path: string;
+	readonly name: string;
+	readonly size: number;
+}
+
 /** GET /api/v1/sessions/:id/skills and /api/v1/workspace/skills (runtime.ts `WebSkill`). */
 export interface WebSkill {
 	readonly name: string;
