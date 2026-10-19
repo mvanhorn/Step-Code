@@ -1004,14 +1004,3 @@
 	cursor: default;
 	opacity: 0.45;
 }
-/*
- * The shared `.list-action` tooltip hangs below its button. Inside the
- * scrolling list that overflows the last row, so hovering it showed a
- * scrollbar that pushed the icons left. Beside the button it stays inside
- * the row: the tooltip (about 24px) is shorter than a row (36px).
- */
-.queue-action.list-action[data-tooltip]::after {
-	top: 50%;
-	right: calc(100% + 6px);
-	transform: translateY(-50%);
-}

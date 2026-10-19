@@ -310,7 +310,7 @@
 }
 
 /* The expanded card. */
-/* No overflow clip: the header's action tooltips hang below it. */
+/* No overflow clip: the header's action tooltips open above their icons. */
 .tool-cx {
 	margin: 0 0 4px 22px;
 	border: 1px solid var(--line);

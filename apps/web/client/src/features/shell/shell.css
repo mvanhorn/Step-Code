@@ -70,6 +70,8 @@
 .footer-tip-anchor {
 	position: relative;
 	display: inline-flex;
+	anchor-name: --footer-tooltip;
+	anchor-scope: --footer-tooltip;
 }
 .footer-icon-button {
 	display: inline-grid;
@@ -90,11 +92,17 @@
 .footer-icon-button[aria-disabled="true"] {
 	cursor: default;
 }
-/* Hover card above the button, right-aligned because the sidebar clips anything past its edge. */
+/*
+ * Hover card with placement "top": centered over its button. Fixed to the
+ * button's anchor so the sidebar's overflow does not clip it; `top center`
+ * shifts it inward only when a viewport edge leaves no room to center.
+ */
 .footer-tooltip {
-	position: absolute;
-	right: -4px;
-	bottom: calc(100% + 10px);
+	position: fixed;
+	position-anchor: --footer-tooltip;
+	position-area: top center;
+	inset: auto;
+	margin: 0 8px 10px;
 	z-index: 30;
 	display: grid;
 	gap: 3px;
