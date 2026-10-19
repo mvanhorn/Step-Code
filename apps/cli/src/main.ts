@@ -286,6 +286,9 @@ const stepMainOptions: MainOptions = {
 			syncStepLoginProfileEndpoint(getStepAuthPath());
 			return {
 				removed: report.removedNative || report.removedLegacy,
+				// The terminal belongs to the TUI here, so the host reports this
+				// instead of writing to stderr underneath it.
+				accountSessionRemoved: report.removedLoginState,
 				remainingSource: report.remainingSource ? "the environment (STEP_API_KEY)" : null,
 			};
 		},
@@ -403,6 +406,11 @@ try {
 				process.stdout.write(`Removed: ${report.nativePath}\n`);
 			} else {
 				process.stdout.write(`No stored Step credential at ${report.nativePath}\n`);
+			}
+			if (!report.removedLoginState) {
+				process.stderr.write(
+					"Note: the account session could not be removed and is still on disk. Run `step logout` again.\n",
+				);
 			}
 			if (report.remainingSource) {
 				process.stderr.write("Note: STEP_API_KEY is still set, so requests will keep working.\n");
@@ -606,6 +614,18 @@ try {
 								? "credential is invalid or expired"
 								: "could not check credential validity (network error)";
 					process.stdout.write(`Validity: ${validity}.\n`);
+					// The account session is reported next to the key, never instead
+					// of it: a user who only ever had a key still has a working key.
+					const accountSession = status.session;
+					if (accountSession && accountSession.state !== "missing") {
+						const detail =
+							accountSession.state === "expired"
+								? "expired; account features will ask you to sign in again"
+								: accountSession.state === "expiring"
+									? "expiring; it refreshes on next use"
+									: "active";
+						process.stdout.write(`Account session: ${detail}.\n`);
+					}
 					if (status.validity === "invalid") process.exitCode = 1;
 				}
 			}

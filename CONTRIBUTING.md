@@ -104,10 +104,6 @@ These are repository-wide submission checks. During development, run focused che
 
 If you are adding a new provider to `packages/providers`, see `AGENTS.md` for required tests.
 
-## Questions?
-
-Ask on [Discord](https://discord.com/invite/nKXTsAcmbT).
-
 ## FAQ
 
 ### Why are weekend issues lower priority?
