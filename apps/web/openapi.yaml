@@ -373,6 +373,7 @@ paths:
                     type: array
                     description: Steered messages the running turn has not read yet
                     items: { $ref: "#/components/schemas/SteeringMessage" }
+                  retry: { $ref: "#/components/schemas/SessionRetry" }
     delete:
       parameters:
         - { $ref: "#/components/parameters/SessionId" }
@@ -1193,6 +1194,19 @@ components:
             properties:
               mimeType: { type: string }
               data: { type: string, description: Base64 image bytes }
+    SessionRetry:
+      type: object
+      description: >-
+        The kernel's automatic retry of a failed model request (`auto_retry_start`), present from the start event until
+        `auto_retry_end` or the run settles. The live form arrives as `agent` SSE events.
+      required: [attempt, maxAttempts, delayMs, startedAt, errorMessage]
+      properties:
+        attempt: { type: integer, description: 1-based attempt about to run }
+        maxAttempts: { type: integer }
+        delayMs: { type: integer, description: Backoff before the attempt starts }
+        startedAt: { type: integer, description: Epoch milliseconds when the retry was scheduled }
+        errorMessage: { type: string, description: The provider error that caused the retry }
+        reason: { type: string, enum: [rate_limit] }
     SessionSearchHit:
       type: object
       required: [sessionId, cwd, entryId, ts, snippet]

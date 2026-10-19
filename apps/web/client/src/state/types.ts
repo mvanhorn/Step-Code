@@ -140,6 +140,21 @@ export interface SessionSnapshot extends SessionSummary {
 	readonly queuedMessages?: readonly QueuedMessage[];
 	/** Steered messages the kernel has not delivered to the running turn yet. */
 	readonly steeringMessages?: readonly SteeringMessage[];
+	/** The kernel retrying a failed model request right now (runtime.ts `RetryTracker`). */
+	readonly retry?: SessionRetry;
+}
+
+/** Snapshot `retry` (src/retry-state.ts `WebRetryState`). */
+export interface SessionRetry {
+	/** 1-based attempt about to run. */
+	readonly attempt: number;
+	readonly maxAttempts: number;
+	/** Backoff before the attempt starts. */
+	readonly delayMs: number;
+	/** Host epoch milliseconds when the retry was scheduled. */
+	readonly startedAt: number;
+	readonly errorMessage: string;
+	readonly reason?: "rate_limit";
 }
 
 /** A steered message waiting for the running turn (src/message-queue.ts `SteeringMessageView`). */
@@ -301,7 +316,21 @@ export interface ApprovalTimelineItem {
 	readonly approval: ApprovalRequest;
 }
 
-export type TimelineItem = MessageTimelineItem | ToolTimelineItem | ApprovalTimelineItem;
+/**
+ * Failed model requests the kernel retried, folded into one row instead of a
+ * red card each. The final failure of a series that gave up stays a message
+ * row with `error`.
+ */
+export interface RetryTimelineItem {
+	readonly itemId: string;
+	readonly kind: "retry";
+	/** The provider error of each retried attempt, oldest first. */
+	readonly errors: readonly string[];
+	/** Set on the series the kernel is retrying right now. */
+	readonly live?: SessionRetry;
+}
+
+export type TimelineItem = MessageTimelineItem | ToolTimelineItem | ApprovalTimelineItem | RetryTimelineItem;
 
 export interface WebWorkspace {
 	readonly path: string;

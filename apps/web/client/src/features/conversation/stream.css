@@ -815,3 +815,22 @@
 .message-error-text a {
 	color: var(--accent);
 }
+
+/* Failed model requests the kernel retried (RetryRow.tsx); the row reuses the tool row's layout. */
+.retry-timer {
+	position: relative;
+	flex: none;
+	color: var(--ink-3);
+	font-variant-numeric: tabular-nums;
+	pointer-events: none;
+}
+.retry-error-list {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	margin: 0;
+	padding: 8px 10px 8px 28px;
+	color: var(--ink-2);
+	font: 12px / 18px var(--mono);
+	overflow-wrap: anywhere;
+}

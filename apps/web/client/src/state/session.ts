@@ -30,6 +30,7 @@ import type {
 	QueueState,
 	SelectionRequest,
 	SessionEntry,
+	SessionRetry,
 	SessionSnapshot,
 	SessionStatus,
 	SessionSummary,
@@ -196,8 +197,15 @@ function imageSources(content: unknown): string[] {
 	);
 }
 
-/** Project session entries into timeline rows (legacy `timelineFromEntries`, 2055-2096). */
-export function timelineFromEntries(entries: readonly SessionEntry[] = []): TimelineItem[] {
+/**
+ * Project session entries into timeline rows (legacy `timelineFromEntries`, 2055-2096).
+ *
+ * A failed request the kernel retried is followed directly by the next
+ * assistant attempt (an auto-resume adds a user message in between instead).
+ * Such failures fold into one `retry` row. `retry` is the kernel's retry under
+ * way, which makes the trailing failure part of the live series.
+ */
+export function timelineFromEntries(entries: readonly SessionEntry[] = [], retry?: SessionRetry): TimelineItem[] {
 	const items: TimelineItem[] = [];
 	const toolResults = new Map<string, NonNullable<SessionEntry["message"]>>();
 	for (const entry of entries) {
@@ -205,10 +213,10 @@ export function timelineFromEntries(entries: readonly SessionEntry[] = []): Time
 			toolResults.set(entry.message.toolCallId, entry.message);
 		}
 	}
-	for (const entry of entries) {
-		if (entry.type !== "message" || !entry.message) continue;
+	const messages = entries.filter((entry) => entry.type === "message" && entry.message);
+	for (const [index, entry] of messages.entries()) {
 		const message = entry.message;
-		if (message.role === "toolResult") continue;
+		if (!message || message.role === "toolResult") continue;
 		const text = contentText(message.content);
 		const images = message.role === "user" ? imageSources(message.content) : [];
 		// A failed request leaves an assistant message with no content; without a row the error was invisible.
@@ -216,8 +224,16 @@ export function timelineFromEntries(entries: readonly SessionEntry[] = []): Time
 			message.role === "assistant" && message.stopReason === "error"
 				? String(message.errorMessage || t("modelRequestFailed"))
 				: "";
-		// Every user message opens a turn (the host's turn boundary), even one without text.
+		const next = messages[index + 1]?.message;
+		if (error && (next ? next.role === "assistant" : retry !== undefined)) {
+			// The kernel dropped the attempt from its context, so tool calls it streamed before failing never ran.
+			const last = items.at(-1);
+			if (last?.kind === "retry") items[items.length - 1] = { ...last, errors: [...last.errors, error] };
+			else items.push({ itemId: `retry-${entry.id}`, kind: "retry", errors: [error] });
+			continue;
+		}
 		if (text || error || message.role === "user") {
+			// Every user message opens a turn (the host's turn boundary), even one without text.
 			items.push({
 				itemId: `message-${entry.id}`,
 				entryId: entry.id,
@@ -250,6 +266,12 @@ export function timelineFromEntries(entries: readonly SessionEntry[] = []): Time
 				});
 			}
 		}
+	}
+	if (retry) {
+		const last = items.at(-1);
+		if (last?.kind === "retry") items[items.length - 1] = { ...last, live: retry };
+		// The failed attempt is not recorded yet (or not in this branch): the retry still shows.
+		else items.push({ itemId: "retry-live", kind: "retry", errors: [retry.errorMessage], live: retry });
 	}
 	return items;
 }
@@ -307,7 +329,7 @@ export function renderSnapshot(snapshot: SessionSnapshot): void {
 		pendingSelections: (snapshot.pendingSelections ?? []).filter((request) => !resolvedSelections.has(request.id)),
 	};
 	setState((state) => {
-		const timelineItems = [...timelineFromEntries(snapshot.entries), ...approvalItems(snapshot)];
+		const timelineItems = [...timelineFromEntries(snapshot.entries, snapshot.retry), ...approvalItems(snapshot)];
 		const pendingTurn =
 			state.pendingTurn && countUserMessages(timelineItems) > state.pendingTurn.userCount ? null : state.pendingTurn;
 		return {
@@ -520,7 +542,10 @@ function handleAgentEvent(agentEvent: AgentStreamEvent): void {
 		agentEvent.type === "message_end" ||
 		agentEvent.type === "entry_appended" ||
 		agentEvent.type === "session_info_changed" ||
-		agentEvent.type === "agent_settled"
+		agentEvent.type === "agent_settled" ||
+		// The snapshot carries the retry (attempt, backoff) and folds the failures it retries.
+		agentEvent.type === "auto_retry_start" ||
+		agentEvent.type === "auto_retry_end"
 	) {
 		void refreshCurrent().catch(() => {});
 		void refreshSessions().catch(() => {});

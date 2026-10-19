@@ -8,6 +8,7 @@ import type { ChildAgentSummary, ChildSessionSnapshot } from "../../state/types"
 import { Icon, IconButton, Tooltip } from "../../ui";
 import { closeChildAgent } from "./actions";
 import { MessageItem } from "./MessageItem";
+import { RetryRow } from "./RetryRow";
 import { ToolRow } from "./TimelineRows";
 
 /** A running parent may still have children writing; their transcripts are re-read this often. */
@@ -118,6 +119,8 @@ export function ChildAgentView() {
 								<MessageItem key={item.itemId} item={item} readOnly />
 							) : item.kind === "tool" ? (
 								<ToolRow key={item.itemId} item={item} readOnly />
+							) : item.kind === "retry" ? (
+								<RetryRow key={item.itemId} item={item} />
 							) : null,
 						)
 					) : (

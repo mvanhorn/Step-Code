@@ -4,6 +4,7 @@ import { collectTurnChanges } from "../../lib/turn-changes";
 import { setUi, useAppStore } from "../../state/store";
 import type { SteeringMessage, TimelineItem } from "../../state/types";
 import { MessageItem } from "./MessageItem";
+import { RetryRow } from "./RetryRow";
 import { ThinkingIndicator } from "./ThinkingIndicator";
 import { ApprovalCard, ToolRow } from "./TimelineRows";
 import { TurnChangesCard } from "./TurnChangesCard";
@@ -48,6 +49,8 @@ function awaitingOutput(items: readonly TimelineItem[]): boolean {
 	if (!last) return true;
 	if (last.kind === "message") return last.role === "user";
 	if (last.kind === "tool") return last.state !== "pending";
+	// A retry under way shows its own status.
+	if (last.kind === "retry") return !last.live;
 	return false;
 }
 
@@ -144,6 +147,8 @@ export function ConversationStream() {
 										<MessageItem item={item} />
 									) : item.kind === "tool" ? (
 										<ToolRow item={item} />
+									) : item.kind === "retry" ? (
+										<RetryRow item={item} />
 									) : (
 										<ApprovalCard approval={item.approval} />
 									)}

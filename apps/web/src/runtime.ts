@@ -70,6 +70,7 @@ import {
 	SteeringImages,
 	type SteeringMessageView,
 } from "./message-queue.ts";
+import { RetryTracker } from "./retry-state.ts";
 import { SelectionBroker, type SelectionEvent, type SelectionRequest, selectionSelect } from "./selection.ts";
 import { type WebSkill, webSkills } from "./skills.ts";
 import { resolveSubagentCliPath } from "./subagent-cli.ts";
@@ -442,6 +443,8 @@ export class WebSession {
 	private holdQueue = false;
 	/** The last run ended in an error or abort; its settle leaves the queue for the user. */
 	private lastRunFailed = false;
+	/** The kernel's retry of a failed model request, while one is scheduled or running. */
+	private readonly retry = new RetryTracker();
 
 	private constructor(
 		id: string,
@@ -667,6 +670,7 @@ export class WebSession {
 		}
 		this.unsubscribeSession?.();
 		this.session = session;
+		this.retry.clear();
 		void this.adoptFallbackModel(session);
 		this.unsubscribeSession = session.subscribe((event) => {
 			if (event.type === "agent_start") {
@@ -679,9 +683,13 @@ export class WebSession {
 				const stops = event.messages.flatMap((message) =>
 					message.role === "assistant" ? [message.stopReason] : [],
 				);
-				if (stops.includes("error")) this.setStatus("failed", true);
+				// A failure the kernel is about to retry is not the run's outcome: the
+				// session keeps running through the backoff (`auto_retry_start` follows).
+				if (stops.includes("error") && !event.willRetry) this.setStatus("failed", true);
 				this.lastRunFailed = stops.includes("error") || stops.includes("aborted");
 			}
+			this.retry.apply(event);
+			if (event.type === "auto_retry_start" && this.status !== "running") this.setStatus("running", false);
 			if (event.type === "queue_update") this.emit({ type: "queue", ...this.queueState() });
 			this.emit({ type: "agent", event });
 			if (event.type === "agent_settled") {
@@ -1114,6 +1122,7 @@ export class WebSession {
 			pendingSelections: this.selections.pendingRequests(),
 			queuedMessages: this.queue.views(),
 			steeringMessages: this.steeringViews(),
+			retry: this.retry.view(),
 			model: this.session.model ? { provider: this.session.model.provider, id: this.session.model.id } : undefined,
 			permissionPreset:
 				this.livePermission ??
