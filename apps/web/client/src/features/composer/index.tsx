@@ -7,6 +7,7 @@
 import "./composer.css";
 
 import { type FormEvent, type ReactNode, useCallback, useRef, useState } from "react";
+import { useT } from "../../i18n";
 import { interruptCurrent } from "../../state/session";
 import { getState, setUi, useAppStore } from "../../state/store";
 import { Icon } from "../../ui";
@@ -45,6 +46,7 @@ export interface ComposerProps {
 type ComposerMenu = "policy" | "mode" | "model";
 
 export function Composer({ workspaceControl }: ComposerProps) {
+	const t = useT();
 	const form = useRef<HTMLFormElement | null>(null);
 	const prompt = useRef<HTMLDivElement | null>(null);
 	const [openMenu, setOpenMenu] = useState<ComposerMenu | null>(null);
@@ -52,6 +54,14 @@ export function Composer({ workspaceControl }: ComposerProps) {
 	const slash = useRef<SlashMenuHandle | null>(null);
 	const status = useAppStore((state) => state.current?.status);
 	const waiting = status === "waiting";
+	/*
+	 * Whether `#prompt` holds text to send. While a turn runs, `#sendButton` is the stop button
+	 * until the user types; then it sends (steers) again. Edits that bypass `input`
+	 * (`setPromptText`, `restorePrompt`) call `syncHasText` themselves.
+	 */
+	const [hasText, setHasText] = useState(false);
+	const syncHasText = () => setHasText(Boolean(prompt.current && promptText(prompt.current).trim()));
+	const stopMode = status === "running" && !hasText;
 
 	const menu = (name: ComposerMenu) => ({
 		open: openMenu === name,
@@ -60,6 +70,7 @@ export function Composer({ workspaceControl }: ComposerProps) {
 	});
 
 	const onValueInput = (value: string) => {
+		setHasText(Boolean(value.trim()));
 		const next = slashQuery(value);
 		setQuery(next);
 		const view = getState().ui.slashMenu;
@@ -74,11 +85,13 @@ export function Composer({ workspaceControl }: ComposerProps) {
 		if (item.kind === "mcp") {
 			// A status view, not a prompt: nothing is sent.
 			setPromptText(editor, "");
+			setHasText(false);
 			setUi({ slashMenu: "mcp" });
 		} else {
 			// The kernel runs `/<command> [args]` and expands `/skill:<name> [request]`
 			// into the skill's instructions on send.
 			setPromptText(editor, item.kind === "command" ? `/${item.key} ` : `/skill:${item.key} `);
+			setHasText(true);
 			setUi({ slashMenu: null });
 		}
 		editor.focus();
@@ -102,7 +115,11 @@ export function Composer({ workspaceControl }: ComposerProps) {
 			setUi({ slashMenu: null });
 			const draft = snapshotPrompt(editor);
 			setPromptText(editor, "");
-			if (!(await sendMessage(text, files))) restorePrompt(editor, draft);
+			setHasText(false);
+			if (!(await sendMessage(text, files))) {
+				restorePrompt(editor, draft);
+				syncHasText();
+			}
 		} finally {
 			sending.current = false;
 		}
@@ -129,25 +146,29 @@ export function Composer({ workspaceControl }: ComposerProps) {
 					<div className="composer-right">
 						<UsageMenu />
 						<ModelMenu {...menu("model")} />
-						<button
-							className="stop-button"
-							type="button"
-							id="stopRun"
-							hidden={status !== "running"}
-							onClick={() => void interruptCurrent()}
-						>
-							停止
-						</button>
-						<button
-							className="send-button"
-							id="sendButton"
-							type="submit"
-							title="发送"
-							aria-label="发送"
-							disabled={waiting}
-						>
-							<Icon name="send" />
-						</button>
+						{stopMode ? (
+							<button
+								className="send-button send-button--stop"
+								id="stopRun"
+								type="button"
+								title={t("stopRun")}
+								aria-label={t("stopRun")}
+								onClick={() => void interruptCurrent()}
+							>
+								<Icon name="stop" />
+							</button>
+						) : (
+							<button
+								className="send-button"
+								id="sendButton"
+								type="submit"
+								title={t("sendMessage")}
+								aria-label={t("sendMessage")}
+								disabled={waiting}
+							>
+								<Icon name="send" />
+							</button>
+						)}
 					</div>
 				</div>
 			</div>

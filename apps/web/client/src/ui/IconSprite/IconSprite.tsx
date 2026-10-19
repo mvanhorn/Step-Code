@@ -30,6 +30,7 @@ export const ICON_NAMES = [
 	"shield",
 	"chevron",
 	"send",
+	"stop",
 	"folder",
 	"folderPlus",
 	"closeSm",
@@ -435,6 +436,9 @@ export function IconSprite() {
 			</symbol>
 			<symbol id="i-send" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="2">
 				<path d="M9 15V3.75M4.5 8.25 9 3.5l4.5 4.75" />
+			</symbol>
+			<symbol id="i-stop" viewBox="0 0 18 18" fill="currentColor">
+				<rect x="5" y="5" width="8" height="8" rx="1.5" />
 			</symbol>
 			<symbol id="i-folder" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5">
 				<path d="M2 5.25h5.25l1.5 2H16v7.25H2z" />
