@@ -111,8 +111,9 @@ apps/web/
      radii...) instead of literal colors and sizes, so light and dark themes both work.
    - Feature CSS keeps global class names (tests depend on them); CSS Modules are for `ui/` only.
    - Load order is global.css, then ui modules, then feature CSS.
-   - Reuse the existing patterns: `data-tooltip` + `.list-action` / `.project-action` for hover tooltips (not
-     `title`), `SearchInput` for search fields, `IconButton` for icon buttons.
+   - Reuse the `ui/` components (see [Shared UI components](#shared-ui-components)) instead of restyling native
+     elements in feature CSS: `Tooltip` for hover hints (not `title`), `SearchInput` for search fields, `IconButton`
+     for icon buttons.
 7. **Accessibility.** Every `<button>` has `type`; icon-only buttons have `aria-label`. Clickable non-buttons need a
    role, `tabIndex` and a keyboard handler. Biome's a11y rules must pass.
 8. **Inputs driven by tests.** The e2e suite sets `input.value` and dispatches a non-bubbling `input` event. React's
@@ -122,6 +123,46 @@ apps/web/
    topmost overlay first). Add new overlays to that chain instead of adding document listeners.
 10. **Icons** are `<symbol id="i-<name>">` entries in `ui/IconSprite/IconSprite.tsx`; add the name to `ICON_NAMES`
     and use `<Icon name>`.
+
+## Shared UI components
+
+`client/src/ui/` holds the product-agnostic primitives; import them from the barrel (`import { Modal } from
+"../../ui"`), never from a component file. Each one forwards `id`, `className`, `aria-*` and `data-*`, so feature code
+keeps the ids and classes tests and feature CSS select on. Most styled ones take `bare` to drop the module styles and
+keep only the classes passed in. Read the component's doc comment before using it; it states the DOM it renders.
+
+| Component | Use it for | Notes |
+|---|---|---|
+| `Button` | Text buttons; `variant` `plain` (default, native look reset), `primary` / `secondary` (dialog footer actions) | `type="button"` by default |
+| `IconButton` | Square icon-only buttons (`icon`, `iconSize`) | Always has `.icon-button`; pass `aria-label`; wrap in `Tooltip` for a hint |
+| `Icon` | Sprite icons: `<Icon name size>`; `LEGACY_ICONS` holds preset name+size pairs | Sizes `2xs xs sm md lg menu`. New icons: add a `<symbol id="i-<name>">` to `IconSprite` and the name to `ICON_NAMES` |
+| `IconSprite` | The `<symbol>` sheet every `Icon` references | Rendered once in `App.tsx`; do not render again |
+| `Tooltip` | Hover / keyboard-focus hints: `<Tooltip content={text or element}>{trigger}</Tooltip>` | Placement top, centered, shifts only at viewport edges. One child that forwards `style` and `aria-describedby`; the hint is its next sibling (no wrapper). Empty `content` = no hint |
+| `Modal` | Dialogs: backdrop + `section[role=dialog][aria-modal]`, toggled by `open` | `id` / `overlayClassName` on the overlay, `className` / `dialogProps` on the dialog, `labelledBy`. Escape belongs to the shell's chain unless `closeOnEscape` |
+| `Popover` | A panel opened from a trigger (dropdowns, pickers), toggled by `open` | Handles outside press / Escape (`onClose`, `ignoreRefs` = the trigger, `returnFocusRef`); positioning is the caller's CSS |
+| `ContextMenu` | A menu at a pointer position (`x`, `y`, `align`), clamped into the viewport | Dismissal is the owner's job (`useDismiss`) |
+| `Menu`, `MenuItem`, `MenuDivider` | Rows inside a `Popover` / `ContextMenu` | `MenuItem`: `icon`, `trailing`, `danger`; pass `role="menu"` / `"menuitem"` where it is a real menu |
+| `SegmentedControl` (alias `Tabs`) | Mutually exclusive options or tabs: `items`, `value`, `onChange` | `selection` marks the chosen item with `aria-pressed` or an `active` class |
+| `Switch` | On/off settings: `<button role="switch" aria-checked>`; `checked`, `onChange(boolean)` | Pass `aria-label` |
+| `SearchInput` | Search fields (icon + `input[type=search]`); input props go to the `<input>` | For test-driven inputs use `onInputCapture` on an uncontrolled input (convention 8) |
+| `Toast` | `role="alert"` message, `tone` `danger` / `neutral` | Empty `message` hides it; timing is the caller's |
+| `EmptyState` | The muted "nothing here" line (`.empty-list`) | |
+| `Spinner` | Decorative running dot (`aria-hidden`) | Put the status text next to it |
+| `ShimmerText` | Animated "working on it" label | Put it in a status region to announce it |
+| `Kbd` | Keyboard shortcut hints | |
+| `DiffStat` | `+12 -3` line counts (`additions`, `deletions`) | |
+| `MarkdownView` | Rendering `lib/markdown` output (`html`), with code-block copy buttons (`onCopyCode`) | Only HTML from `renderMarkdown`; never other HTML |
+| `ResizeHandle` | Draggable / keyboard splitter between panels | Holds no size: `getSize`, `onResize` (live), `onCommit` (persist), `onReset` |
+| `useDismiss` | Outside-press and Escape dismissal for a mounted overlay | Include the trigger in `insideRefs` |
+| `useMergedRef` | One ref callback feeding two refs (own + forwarded) | |
+
+When to add or change one:
+
+- Check this table before writing a control in a feature. A one-off look is a feature class on the shared component
+  (`className`), not a copy of it.
+- A new primitive goes to `ui/<Name>/<Name>.tsx` + `<Name>.module.css`, is exported from `ui/index.ts`, follows the
+  rules in that file's header (no `state/`, `lib/api`, `features/` or `i18n/` imports; strings arrive as props;
+  overlays stay mounted and toggle `hidden`), and gets a row in this table.
 
 ## Host conventions
 
