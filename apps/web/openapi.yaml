@@ -162,12 +162,10 @@ paths:
   /api/v1/uploads:
     post:
       description: |
-        Store a file the composer received by paste or drop and answer with the
-        absolute path of the stored copy. Browsers expose a pasted file's bytes
-        and name but not its original path, so the message names this copy and
-        the agent reads it with its tools. Copies go to
-        `<os tmpdir>/stepcode-web-uploads/<random>/<name>`; the Host does not
-        delete them.
+        Store a file the composer received by paste or drop. Browsers expose a
+        pasted file's bytes and name but not its original path, so the Host
+        keeps a copy at `<os tmpdir>/stepcode-web-uploads/<id>/<name>` and does
+        not delete it. A message names the upload by `id` in its `files` list.
       parameters:
         - { name: name, in: query, required: true, schema: { type: string }, description: Original file name; reduced to a safe last path segment }
       requestBody:
@@ -176,7 +174,7 @@ paths:
           application/octet-stream:
             schema: { type: string, format: binary, description: "The raw file bytes, at most 50 MiB" }
       responses:
-        "201": { description: "path (absolute), name (as stored) and size in bytes" }
+        "201": { description: "id (UUID), path (absolute), name (as stored) and size in bytes" }
         "400": { description: name is missing }
         "413": { description: The file exceeds 50 MiB }
   /api/v1/workspaces/pick:
@@ -441,15 +439,50 @@ paths:
     post:
       parameters:
         - { $ref: "#/components/parameters/SessionId" }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: { type: string }
+                files:
+                  type: array
+                  items: { type: string }
+                  description: |
+                    Upload ids (`POST /api/v1/uploads`) the message refers to. The Host
+                    appends one `<attached_file name path bytes>` block per file after the
+                    text: a UTF-8 file's content (cut past 40 000 characters, saying where
+                    to continue), or for any other file `type="binary"` and where to read it.
+                attachments: { type: array, description: "Paperclip files: name, mimeType, base64 data" }
       responses:
         "202": { description: Prompt accepted }
+        "400": { description: text is missing, or an attachment or upload id is invalid }
         "409": { description: A turn revert is writing files }
   /api/v1/sessions/{id}/steer:
     post:
       parameters:
         - { $ref: "#/components/parameters/SessionId" }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: { type: string }
+                files:
+                  type: array
+                  items: { type: string }
+                  description: |
+                    Upload ids (`POST /api/v1/uploads`) the message refers to. The Host
+                    appends one `<attached_file name path bytes>` block per file after the
+                    text: a UTF-8 file's content (cut past 40 000 characters, saying where
+                    to continue), or for any other file `type="binary"` and where to read it.
       responses:
         "202": { description: Steer accepted }
+        "400": { description: text is missing or an upload id is invalid }
   /api/v1/sessions/{id}/interrupt:
     post:
       parameters:

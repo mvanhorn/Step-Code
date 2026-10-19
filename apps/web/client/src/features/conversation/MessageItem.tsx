@@ -1,7 +1,8 @@
 import { memo, useMemo, useRef, useState } from "react";
 import { formatRelativeTime, useT } from "../../i18n";
-import { formatTokens } from "../../lib/format";
-import { renderMarkdown, skillInvocation } from "../../lib/markdown";
+import { type AttachedFile, FILE_MARKER, markAttachedFiles, splitAttachedFiles } from "../../lib/attached-files";
+import { formatBytes, formatTokens } from "../../lib/format";
+import { escapeHtml, renderMarkdown, skillInvocation } from "../../lib/markdown";
 import { copyText } from "../../state/session";
 import type { MessageTimelineItem } from "../../state/types";
 import { Icon, LEGACY_ICONS, MarkdownView } from "../../ui";
@@ -10,15 +11,25 @@ import { openFeedback, type Sentiment } from "./feedback";
 import { useFadeIn, useSmoothText } from "./streaming";
 import { ThinkingIndicator } from "./ThinkingIndicator";
 
+/** Same markup as the composer's chip (`prompt-editor.ts` `createChip`), so a sent message reads like its draft. */
+function fileChipHtml(file: AttachedFile | undefined): string {
+	if (!file) return "";
+	const title = escapeHtml(`${file.path} · ${formatBytes(file.bytes)}`);
+	return `<span class="message-file" title="${title}"><svg class="icon icon--xs" aria-hidden="true"><use href="#i-fileText"></use></svg><span>${escapeHtml(file.name)}</span></span>`;
+}
+
 /**
  * One chat message (legacy `renderTimeline` message branch, app.js 2253-2261).
  * `data-content` and `data-entry-id` are kept from the legacy markup.
  */
 export const MessageItem = memo(function MessageItem({
 	item,
+	files: pendingFiles,
 	readOnly = false,
 }: {
 	readonly item: MessageTimelineItem;
+	/** The pending bubble's files: the host has not echoed the message (and its file blocks) yet. */
+	readonly files?: readonly AttachedFile[];
 	/** A child agent's transcript: no voting or forking, which act on the current session. */
 	readonly readOnly?: boolean;
 }) {
@@ -28,15 +39,24 @@ export const MessageItem = memo(function MessageItem({
 	const codeLabel = t("code");
 	const copyLabel = t("copy");
 	const bodyRef = useRef<HTMLDivElement>(null);
-	const skill = role === "user" ? skillInvocation(item.content) : null;
-	const text = useSmoothText(skill ? skill.request : item.content, live);
+	// Pasted or dropped files arrive as blocks after the user's text; the bubble shows them as inline chips where the user put them.
+	const attached = useMemo(
+		() => (role === "user" ? splitAttachedFiles(item.content) : { text: item.content, files: [] }),
+		[role, item.content],
+	);
+	const skill = role === "user" ? skillInvocation(attached.text) : null;
+	const text = useSmoothText(skill ? skill.request : attached.text, live);
 	// A user message can be images only; it still opens a turn, so it gets a row.
 	const content = text || (role === "user" && item.images ? t("imageMessage", { count: item.images }) : text);
 	// Memoised: a streaming turn re-renders the timeline per frame, and parsing every earlier message each time made long sessions crawl.
-	const html = useMemo(
-		() => renderMarkdown(content, { code: codeLabel, copy: copyLabel }),
-		[content, codeLabel, copyLabel],
-	);
+	const files = pendingFiles ?? attached.files;
+	const html = useMemo(() => {
+		if (!files.length) return renderMarkdown(content, { code: codeLabel, copy: copyLabel });
+		return renderMarkdown(markAttachedFiles(content, files), { code: codeLabel, copy: copyLabel }).replace(
+			FILE_MARKER,
+			(_match, index: string) => fileChipHtml(files[Number(index)]),
+		);
+	}, [content, files, codeLabel, copyLabel]);
 	useFadeIn(bodyRef, html, live);
 	if (item.error) return <MessageError entryId={item.entryId} error={item.error} />;
 	// The live turn before its first text (reasoning, or waiting on the first token).

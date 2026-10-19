@@ -1,6 +1,7 @@
 import { type FormEvent, type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { formatRelativeTime, type TranslateFn, useT } from "../../i18n";
 import { errorMessage } from "../../lib/api";
+import { splitAttachedFiles } from "../../lib/attached-files";
 import { basename } from "../../lib/format";
 import { useImeGuard } from "../../lib/ime";
 import { skillInvocation } from "../../lib/markdown";
@@ -110,9 +111,10 @@ function openResult(row: SearchRow | undefined): void {
 
 /** `#searchModal`: global conversation search (legacy index.html 1159-1202, app.js 1187-1280, 3401-3425). */
 /** First message as shown: a skill invocation reads `name · request`, not the skill's instructions. */
-function skillPreview(text: string | undefined): string {
+function skillPreview(raw: string | undefined): string {
+	const text = splitAttachedFiles(raw ?? "").text;
 	const skill = text ? skillInvocation(text) : null;
-	if (!skill) return text ?? "";
+	if (!skill) return text;
 	return skill.request ? `${skill.name} · ${skill.request}` : skill.name;
 }
 

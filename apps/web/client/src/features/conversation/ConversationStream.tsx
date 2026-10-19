@@ -152,6 +152,7 @@ export function ConversationStream() {
 						{pendingTurn ? (
 							<MessageItem
 								item={{ itemId: "message-pending", kind: "message", role: "user", content: pendingTurn.text }}
+								files={pendingTurn.files}
 							/>
 						) : null}
 						{thinking ? <ThinkingIndicator /> : null}

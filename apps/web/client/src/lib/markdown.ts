@@ -125,7 +125,7 @@ export function renderMarkdown(value: unknown, labels: MarkdownLabels): string {
 	// Protect inline code and links before formatting so URL punctuation and HTML
 	// attributes cannot be interpreted as Markdown. Fenced code is already protected.
 	const inlineSource = source.replace(
-		/`([^`]+)`|\[([^\]\n]+)\]\(\s*(<?(?:[^\s()<>]|\([^\s()]*\))+>?)\s*\)|https?:\/\/[^\s<>\u0000\u0001]+/g,
+		/`([^`]+)`|\[([^\]\n]+)\]\(\s*(<?(?:[^\s()<>]|\([^\s()]*\))+>?)\s*\)|https?:\/\/[^\s<>\u0000\u0001\u0002]+/g,
 		(match, code: string | undefined, label: string | undefined, destination: string | undefined) => {
 			let html: string;
 			let suffix = "";

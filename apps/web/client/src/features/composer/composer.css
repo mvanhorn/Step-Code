@@ -80,6 +80,9 @@
 	cursor: default;
 }
 .prompt-file > span {
+	/* Only the name takes part in baseline alignment, so the chip's baseline is the text's,
+	   not the icon's bottom edge, and the chip lines up with the words around it on every line. */
+	align-self: baseline;
 	overflow: hidden;
 	text-overflow: ellipsis;
 }

@@ -4,24 +4,26 @@
  * The prompt is plain text plus inline file chips: a chip is a non-editable
  * `<span class="prompt-file">` naming a file the host stored (see
  * `uploadFile`). The user writes around chips ("参考 [latest.json] 实现"), so a
- * sent message is the text in document order with each chip replaced by the
- * path of its stored copy. Only text and chips are ever inserted: pastes and
+ * sent message is the text in document order with each chip replaced by its
+ * file name, plus the chips' upload ids (`promptFiles`), for which the host
+ * appends each file's content. Only text and chips are ever inserted: pastes and
  * drops are intercepted, and the serialiser below reads any other markup a
  * browser produces (line-break `<br>`, block `<div>`) as text.
  */
 
+import type { AttachedFile } from "../../lib/attached-files";
 import type { UploadedFile } from "../../state/types";
 
 const CHIP_CLASS = "prompt-file";
 const SVG_NS = "http://www.w3.org/2000/svg";
 
-/** Uploads still running, by chip key: send waits for them so no chip is sent without its path. */
+/** Uploads still running, by chip key: send waits for them so no chip is sent without its upload id. */
 const pendingUploads = new Map<string, Promise<void>>();
 let nextChipKey = 0;
 
+/** A chip reads as its file name; the host appends the file itself (`promptFiles`). */
 function chipText(chip: HTMLElement): string {
-	const path = chip.dataset.path;
-	return path ? `\`${path}\`` : (chip.dataset.name ?? "");
+	return chip.dataset.name ?? "";
 }
 
 function serialize(parent: Node): string {
@@ -42,9 +44,24 @@ function serialize(parent: Node): string {
 	return out;
 }
 
-/** The prompt as message text: chips become their stored paths. */
+/** The prompt as message text: chips become their file names. */
 export function promptText(root: HTMLElement): string {
 	return serialize(root);
+}
+
+/** An uploaded chip: its upload id (the message's `files`) and what the sent bubble shows before the host echoes it. */
+export interface PromptFile extends AttachedFile {
+	readonly id: string;
+}
+
+/** The uploaded chips, in prompt order. */
+export function promptFiles(root: HTMLElement): PromptFile[] {
+	return [...root.querySelectorAll<HTMLElement>(`.${CHIP_CLASS}[data-upload-id]`)].map((chip) => ({
+		id: chip.dataset.uploadId ?? "",
+		name: chip.dataset.name ?? "",
+		path: chip.dataset.path ?? "",
+		bytes: Number(chip.dataset.size ?? 0),
+	}));
 }
 
 /**
@@ -150,7 +167,7 @@ function createChip(name: string, key: string): HTMLSpanElement {
 
 /**
  * Insert a chip for `name` at the caret, followed by a space so the caret can
- * sit after it. The chip gets its path when `upload` settles; a failed upload
+ * sit after it. The chip gets its upload id when `upload` settles; a failed upload
  * removes the chip and reports through `onFail`.
  */
 export function insertFileChip(
@@ -174,7 +191,9 @@ export function insertFileChip(
 	const settled = upload
 		.then(
 			(file) => {
+				chip.dataset.uploadId = file.id;
 				chip.dataset.path = file.path;
+				chip.dataset.size = String(file.size);
 				chip.dataset.state = "ready";
 				chip.title = file.path;
 			},
@@ -187,7 +206,7 @@ export function insertFileChip(
 	pendingUploads.set(key, settled);
 }
 
-/** Resolve once every chip inserted so far has its path or has been removed. */
+/** Resolve once every chip inserted so far has its upload id or has been removed. */
 export async function waitForUploads(): Promise<void> {
 	await Promise.all(pendingUploads.values());
 }

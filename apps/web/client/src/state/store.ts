@@ -1,5 +1,6 @@
 import { useRef, useSyncExternalStore } from "react";
 import type { Locale, TagColor } from "../i18n/messages";
+import type { AttachedFile } from "../lib/attached-files";
 import { readStorage, STORAGE_KEYS } from "../lib/storage";
 import { isDesktopHost } from "../platform/host";
 import type {
@@ -207,6 +208,8 @@ export interface ToastState {
 
 export interface PendingTurn {
 	readonly text: string;
+	/** Files the message names; the host appends their content, so the echoed message has them too. */
+	readonly files?: readonly AttachedFile[];
 	/** User messages in the timeline when it was sent; one more means the host has recorded it. */
 	readonly userCount: number;
 }

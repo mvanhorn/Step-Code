@@ -63,7 +63,13 @@ import {
 	updateMarketplace,
 } from "./settings.ts";
 import { TurnRevertError } from "./turn-changes.ts";
-import { MAX_UPLOAD_BYTES, saveUpload, UploadTooLargeError } from "./uploads.ts";
+import {
+	MAX_UPLOAD_BYTES,
+	saveUpload,
+	UploadNotFoundError,
+	UploadTooLargeError,
+	withUploadedFiles,
+} from "./uploads.ts";
 import { WORKSPACES_FILE, WorkspaceRegistry } from "./workspaces.ts";
 
 const moduleRoot = resolve(fileURLToPath(new URL(".", import.meta.url)));
@@ -128,6 +134,24 @@ function readAttachments(raw: unknown): WebAttachment[] | Error | undefined {
 		attachments.push({ name, mimeType, data, kind: classifyAttachment(mimeType) });
 	}
 	return attachments;
+}
+
+/**
+ * The message text with the content of each uploaded file the composer named
+ * (`files`: upload ids in chip order). An Error answers 400: a malformed list
+ * or an id whose copy is gone.
+ */
+async function withFiles(text: string, raw: unknown): Promise<string | Error> {
+	if (raw === undefined || raw === null) return text;
+	if (!Array.isArray(raw) || raw.some((id) => typeof id !== "string")) {
+		return new Error("files must be an array of upload ids");
+	}
+	try {
+		return await withUploadedFiles(text, raw as string[]);
+	} catch (caught) {
+		if (caught instanceof UploadNotFoundError) return caught;
+		throw caught;
+	}
 }
 
 function authorized(request: IncomingMessage): boolean {
@@ -636,8 +660,10 @@ const server = createServer(async (request, response) => {
 				if (typeof input.text !== "string" || !input.text.trim()) return error(response, 400, "text is required");
 				const attachments = readAttachments(input.attachments);
 				if (attachments instanceof Error) return error(response, 400, attachments.message);
+				const text = await withFiles(input.text, input.files);
+				if (text instanceof Error) return error(response, 400, text.message);
 				if (session.isReverting()) return error(response, 409, "Wait for the revert to finish");
-				void session.send(input.text, attachments ?? []).catch((caught) => {
+				void session.send(text, attachments ?? []).catch((caught) => {
 					session.publishError(caught instanceof Error ? caught.message : String(caught));
 				});
 				return json(response, 202, { ok: true });
@@ -645,7 +671,9 @@ const server = createServer(async (request, response) => {
 			if (parts[4] === "steer" && method === "POST") {
 				const input = await body(request);
 				if (typeof input.text !== "string" || !input.text.trim()) return error(response, 400, "text is required");
-				void session.steer(input.text).catch((caught) => {
+				const text = await withFiles(input.text, input.files);
+				if (text instanceof Error) return error(response, 400, text.message);
+				void session.steer(text).catch((caught) => {
 					session.publishError(caught instanceof Error ? caught.message : String(caught));
 				});
 				return json(response, 202, { ok: true });

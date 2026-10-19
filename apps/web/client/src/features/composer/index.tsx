@@ -19,6 +19,7 @@ import { PolicyMenu } from "./PolicyMenu";
 import { PromptInput } from "./PromptInput";
 import {
 	placeCaretAtEnd,
+	promptFiles,
 	promptText,
 	restorePrompt,
 	setPromptText,
@@ -92,15 +93,16 @@ export function Composer({ workspaceControl }: ComposerProps) {
 		if (!editor || sending.current) return;
 		sending.current = true;
 		try {
-			// A chip has its path only once its upload settles; a failed one is removed.
+			// A chip has its upload id only once its upload settles; a failed one is removed.
 			await waitForUploads();
 			const text = promptText(editor).trim();
+			const files = promptFiles(editor);
 			if (!text) return;
 			setQuery(null);
 			setUi({ slashMenu: null });
 			const draft = snapshotPrompt(editor);
 			setPromptText(editor, "");
-			if (!(await sendMessage(text))) restorePrompt(editor, draft);
+			if (!(await sendMessage(text, files))) restorePrompt(editor, draft);
 		} finally {
 			sending.current = false;
 		}

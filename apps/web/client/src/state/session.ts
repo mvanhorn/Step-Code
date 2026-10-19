@@ -10,6 +10,7 @@
 
 import { t } from "../i18n";
 import { api, apiSend, errorMessage, setUnauthorizedHandler } from "../lib/api";
+import { splitAttachedFiles } from "../lib/attached-files";
 import { writeClipboard } from "../lib/clipboard";
 import { basename, clipDetail, compact, toolArgs, toolInputDetail, toolInputSummary } from "../lib/format";
 import { contentText, skillInvocation } from "../lib/markdown";
@@ -80,7 +81,7 @@ export async function copyText(value: string, successText: string = t("copied"))
 /** Display title of a session (legacy `sessionTitle`, 719-725). */
 export function sessionTitle(session: Partial<SessionSummary> | null | undefined): string {
 	// A conversation opened with a skill starts with (and is auto-named after) the skill's whole instructions.
-	const text = session?.name || session?.firstMessage;
+	const text = splitAttachedFiles(session?.name || session?.firstMessage || "").text;
 	const skill = text ? skillInvocation(text) : null;
 	return (
 		(skill ? skill.request || skill.name : text) ||

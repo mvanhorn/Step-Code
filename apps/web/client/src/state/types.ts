@@ -354,6 +354,8 @@ export interface Attachment {
 
 /** POST /api/v1/uploads (uploads.ts `SavedUpload`): the host's copy of a pasted file. */
 export interface UploadedFile {
+	/** Named in a message's `files` list; the host then adds the file's content. */
+	readonly id: string;
 	readonly path: string;
 	readonly name: string;
 	readonly size: number;

@@ -9,8 +9,8 @@ export interface WebAttachment {
 /** Files larger than this are refused rather than ballooning the prompt. */
 export const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 
-/** How much of an oversized text attachment is inlined before truncating. */
-const MAX_INLINED_CHARS = 40_000;
+/** How much of an oversized text attachment or uploaded file is inlined before truncating. */
+export const MAX_INLINED_CHARS = 40_000;
 
 export function classifyAttachment(mimeType: string): "image" | "text" {
 	return mimeType.startsWith("image/") ? "image" : "text";

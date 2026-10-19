@@ -27,6 +27,7 @@ import type {
 	SessionSnapshot,
 	UploadedFile,
 } from "../../state/types";
+import type { PromptFile } from "./prompt-editor";
 
 export async function replyToClarification(
 	request: ClarificationRequest,
@@ -263,20 +264,22 @@ export function removeAttachment(index: number): void {
  * attachments are restored here and false is returned so the caller can put
  * the text back.
  */
-export async function sendMessage(text: string): Promise<boolean> {
+export async function sendMessage(text: string, files: readonly PromptFile[] = []): Promise<boolean> {
 	// Attachments are sent with the message and dropped afterwards, so a failed
 	// send has to put both back.
 	const { attachments, current, timelineItems } = getState();
 	// A message steered into a running turn waits for the current step, so only
 	// a new turn gets the immediate message and thinking indicator.
-	const pendingTurn = current?.status === "running" ? null : { text, userCount: countUserMessages(timelineItems) };
+	const pendingTurn =
+		current?.status === "running" ? null : { text, files, userCount: countUserMessages(timelineItems) };
 	setState({ attachments: [], pendingTurn });
 	try {
 		const session = await createSessionIfNeeded();
 		const endpoint = session.status === "running" ? "steer" : "messages";
 		await api(`/api/v1/sessions/${session.id}/${endpoint}`, {
 			method: "POST",
-			body: JSON.stringify({ text, attachments }),
+			// `files`: upload ids of the prompt's file chips; the host adds their content.
+			body: JSON.stringify({ text, attachments, files: files.map((file) => file.id) }),
 		});
 		return true;
 	} catch (error) {

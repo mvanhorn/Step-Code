@@ -71,6 +71,24 @@
 	font-size: 12px;
 	font-weight: 500;
 }
+/* A file pasted or dropped into the prompt, inline where the user put it (same look as the composer's `.prompt-file`). */
+.message-file {
+	display: inline-flex;
+	align-items: center;
+	gap: 3px;
+	max-width: 260px;
+	margin: 0 2px;
+	vertical-align: baseline;
+	color: var(--accent);
+	white-space: nowrap;
+}
+.message-file > span {
+	/* Only the name takes part in baseline alignment, so the chip's baseline is the text's,
+	   not the icon's bottom edge, and the chip lines up with the words around it on every line. */
+	align-self: baseline;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
 /* Stream text is a size smaller than shared Markdown and a touch heavier. */
 .message .message-body {
 	font-size: 14px;
