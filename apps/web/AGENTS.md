@@ -52,7 +52,8 @@ apps/web/
     browser-proxy.ts     private authenticated network boundary for redirect-safe port blocking
     terminal.ts          bounded host-owned terminal sessions and process cleanup
     terminal-process.ts  isolated node-pty helper; native failures must not crash the Host
-    terminal-cleanup.ts  Windows exited-shell descendants with process identity validation
+    terminal-cleanup.ts  owned process discovery: POSIX session/group/tty, Windows identity-validated descendants
+    terminal-native.ts   node-pty native build probe and macOS spawn-helper exec-bit repair
     terminal-routes.ts, terminal-policy.ts  authenticated HTTP/SSE and shell/environment/input policy
     directory-picker.ts  server-side folder chooser
     settings.ts          settings back end: MCP servers, plugins/marketplaces, skills
@@ -159,7 +160,7 @@ keep only the classes passed in. Read the component's doc comment before using i
 | `Kbd` | Keyboard shortcut hints | |
 | `DiffStat` | `+12 -3` line counts (`additions`, `deletions`) | |
 | `MarkdownView` | Rendering `lib/markdown` output (`html`), with code-block copy buttons (`onCopyCode`) | Only HTML from `renderMarkdown`; never other HTML |
-| `ResizeHandle` | Draggable / keyboard splitter between panels | Holds no size: `getSize`, `onResize` (live), `onCommit` (persist), `onReset` |
+| `ResizeHandle` | Draggable / keyboard splitter between panels | Holds no size: `getSize`, `onResize` (live), `onCommit` (persist), `onReset`; `orientation="horizontal"` for stacked panels |
 | `useDismiss` | Outside-press and Escape dismissal for a mounted overlay | Include the trigger in `insideRefs` |
 | `useMergedRef` | One ref callback feeding two refs (own + forwarded) | |
 
@@ -216,8 +217,11 @@ When to add or change one:
   MCP status is process-scoped, unlike the session's skill count. Do not label
   recorded messages as assembled model context or turn patches as Git net changes.
   Conversation navigation is excluded. Terminal uses its separate Web adapter.
-  `features/terminal` renders xterm and belongs directly below Context in the
-  shared rail. Only explicit tab creation starts a shell. Hiding/switching tabs
+  `features/terminal` renders xterm in `#terminalDock`, a resizable bottom dock
+  under the conversation toggled from the rail (`data-terminal-toggle`) or
+  Ctrl+`; it is independent of the exclusive inspector. Keys typed in the shell
+  stay there (Escape, Ctrl chords). Only opening an empty dock or explicit tab
+  creation starts a shell; ending the last tab hides the dock. Hiding/switching tabs
   disconnects streams without killing processes; closing a tab awaits owned
   process-tree cleanup. Refresh replays bounded sequenced output, never creates
   replacement shells. Shell exit retains helper ownership until Host cleanup;
@@ -227,7 +231,10 @@ When to add or change one:
   restoration from a truncated ANSI tail. Keep input/IPC/SSE queues bounded,
   disable OSC 52 and automatic links, and do not inherit Host API keys or
   startup-injection environment variables. Never load sibling-project binaries
-  as runtime dependencies or silently install/compile native modules.
+  as runtime dependencies or silently install/compile native modules; the only
+  repair is restoring the exec bit of node-pty's published macOS spawn-helper.
+  POSIX cleanup kills the shell's session, process group and controlling-tty
+  members, never the Host or helper.
   `features/browser` uses the authenticated host-owned Chromium adapter in
   `src/browser.ts` / `browser-routes.ts`, not a Desktop bridge or iframe.
   Hiding releases its stream/controller but keeps tabs. Refresh rotates a

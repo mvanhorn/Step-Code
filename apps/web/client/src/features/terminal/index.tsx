@@ -1,1 +1,1 @@
-export { TerminalPanel } from "./TerminalPanel";
+export { TerminalDock } from "./TerminalDock";

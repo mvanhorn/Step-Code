@@ -72,7 +72,7 @@ export type ThemeChoice = "system" | "light" | "dark";
 export type ConversationView = "project" | "group";
 export type ModeId = "goal" | "plan" | "ultraloop";
 export type DirectoryPickerMode = "native" | "browse";
-export type RightPanelId = "summary" | "context" | "terminal" | "changes" | "files" | "subagent" | "browser";
+export type RightPanelId = "summary" | "context" | "changes" | "files" | "subagent" | "browser";
 
 /** Lazy file tree of one workspace (legacy `state.tree`). */
 export interface TreeState {
@@ -140,6 +140,8 @@ export interface UiState {
 	readonly rightPanel: RightPanelId | null;
 	readonly rightPanelExpanded: boolean;
 	readonly rightPanelMenu: boolean;
+	/** `#terminalDock` below the conversation; independent of the right panel. Never restored on reload. */
+	readonly terminalOpen: boolean;
 	/** `.app.sidebar-hidden` */
 	readonly sidebarHidden: boolean;
 	/** Inline `--sidebar-width` on `.app` in px; null leaves the CSS default. */
@@ -375,6 +377,7 @@ export function createInitialState(): AppState {
 			rightPanel: typeof window !== "undefined" && window.innerWidth > 1200 ? "summary" : null,
 			rightPanelExpanded: false,
 			rightPanelMenu: false,
+			terminalOpen: false,
 			// `?sb=0` starts with the sidebar collapsed (legacy bootstrap).
 			sidebarHidden: typeof location !== "undefined" && location.search.includes("sb=0"),
 			sidebarWidth: null,

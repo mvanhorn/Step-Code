@@ -542,7 +542,12 @@ No new HTTP/SSE fields, dependencies, persistence or Desktop-specific code are a
 
 ## Interactive terminals
 
-The Terminal inspector uses `@xterm/xterm` with `@xterm/addon-fit`; the Host
+The terminal is a resizable dock below the conversation, toggled from the right
+rail or with Ctrl+`, and stays available beside any inspector. Its header shows
+the shell and one tab per terminal, named after the workspace folder (`name`,
+`name 2`, ...). Opening an empty dock starts one shell; ending the last tab hides
+the dock. The dock height is remembered; whether it is open is not. It uses
+`@xterm/xterm` with `@xterm/addon-fit`; the Host
 owns isolated Node helper processes using `node-pty`. This is a real interactive
 shell, not a model tool log or a pipe-based command runner. Creating a terminal
 is explicit. Windows chooses installed PowerShell 7 or Windows PowerShell;
@@ -560,7 +565,7 @@ sessions. Changing conversation within the same workspace retains the tabs.
 Multiple authenticated pages may view/control the same shell; dimensions and
 input are shared. There is no per-page terminal ownership lease.
 
-Closing/hiding the inspector disconnects its output stream, not the shell.
+Hiding the dock disconnects its output stream, not the shell.
 Switching terminal tabs does the same. Refresh lists existing terminals and
 replays retained output without creating a second process. Closing a terminal
 tab terminates its owned process tree before removing it. Normal Host shutdown
@@ -576,6 +581,9 @@ termination, so a stale PID does not authorize killing a replacement process.
 Close and shutdown await the same cleanup; failures keep a retryable failed
 tab. Startup cancellation waits for the shell identity or startup failure
 before terminating the helper, avoiding a shell spawned after tree enumeration.
+On macOS/Linux the helper runs in its own process group and cleanup kills the
+shell's session, process group and controlling-tty members (plus their
+descendants), including background jobs that outlive the shell.
 This does not provide Job Object containment: descendants whose intermediate
 parents have already disappeared, deliberate detachment and abrupt Host
 failure remain outside the guarantee.
@@ -594,11 +602,16 @@ The client fits the PTY to the panel, supports ANSI rendering, selection,
 explicit clipboard copy/paste, Ctrl+C and normal terminal input including IME.
 OSC 52 clipboard writes and link activation are disabled. Clear affects the
 local display only and does not stop the shell or erase the Host replay buffer.
-Clipboard access still requires browser permission. Only Windows native PTY
-startup has been verified locally; Linux/macOS require their own acceptance.
-Dependencies are pinned and installed without lifecycle scripts. A missing or
-incompatible native binary fails the terminal without taking down the Web Host;
-it does not trigger an automatic download, compilation or toolchain install.
+Clipboard access still requires browser permission. Native PTY startup has been
+verified on Windows and macOS; Linux requires its own acceptance.
+Dependencies are pinned and installed without lifecycle scripts. The list route
+reports `support` before any shell starts, so the dock can explain a missing
+native build instead of offering a broken button. A missing or incompatible
+native binary fails the terminal without taking down the Web Host; it does not
+trigger an automatic download, compilation or toolchain install. The one repair
+the Host makes is restoring the exec bit of node-pty's published macOS
+`spawn-helper`, which the package tarball ships without and which installs
+that skip lifecycle scripts never fix.
 
 ## Thinking presentation
 

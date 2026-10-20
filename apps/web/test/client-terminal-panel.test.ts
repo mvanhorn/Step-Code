@@ -4,7 +4,7 @@ import { test } from "node:test";
 import { activeRightPanel, closeRightPanel, openRightPanel } from "../client/src/state/right-panel.ts";
 import { appStore, createInitialState } from "../client/src/state/store.ts";
 import { MESSAGES } from "../client/src/i18n/messages.ts";
-import { terminalWorkspaceKey } from "../client/src/features/terminal/actions.ts";
+import { terminalWorkspaceKey, toggleTerminalDock } from "../client/src/features/terminal/actions.ts";
 
 test("terminal workspace keys normalize Windows spelling without folding POSIX case", () => {
 	assert.equal(terminalWorkspaceKey("D:\\Project\\"), terminalWorkspaceKey("d:/project"));
@@ -12,16 +12,22 @@ test("terminal workspace keys normalize Windows spelling without folding POSIX c
 	assert.equal(terminalWorkspaceKey("/"), "/");
 });
 
-test("terminal is directly below Context and shares the exclusive inspector", () => {
-	const source = readFileSync(new URL("../client/src/features/inspector/RightPanel.tsx", import.meta.url), "utf8");
-	assert.match(source, /id: "context"[^}]*},\s*{ id: "terminal"/);
+test("terminal docks below the conversation, independent of the exclusive inspector", () => {
+	const rail = readFileSync(new URL("../client/src/features/inspector/RightPanel.tsx", import.meta.url), "utf8");
+	assert.doesNotMatch(rail, /id: "terminal"/);
+	assert.match(rail, /data-terminal-toggle/);
+	const app = readFileSync(new URL("../client/src/App.tsx", import.meta.url), "utf8");
+	assert.match(app, /<\/div>\s*<TerminalDock \/>/);
 	appStore.setState(createInitialState());
-	openRightPanel("terminal");
-	assert.equal(activeRightPanel(appStore.getState()), "terminal");
+	assert.equal(appStore.getState().ui.terminalOpen, false);
+	toggleTerminalDock();
 	openRightPanel("browser");
 	assert.equal(activeRightPanel(appStore.getState()), "browser");
+	assert.equal(appStore.getState().ui.terminalOpen, true);
 	closeRightPanel();
-	assert.equal(activeRightPanel(appStore.getState()), null);
+	assert.equal(appStore.getState().ui.terminalOpen, true);
+	toggleTerminalDock(false);
+	assert.equal(appStore.getState().ui.terminalOpen, false);
 });
 test("all terminal messages are present in both locales", () => {
 	const zh = MESSAGES["zh-CN"];

@@ -1,18 +1,27 @@
 import { api } from "../../lib/api";
-import type { TerminalInfo, TerminalSnapshot } from "../../state/types";
+import { setUi } from "../../state/store";
+import type { TerminalInfo, TerminalSnapshot, TerminalSupport } from "../../state/types";
 
 const ROOT = "/api/v1/terminals";
+
+/** Shows or hides the bottom dock. Hiding only disconnects streams; shells keep running. */
+export function toggleTerminalDock(open?: boolean): void {
+	setUi((ui) => ({ terminalOpen: open ?? !ui.terminalOpen }));
+}
 /** Windows path spelling may differ from realpath; POSIX folder case is significant. */
 export function terminalWorkspaceKey(value: string): string {
 	if (/^[a-z]:[/\\]/i.test(value) || value.startsWith("\\\\"))
 		return value.replaceAll("\\", "/").replace(/\/+$/, "").toLowerCase();
 	return value.replace(/\/+$/, "") || value;
 }
-export async function listTerminals(cwd: string, signal?: AbortSignal): Promise<readonly TerminalInfo[]> {
-	return (await api<{ terminals: TerminalInfo[] }>(`${ROOT}?${new URLSearchParams({ cwd })}`, { signal })).terminals;
+export function listTerminals(
+	cwd: string,
+	signal?: AbortSignal,
+): Promise<{ readonly terminals: readonly TerminalInfo[]; readonly support: TerminalSupport }> {
+	return api(`${ROOT}?${new URLSearchParams({ cwd })}`, { signal });
 }
-export function createTerminal(cwd: string): Promise<TerminalSnapshot> {
-	return api<TerminalSnapshot>(ROOT, { method: "POST", body: JSON.stringify({ cwd }) });
+export function createTerminal(cwd: string, size?: { cols: number; rows: number }): Promise<TerminalSnapshot> {
+	return api<TerminalSnapshot>(ROOT, { method: "POST", body: JSON.stringify({ cwd, ...size }) });
 }
 export function closeTerminal(id: string): Promise<unknown> {
 	return api(`${ROOT}/${encodeURIComponent(id)}`, { method: "DELETE" });
@@ -28,6 +37,8 @@ export class TerminalConnection {
 	private readonly receive: (snapshot: TerminalSnapshot) => Promise<void>;
 	private readonly status: (connected: boolean, error?: unknown) => void;
 	private readonly closed: () => void;
+	/** Consecutive failed attempts; reset by every delivered snapshot so long-lived tabs keep reconnecting. */
+	private failures = 0;
 	constructor(
 		id: string,
 		cursor: number,
@@ -42,7 +53,6 @@ export class TerminalConnection {
 		this.closed = closed;
 	}
 	async connect(): Promise<void> {
-		let failures = 0;
 		while (!this.controller.signal.aborted) {
 			try {
 				await this.stream();
@@ -50,14 +60,14 @@ export class TerminalConnection {
 			} catch (error) {
 				if (this.controller.signal.aborted) return;
 				this.status(false, error);
-				if (++failures >= 5) return;
+				if (++this.failures >= 5) return;
 				await new Promise<void>((resolve) => {
 					const finish = () => {
 						clearTimeout(timer);
 						this.controller.signal.removeEventListener("abort", finish);
 						resolve();
 					};
-					const timer = setTimeout(finish, Math.min(500 * 2 ** failures, 5000));
+					const timer = setTimeout(finish, Math.min(500 * 2 ** this.failures, 5000));
 					this.controller.signal.addEventListener("abort", finish, { once: true });
 				});
 			}
@@ -91,6 +101,7 @@ export class TerminalConnection {
 						await this.receive(snapshot);
 						if (this.controller.signal.aborted) return;
 						this.cursor = snapshot.seq;
+						this.failures = 0;
 						this.status(true);
 					}
 					boundary = buffer.indexOf("\n\n");

@@ -16,6 +16,7 @@ import {
 	UserArea,
 } from "./features/shell";
 import { SearchModal, SidebarNav, SidebarResizer } from "./features/sidebar";
+import { TerminalDock } from "./features/terminal";
 import { RemoveWorkspaceModal, WorkspaceBrowserModal, WorkspaceControl } from "./features/workspace";
 import { I18nProvider } from "./i18n";
 import { cx } from "./lib/format";
@@ -34,8 +35,9 @@ import { IconSprite } from "./ui";
  *     main.main          shell show button | files show button | market cron/market views
  *                        | conversation stream
  *                        | .composer-zone > composer form (workspace pill above the card)
+ *                        | #terminalDock (terminal: resizable bottom dock with workspace tabs)
  *                        | shell toast + auth banner
- *     aside#rightPanel   floating Summary, or context/files/changes/child inspector / browser / terminal
+ *     aside#rightPanel   floating Summary, or context/files/changes/child inspector / browser
  *     nav.right-tool-rail
  *   #settingsView      settings: full-window settings page (menu + page) over the workspace
  *   #feedbackModal, #searchModal, #workspaceBrowserModal, #removeWorkspaceModal, #selectionDialog,
@@ -107,6 +109,7 @@ export function App() {
 					<div className="composer-zone">
 						<Composer workspaceControl={<WorkspaceControl />} />
 					</div>
+					<TerminalDock />
 					<ErrorToast />
 					<AuthBanner />
 				</main>

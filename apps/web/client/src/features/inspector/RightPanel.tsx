@@ -16,7 +16,7 @@ import { BrowserPanel } from "../browser";
 import { ChildAgentView } from "../conversation";
 import { PreviewPanel } from "../files";
 import { applyPreviewWidth, PREVIEW_DEFAULT, restorePreviewWidth } from "../files/actions";
-import { TerminalPanel } from "../terminal";
+import { toggleTerminalDock } from "../terminal/actions";
 import { ContextPanel } from "./ContextPanel";
 import { SummaryBoard } from "./SummaryBoard";
 import { SummaryHeader } from "./SummaryHeader";
@@ -24,7 +24,6 @@ import { SummaryHeader } from "./SummaryHeader";
 const PANELS: readonly { id: RightPanelId; icon: IconName; label: string }[] = [
 	{ id: "summary", icon: "layers", label: "rightSummary" },
 	{ id: "context", icon: "scanLine", label: "rightContext" },
-	{ id: "terminal", icon: "terminal", label: "terminalTitle" },
 	{ id: "changes", icon: "fileDiff", label: "rightChanges" },
 	{ id: "files", icon: "fileText", label: "filePreview" },
 	{ id: "subagent", icon: "bot", label: "subagents" },
@@ -34,20 +33,34 @@ const PANELS: readonly { id: RightPanelId; icon: IconName; label: string }[] = [
 export function RightToolRail() {
 	const t = useT();
 	const active = useAppStore(activeRightPanel);
+	const terminalOpen = useAppStore((state) => state.ui.terminalOpen);
+	const button = (panel: (typeof PANELS)[number]) => (
+		<Tooltip key={panel.id} content={t(panel.label)}>
+			<IconButton
+				data-right-panel={panel.id}
+				icon={panel.icon}
+				aria-label={t(panel.label)}
+				aria-controls="rightPanel"
+				aria-pressed={active === panel.id}
+				onClick={() => toggleRightPanel(panel.id)}
+			/>
+		</Tooltip>
+	);
 	return (
 		<nav className="right-tool-rail" aria-label={t("rightTools")}>
-			{PANELS.map((panel) => (
-				<Tooltip key={panel.id} content={t(panel.label)}>
-					<IconButton
-						data-right-panel={panel.id}
-						icon={panel.icon}
-						aria-label={t(panel.label)}
-						aria-controls="rightPanel"
-						aria-pressed={active === panel.id}
-						onClick={() => toggleRightPanel(panel.id)}
-					/>
-				</Tooltip>
-			))}
+			{PANELS.slice(0, 2).map(button)}
+			{/* The terminal docks below the conversation, so it can stay open beside any inspector. */}
+			<Tooltip content={t("terminalToggle")}>
+				<IconButton
+					data-terminal-toggle=""
+					icon="terminal"
+					aria-label={t("terminalTitle")}
+					aria-controls="terminalDock"
+					aria-pressed={terminalOpen}
+					onClick={() => toggleTerminalDock()}
+				/>
+			</Tooltip>
+			{PANELS.slice(2).map(button)}
 		</nav>
 	);
 }
@@ -104,7 +117,7 @@ export function RightPanel() {
 		<aside
 			id="rightPanel"
 			ref={ref}
-			className={`right-panel${summary ? " summary-board" : ""}${panel === "browser" ? " is-browser" : ""}${panel === "terminal" ? " is-terminal" : ""}${expanded ? " is-expanded" : ""}`}
+			className={`right-panel${summary ? " summary-board" : ""}${panel === "browser" ? " is-browser" : ""}${expanded ? " is-expanded" : ""}`}
 			aria-label={t(PANELS.find((entry) => entry.id === panel)?.label ?? "rightTools")}
 			hidden={!panel}
 		>
@@ -200,7 +213,6 @@ export function RightPanel() {
 			<PreviewPanel embedded />
 			<ChildAgentView embedded />
 			<BrowserPanel open={panel === "browser"} />
-			<TerminalPanel open={panel === "terminal"} />
 			{panel === "subagent" && (!currentId || childParentId !== currentId) ? (
 				<p className="preview-message">{t("rightNoSubagent")}</p>
 			) : null}
