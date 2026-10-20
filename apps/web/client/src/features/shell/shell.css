@@ -120,26 +120,6 @@
 	padding: 6px 11px;
 }
 
-/* Fixed, so the toast also shows above the settings view and its dialogs. */
-.error-toast {
-	position: fixed;
-	right: 20px;
-	bottom: 20px;
-	z-index: 120;
-	max-width: 390px;
-	padding: 10px 13px;
-	border: 1px solid color-mix(in srgb, var(--danger) 38%, var(--line));
-	border-radius: var(--radius-surface);
-	background: var(--danger-surface);
-	color: var(--danger);
-	box-shadow: 0 8px 24px rgb(0 0 0 / 9%);
-	font-size: 12px;
-}
-.error-toast[data-tone="neutral"] {
-	border-color: var(--line);
-	background: var(--surface);
-	color: var(--ink-2);
-}
 /*
  * Shown when the session cookie stops being accepted. Without it a failed
  * exchange just leaves an empty sidebar and an empty model list, which reads

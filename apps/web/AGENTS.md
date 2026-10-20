@@ -145,7 +145,7 @@ keep only the classes passed in. Read the component's doc comment before using i
 | `SegmentedControl` (alias `Tabs`) | Mutually exclusive options or tabs: `items`, `value`, `onChange` | `selection` marks the chosen item with `aria-pressed` or an `active` class |
 | `Switch` | On/off settings: `<button role="switch" aria-checked>`; `checked`, `onChange(boolean)` | Pass `aria-label` |
 | `SearchInput` | Search fields (icon + `input[type=search]`); input props go to the `<input>` | For test-driven inputs use `onInputCapture` on an uncontrolled input (convention 8) |
-| `Toast` | `role="alert"` message, `tone` `danger` / `neutral` | Empty `message` hides it; timing is the caller's |
+| `Toast` | `role="alert"` message, `tone` `danger` / `neutral`; fixed at the top centre of the window | Empty `message` hides it; timing is the caller's. The app has one, `#errorToast` (`showError`); do not restyle it in feature CSS |
 | `EmptyState` | The muted "nothing here" line (`.empty-list`) | |
 | `Spinner` | Decorative running dot (`aria-hidden`) | Put the status text next to it |
 | `ShimmerText` | Animated "working on it" label | Put it in a status region to announce it |
