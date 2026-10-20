@@ -165,7 +165,9 @@ paths:
         Store a file the composer received by paste or drop. Browsers expose a
         pasted file's bytes and name but not its original path, so the Host
         keeps a copy at `<os tmpdir>/stepcode-web-uploads/<id>/<name>` and does
-        not delete it. A message names the upload by `id` in its `files` list.
+        not delete it. `id` is the SHA-256 of the stored name and the bytes, so
+        pasting the same file again reuses its copy and returns the same id. A
+        message names the upload by `id` in its `files` list.
       parameters:
         - { name: name, in: query, required: true, schema: { type: string }, description: Original file name; reduced to a safe last path segment }
       requestBody:
@@ -174,7 +176,7 @@ paths:
           application/octet-stream:
             schema: { type: string, format: binary, description: "The raw file bytes, at most 50 MiB" }
       responses:
-        "201": { description: "id (UUID), path (absolute), name (as stored) and size in bytes" }
+        "201": { description: "id (SHA-256 hex of name and bytes), path (absolute), name (as stored) and size in bytes" }
         "400": { description: name is missing }
         "413": { description: The file exceeds 50 MiB }
   /api/v1/workspaces/pick:

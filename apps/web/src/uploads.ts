@@ -1,5 +1,5 @@
-import { randomUUID } from "node:crypto";
-import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MAX_INLINED_CHARS } from "./attachments.ts";
@@ -17,7 +17,7 @@ export const UPLOADS_DIR = join(tmpdir(), "stepcode-web-uploads");
 export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 
 export interface SavedUpload {
-	/** The copy's directory name; a message refers to the upload by it. */
+	/** The copy's directory name, the SHA-256 of its name and bytes; a message refers to the upload by it. */
 	readonly id: string;
 	/** Absolute path of the stored copy. */
 	readonly path: string;
@@ -55,9 +55,12 @@ export function uploadFileName(raw: string): string {
 }
 
 /**
- * Store `body` as `<root>/<id>/<name>`. The random directory keeps two
- * pastes of `image.png` apart while the file keeps its own name, which is what
- * the user and the model refer to. Reading stops at `limit` bytes.
+ * Store `body` as `<root>/<id>/<name>`, where `id` is the SHA-256 of the name
+ * and the bytes. Pasting the same file again finds the copy already there and
+ * writes nothing, so repeated pastes take no extra space and get the same id.
+ * The name is part of the hash so a directory always holds one file whose
+ * name is the one the user pasted, which is what the user and the model refer
+ * to. Reading stops at `limit` bytes.
  */
 export async function saveUpload(
 	body: AsyncIterable<Uint8Array>,
@@ -65,28 +68,42 @@ export async function saveUpload(
 	root: string = UPLOADS_DIR,
 	limit: number = MAX_UPLOAD_BYTES,
 ): Promise<SavedUpload> {
+	const name = uploadFileName(rawName);
+	const hash = createHash("sha256").update(name).update("\u0000");
 	const chunks: Buffer[] = [];
 	let size = 0;
 	for await (const chunk of body) {
 		const buffer = Buffer.from(chunk);
 		size += buffer.length;
 		if (size > limit) throw new UploadTooLargeError(limit);
+		hash.update(buffer);
 		chunks.push(buffer);
 	}
-	const name = uploadFileName(rawName);
-	const id = randomUUID();
+	const id = hash.digest("hex");
 	const directory = join(root, id);
-	await mkdir(directory, { recursive: true, mode: 0o700 });
 	const path = join(directory, name);
-	await writeFile(path, Buffer.concat(chunks), { mode: 0o600 });
+	const existing = await stat(path).catch(() => undefined);
+	if (existing?.isFile() && existing.size === size) return { id, path, name, size };
+	await mkdir(directory, { recursive: true, mode: 0o700 });
+	// Written beside the directory and renamed in, so a concurrent paste of the same
+	// file never reads a half-written copy and the directory never holds a second entry.
+	const staging = join(root, `.${randomUUID()}.tmp`);
+	try {
+		await writeFile(staging, Buffer.concat(chunks), { mode: 0o600 });
+		await rename(staging, path);
+	} catch (caught) {
+		await rm(staging, { force: true });
+		// A rename onto a copy another request just stored can fail on Windows; that copy is identical.
+		if (!(await stat(path).catch(() => undefined))?.isFile()) throw caught;
+	}
 	return { id, path, name, size };
 }
 
-const UPLOAD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const UPLOAD_ID = /^[0-9a-f]{64}$/;
 
 /**
- * The copy stored under `id`. Only a UUID is accepted, so a message can name
- * nothing outside `root`; the directory holds exactly the one file `saveUpload` wrote.
+ * The copy stored under `id`. Only a SHA-256 hex digest is accepted, so a message
+ * can name nothing outside `root`; the directory holds exactly the one file `saveUpload` wrote.
  */
 export async function resolveUpload(id: string, root: string = UPLOADS_DIR): Promise<SavedUpload> {
 	if (!UPLOAD_ID.test(id)) throw new UploadNotFoundError(id);
