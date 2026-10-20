@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { type Browser, type BrowserContext, type CDPSession, chromium, type Page } from "playwright-core";
 import { type BrowserInput, BrowserRequestError, browserExecutable, browserUrl } from "./browser-policy.ts";
+import { browserProxy } from "./browser-proxy.ts";
 
 export interface BrowserTab {
 	id: string;
@@ -40,6 +41,7 @@ interface OwnedTab {
 export class WebBrowser {
 	private readonly hostPorts: readonly number[];
 	private browser?: Browser;
+	private proxy?: Awaited<ReturnType<typeof browserProxy>>;
 	private context?: BrowserContext;
 	private starting?: Promise<BrowserContext>;
 	private disposed = false;
@@ -168,11 +170,14 @@ export class WebBrowser {
 		if (this.context) return this.context;
 		if (!this.starting) {
 			this.starting = (async () => {
+				this.proxy = await browserProxy(this.hostPorts);
+				const { server, bypass, username, password } = this.proxy;
 				const browser = await chromium.launch({
 					executablePath: browserExecutable(),
 					headless: true,
 					chromiumSandbox: true,
 					timeout: 15_000,
+					proxy: { server, bypass, username, password },
 				});
 				this.browser = browser;
 				if (this.disposed) {
@@ -222,6 +227,11 @@ export class WebBrowser {
 						});
 				});
 				browser.on("disconnected", () => {
+					const proxy = this.proxy;
+					this.proxy = undefined;
+					void proxy
+						?.close()
+						.catch((error: unknown) => console.error("Browser proxy cleanup failed:", String(error)));
 					this.tabs.clear();
 					this.activeId = null;
 					this.context = undefined;
@@ -232,7 +242,10 @@ export class WebBrowser {
 				return context;
 			})()
 				.catch(async (error: unknown) => {
+					const proxy = this.proxy;
 					await this.browser?.close();
+					await proxy?.close();
+					this.proxy = undefined;
 					this.context = undefined;
 					this.browser = undefined;
 					throw error;
@@ -551,7 +564,10 @@ export class WebBrowser {
 		} catch {
 			/* Failed startup has already closed its owned browser. */
 		}
+		const proxy = this.proxy;
 		await this.browser?.close();
+		await proxy?.close();
+		this.proxy = undefined;
 		await Promise.allSettled([this.commandQueue, this.streamQueue]);
 		this.tabs.clear();
 		this.context = undefined;

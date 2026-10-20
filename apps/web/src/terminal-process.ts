@@ -44,7 +44,8 @@ process.on("message", (raw: unknown) => {
 			});
 			pty.onExit(({ exitCode }) => {
 				send({ type: "exit", exitCode });
-				if (process.connected) process.disconnect();
+				// The Host owns descendant cleanup, including children whose shell
+				// has exited. Keep IPC and the helper alive until cleanup finishes.
 			});
 		} else if (message.type === "ack" && typeof message.seq === "number") {
 			for (const [seq, bytes] of unacknowledged) {

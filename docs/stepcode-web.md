@@ -475,6 +475,9 @@ and a late old-page release cannot remove its replacement. A competing page
 gets 409 rather than silently moving another page's tabs or viewport. Closing
 or hiding the inspector releases input/stream ownership, not tabs. A lost
 connection exposes Reconnect; its lease expires if the page cannot release it.
+Initial reads, command replies, heartbeat reads and SSE snapshots share one
+revision gate per connection. Duplicate/older revisions and replies arriving
+after connection close cannot replace current state.
 
 HTTP(S) navigation, back/forward, reload/stop, twelve tabs, popup tabs and
 50-200% reflow zoom are connected. Navigation errors remain visible on the tab.
@@ -484,6 +487,14 @@ X-Frame-Options and site CSP are not removed or bypassed. Permissions are denied
 service workers blocked, and StepCode Host/client ports blocked across HTTP(S)
 and WebSocket requests, including subresources and hostname aliases. No raw
 debugging endpoint or arbitrary evaluation route is exposed.
+
+A private, authenticated loopback proxy owned by this browser checks actual
+HTTP destinations and HTTPS tunnel ports, including every redirect hop,
+popup startup and worker requests. Chromium's implicit loopback bypass is
+disabled. Proxy credentials are ephemeral and stripped before forwarding;
+the proxy refuses connections to its own port and closes with the browser,
+including startup failure. It forwards directly to the destination; chaining
+an operating-system or corporate upstream proxy is not implemented.
 
 Frames are JPEG over authenticated SSE. The host ACKs Chromium frames locally,
 caps delivery at 15 fps and keeps at most one newest scheduled frame. A blocked
@@ -557,6 +568,17 @@ attempts cleanup of all owned terminals and reports failures with a nonzero
 exit status; unrelated externally launched services are untouched. Host restart
 does not restore terminals. Crash recovery and processes deliberately detached
 from terminal ownership are not guaranteed to be cleaned up.
+
+Natural shell exit keeps helper ownership until Host cleanup settles. On
+Windows, cleanup also enumerates descendants of the exited shell, bounds them
+by creation time and verifies process identity against an open handle before
+termination, so a stale PID does not authorize killing a replacement process.
+Close and shutdown await the same cleanup; failures keep a retryable failed
+tab. Startup cancellation waits for the shell identity or startup failure
+before terminating the helper, avoiding a shell spawned after tree enumeration.
+This does not provide Job Object containment: descendants whose intermediate
+parents have already disappeared, deliberate detachment and abrupt Host
+failure remain outside the guarantee.
 
 SSE snapshots carry sequenced output and lifecycle metadata. The Host retains
 at most 512 KiB / 2048 chunks per terminal; a replay gap produces a visible

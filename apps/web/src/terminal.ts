@@ -2,6 +2,7 @@ import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { cleanExitedWindowsShell } from "./terminal-cleanup.ts";
 import { TerminalError, terminalEnvironment, terminalInput, terminalShell, terminalSize } from "./terminal-policy.ts";
 
 export interface TerminalInfo {
@@ -33,6 +34,10 @@ type Entry = {
 	seq: number;
 	listeners: Set<() => void>;
 	closing?: Promise<void>;
+	startedAt: number;
+	startup: Promise<void>;
+	exitedAt?: number;
+	cleanup?: Promise<void>;
 	pending: Map<string, { resolve: () => void; reject: (error: Error) => void }>;
 };
 
@@ -75,6 +80,11 @@ export class WebTerminals {
 		const size = terminalSize(cols, rows);
 		const worker = new URL(`./terminal-process${extname(fileURLToPath(import.meta.url))}`, import.meta.url);
 		const loaders = worker.pathname.endsWith(".ts") ? ["--import", import.meta.resolve("tsx")] : [];
+		const startedAt = Date.now();
+		let finishStartup = () => {};
+		const startup = new Promise<void>((resolve) => {
+			finishStartup = resolve;
+		});
 		const child = spawn(process.execPath, [...loaders, fileURLToPath(worker)], {
 			cwd,
 			env: terminalEnvironment(process.env),
@@ -90,6 +100,8 @@ export class WebTerminals {
 				...size,
 			},
 			child,
+			startedAt,
+			startup,
 			chunks: [],
 			bytes: 0,
 			seq: 0,
@@ -105,6 +117,7 @@ export class WebTerminals {
 		return new Promise((resolve, reject) => {
 			let settled = false;
 			const fail = (message: string) => {
+				finishStartup();
 				entry.info.status = "failed";
 				entry.info.error = message;
 				this.publish(entry);
@@ -122,7 +135,7 @@ export class WebTerminals {
 				});
 			}, 15000);
 			child.on("message", (raw: unknown) => {
-				if (!raw || typeof raw !== "object" || Array.isArray(raw) || entry.closing) return;
+				if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
 				const message = raw as Record<string, unknown>;
 				if (
 					message.type === "ready" &&
@@ -131,6 +144,15 @@ export class WebTerminals {
 					message.pid > 0
 				) {
 					entry.info.pid = message.pid;
+					finishStartup();
+					if (entry.closing) {
+						if (!settled) {
+							settled = true;
+							clearTimeout(timer);
+							reject(new TerminalError("Terminal closed during startup", 409));
+						}
+						return;
+					}
 					entry.info.status = "running";
 					this.publish(entry);
 					if (!settled) {
@@ -138,7 +160,8 @@ export class WebTerminals {
 						clearTimeout(timer);
 						resolve(this.snapshot(entry.info.id));
 					}
-				} else if (
+				} else if (entry.closing) return;
+				else if (
 					message.type === "data" &&
 					typeof message.seq === "number" &&
 					message.seq === entry.seq + 1 &&
@@ -157,8 +180,16 @@ export class WebTerminals {
 						/* Exit may race the final output acknowledgement. */
 					});
 				} else if (message.type === "exit" && typeof message.exitCode === "number") {
+					entry.exitedAt = Date.now();
 					entry.info.status = "exited";
 					entry.info.exitCode = message.exitCode;
+					// The Host takes over cleanup while the helper still has an owner,
+					// including descendants whose shell parent is already gone.
+					entry.cleanup = this.terminate(entry);
+					void entry.cleanup.catch((error: unknown) => {
+						entry.cleanup = undefined;
+						fail(error instanceof Error ? error.message : String(error));
+					});
 					this.publish(entry);
 				} else if (typeof message.requestId === "string") {
 					const pending = entry.pending.get(message.requestId);
@@ -176,6 +207,7 @@ export class WebTerminals {
 			});
 			child.once("error", (error) => fail(`Terminal helper failed: ${error.message}`));
 			child.once("exit", () => {
+				finishStartup();
 				clearTimeout(timer);
 				if (!settled) {
 					settled = true;
@@ -240,7 +272,7 @@ export class WebTerminals {
 	async close(id: string): Promise<void> {
 		const entry = this.require(id);
 		if (entry.closing) return entry.closing;
-		entry.closing = this.terminate(entry)
+		entry.closing = (entry.cleanup ?? this.terminate(entry))
 			.then(() => {
 				this.entries.delete(id);
 				this.publish(entry);
@@ -256,10 +288,18 @@ export class WebTerminals {
 		return entry.closing;
 	}
 	private async terminate(entry: Entry): Promise<void> {
-		const child = entry.child;
-		if (child.exitCode !== null || child.signalCode !== null || !child.pid) return;
+		// Wait until startup either supplies the shell identity or fails. Killing
+		// the helper while node-pty is spawning can miss a newly created child.
+		await entry.startup;
 		for (const pending of entry.pending.values()) pending.reject(new TerminalError("Terminal closed", 409));
 		entry.pending.clear();
+		await this.terminateHelper(entry);
+		if (process.platform === "win32" && entry.info.pid)
+			await cleanExitedWindowsShell(entry.info.pid, entry.startedAt, entry.exitedAt ?? Date.now());
+	}
+	private async terminateHelper(entry: Entry): Promise<void> {
+		const child = entry.child;
+		if (child.exitCode !== null || child.signalCode !== null || !child.pid) return;
 		const stopped = new Promise<void>((resolve, reject) => {
 			const timer = setTimeout(() => {
 				child.off("exit", onExit);

@@ -10,6 +10,7 @@ export class BrowserConnection {
 	private heartbeat?: ReturnType<typeof setInterval>;
 	private queue: Promise<unknown> = Promise.resolve();
 	private pending = 0;
+	private revision = -1;
 	private moved?: { path: string; body: unknown };
 	private moveTimer?: ReturnType<typeof setTimeout>;
 	private readonly onSnapshot: (state: EmbeddedBrowserSnapshot) => void;
@@ -35,6 +36,19 @@ export class BrowserConnection {
 		});
 	}
 
+	private acceptSnapshot(snapshot: EmbeddedBrowserSnapshot): void {
+		if (
+			this.controller.signal.aborted ||
+			!Array.isArray(snapshot.tabs) ||
+			!Number.isSafeInteger(snapshot.revision) ||
+			snapshot.revision < 0 ||
+			snapshot.revision <= this.revision
+		)
+			return;
+		this.revision = snapshot.revision;
+		this.onSnapshot(snapshot);
+	}
+
 	async connect(): Promise<void> {
 		let clientId: string;
 		try {
@@ -49,10 +63,11 @@ export class BrowserConnection {
 			this.release();
 			return;
 		}
-		this.onSnapshot(await this.request<EmbeddedBrowserSnapshot>(""));
+		this.acceptSnapshot(await this.request<EmbeddedBrowserSnapshot>(""));
+		if (this.controller.signal.aborted) return;
 		this.heartbeat = setInterval(() => {
 			void this.request<EmbeddedBrowserSnapshot>("")
-				.then(this.onSnapshot)
+				.then((snapshot) => this.acceptSnapshot(snapshot))
 				.catch((error: unknown) => {
 					if (!this.controller.signal.aborted) {
 						this.onError(error, true);
@@ -94,7 +109,7 @@ export class BrowserConnection {
 						.split("\n")
 						.find((line) => line.startsWith("data: "))
 						?.slice(6);
-					if (data && type === "snapshot") this.onSnapshot(JSON.parse(data) as EmbeddedBrowserSnapshot);
+					if (data && type === "snapshot") this.acceptSnapshot(JSON.parse(data) as EmbeddedBrowserSnapshot);
 					if (data && type === "frame") this.onFrame(JSON.parse(data) as EmbeddedBrowserFrame);
 					if (type === "closed") throw new Error("Browser host stopped");
 					boundary = pending.indexOf("\n\n");
@@ -121,7 +136,7 @@ export class BrowserConnection {
 		this.queue = this.queue
 			.then(async () => {
 				const snapshot = await this.request<EmbeddedBrowserSnapshot>(path, method, body);
-				if (Array.isArray(snapshot.tabs) && !this.controller.signal.aborted) this.onSnapshot(snapshot);
+				this.acceptSnapshot(snapshot);
 			})
 			.catch((error: unknown) => {
 				if (!this.controller.signal.aborted) this.onError(error, false);

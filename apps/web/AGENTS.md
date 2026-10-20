@@ -49,8 +49,10 @@ apps/web/
     auth.ts, login.ts    cookie secret, launch-token exchange, credential status, desktop sign-in
     browser.ts           isolated Chromium ownership, leased controller, bounded frames and input
     browser-routes.ts, browser-policy.ts  authenticated browser HTTP/SSE adapter and input/URL policy
+    browser-proxy.ts     private authenticated network boundary for redirect-safe port blocking
     terminal.ts          bounded host-owned terminal sessions and process cleanup
     terminal-process.ts  isolated node-pty helper; native failures must not crash the Host
+    terminal-cleanup.ts  Windows exited-shell descendants with process identity validation
     terminal-routes.ts, terminal-policy.ts  authenticated HTTP/SSE and shell/environment/input policy
     directory-picker.ts  server-side folder chooser
     settings.ts          settings back end: MCP servers, plugins/marketplaces, skills
@@ -215,7 +217,10 @@ When to add or change one:
   shared rail. Only explicit tab creation starts a shell. Hiding/switching tabs
   disconnects streams without killing processes; closing a tab awaits owned
   process-tree cleanup. Refresh replays bounded sequenced output, never creates
-  replacement shells. Retention gaps must be visible; do not claim full-screen
+  replacement shells. Shell exit retains helper ownership until Host cleanup;
+  Windows descendant discovery checks creation times, not just reusable PIDs.
+  Startup cancellation waits for a shell identity or startup failure before
+  terminating the helper. Retention gaps must be visible; do not claim full-screen
   restoration from a truncated ANSI tail. Keep input/IPC/SSE queues bounded,
   disable OSC 52 and automatic links, and do not inherit Host API keys or
   startup-injection environment variables. Never load sibling-project binaries
@@ -225,7 +230,11 @@ When to add or change one:
   Hiding releases its stream/controller but keeps tabs. Refresh rotates a
   leased controller token; late cleanup must not release its replacement.
   Keep frame/input queues bounded and block host/client ports for subresources
-  and WebSockets too. Never attach a personal profile, expose arbitrary CDP,
+  and WebSockets too. The browser-owned authenticated loopback proxy checks
+  connection destinations across redirects and tunnels; keep loopback bypass
+  disabled, strip proxy credentials upstream, and await proxy shutdown.
+  All client snapshot sources share one monotonic revision gate per connection.
+  Never attach a personal profile, expose arbitrary CDP,
   download a browser automatically or disable its sandbox.
 - File delivery recognition is a frontend projection, not a persisted or
   filesystem-verified registry. Settled turns collect local Markdown links
