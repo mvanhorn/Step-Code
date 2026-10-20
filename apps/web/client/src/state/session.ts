@@ -866,6 +866,7 @@ export async function refreshWorkspaces(): Promise<void> {
 
 /** Open a session and follow its stream (legacy `openSession`, 3122-3130). */
 export async function openSession(id: string): Promise<void> {
+	choseSession = true;
 	setUi({ midView: null, childView: null });
 	setState({ pendingTurn: null });
 	try {
@@ -887,6 +888,7 @@ export function requestPromptFocus(): void {
  * `startDraft`, 3132-3151). The session is created on the first send.
  */
 export function startDraft(cwd: string = getState().bootstrapCwd): void {
+	choseSession = true;
 	closeStream();
 	const draftCwd = cwd || getState().bootstrapCwd;
 	setState((state) => {
@@ -1034,6 +1036,12 @@ export async function refreshAccount(): Promise<void> {
 
 let bootstrapped = false;
 let resumeAfterLogin: (() => void) | undefined;
+/**
+ * Set once the page has opened or started a conversation itself. Bootstrap keeps
+ * awaiting the session list and would otherwise replace a draft or a session the
+ * user picked while it was still loading.
+ */
+let choseSession = false;
 
 /**
  * Close the Desktop sign-in gate with the fresh credential report and let a
@@ -1082,8 +1090,14 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<void> {
 		const first =
 			sessions.find((session) => !session.archived && session.cwdAvailable !== false && session.cwd === boot.cwd) ??
 			sessions.find((session) => !session.archived && session.cwdAvailable !== false);
-		if (first) await openSession(first.id);
-		else startDraft(boot.cwd);
+		// The user may have picked a conversation or started a draft while the lists loaded; that choice wins.
+		if (!choseSession) {
+			if (first) await openSession(first.id);
+			else startDraft(boot.cwd);
+		} else if (!getState().current) {
+			// That draft was started before `cwd` was known, so its model and preset lists are still missing.
+			await loadDraftModels(getState().draftCwd);
+		}
 		if (location.search.includes("tree=1")) {
 			const project = getState().sessions.find(
 				(session) => !session.archived && session.cwd && session.cwdAvailable !== false,
