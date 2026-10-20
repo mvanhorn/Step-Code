@@ -2020,3 +2020,55 @@ test("a subagent or workflow call opens its child agents' transcripts read-only 
   `)
   assert.deepEqual(refused, [404, 404])
 })
+
+test("the token usage panel opens centred above its trigger without growing the composer", { skip }, async () => {
+  const now = new Date().toISOString()
+  const sessionId = "e2e-usage-session"
+  const usage = { input: 10, output: 2000, cacheRead: 0, cacheWrite: 0, totalTokens: 2010, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }
+  const lines = [
+    { type: "session", version: 3, id: sessionId, timestamp: now, cwd: workspace },
+    { type: "message", id: "u1", parentId: null, timestamp: now, message: { role: "user", content: "count the tokens", timestamp: Date.now() } },
+    {
+      type: "message", id: "a1", parentId: "u1", timestamp: now,
+      message: { role: "assistant", content: [{ type: "text", text: "Counted." }], api: "openai-completions", provider: "e2e", model: "e2e", usage, stopReason: "stop", timestamp: Date.now() },
+    },
+  ]
+  const dir = join(base, "agent", "sessions", "--e2e-usage--")
+  await mkdir(dir, { recursive: true })
+  await writeFile(join(dir, `${now.replace(/[:.]/g, "-")}_${sessionId}.jsonl`), lines.map((line) => JSON.stringify(line)).join("\n") + "\n")
+
+  await browser.goto(`${origin}/`)
+  const seen = await browser.run(`
+    (await until(() => $('.session-row[data-session-id="${sessionId}"]'), "usage session row")).click();
+    const trigger = await until(() => !$("#usageTrigger").hidden && $("#usageTrigger"), "usage trigger");
+    const composer = $(".composer-card") ?? $("#composer");
+    const before = composer.getBoundingClientRect().height;
+    const closedPanel = Boolean($("#usagePopover"));
+    trigger.click();
+    const panel = await until(() => $("#usagePopover"), "usage panel");
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const box = panel.getBoundingClientRect();
+    const anchor = trigger.getBoundingClientRect();
+    const opened = {
+      closedPanel,
+      expanded: trigger.getAttribute("aria-expanded"),
+      outsideComposer: !composer.contains(panel),
+      above: box.bottom <= anchor.top,
+      centred: Math.abs(box.left + box.width / 2 - (anchor.left + anchor.width / 2)) < 2,
+      composerGrew: composer.getBoundingClientRect().height !== before,
+      total: panel.querySelector(".usage-total b").textContent,
+    };
+    document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    await until(() => !$("#usagePopover"), "usage panel to close");
+    return opened;
+  `)
+  assert.deepEqual(seen, {
+    closedPanel: false,
+    expanded: "true",
+    outsideComposer: true,
+    above: true,
+    centred: true,
+    composerGrew: false,
+    total: "2.0K",
+  })
+})
