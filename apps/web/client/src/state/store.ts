@@ -5,6 +5,7 @@ import { readStorage, STORAGE_KEYS } from "../lib/storage";
 import { isDesktopHost } from "../platform/host";
 import type { PerformanceRun } from "./performance";
 import type {
+	AccountReport,
 	Attachment,
 	DirectoryListing,
 	DraftModels,
@@ -266,6 +267,8 @@ export interface AppState {
 	readonly currentView: ConversationView;
 	readonly currentFilter: TagColor | null;
 	readonly login: LoginReport | null;
+	/** The signed-in account's name and avatar; null until the host answers. */
+	readonly account: AccountReport | null;
 	/** The in-page workspace browser (legacy workspaceBrowserPath/Parent, workspaceDirectories). */
 	readonly workspaceBrowser: DirectoryListing;
 	readonly directoryPicker: DirectoryPickerMode;
@@ -342,6 +345,7 @@ export function createInitialState(): AppState {
 		currentView: "project",
 		currentFilter: null,
 		login: null,
+		account: null,
 		workspaceBrowser: { path: "", parent: "", directories: [] },
 		directoryPicker: "browse",
 		pickingFolder: false,

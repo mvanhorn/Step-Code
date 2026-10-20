@@ -28,18 +28,42 @@ test("uploadFileName keeps the last segment and strips unsafe characters", () =>
 	assert.equal(uploadFileName(""), "file");
 });
 
-test("saveUpload stores each upload under its own directory with the original name", async () => {
+test("saveUpload stores each upload under the hash of its name and bytes, once", async () => {
 	const root = await mkdtemp(join(tmpdir(), "stepcode-uploads-test-"));
 	try {
 		const first = await saveUpload(chunks("{\"a\":", "1}"), "latest.json", root);
+		assert.match(first.id, /^[0-9a-f]{64}$/);
 		assert.equal(dirname(first.path), join(root, first.id));
-		const second = await saveUpload(chunks("x"), "latest.json", root);
 		assert.equal(first.name, "latest.json");
 		assert.equal(first.size, 7);
 		assert.equal(await readFile(first.path, "utf8"), '{"a":1}');
-		assert.notEqual(dirname(first.path), dirname(second.path));
 		assert.equal(dirname(dirname(first.path)), root);
 		if (process.platform !== "win32") assert.equal((await stat(first.path)).mode & 0o777, 0o600);
+		// The same file pasted again, even split differently, reuses the copy.
+		const again = await saveUpload(chunks('{"a":1}'), "latest.json", root);
+		assert.deepEqual(again, first);
+		// Other bytes, or the same bytes under another name, get their own copy.
+		const changed = await saveUpload(chunks("x"), "latest.json", root);
+		const renamed = await saveUpload(chunks('{"a":1}'), "copy.json", root);
+		assert.notEqual(changed.id, first.id);
+		assert.notEqual(renamed.id, first.id);
+		assert.equal((await resolveUpload(renamed.id, root)).name, "copy.json");
+		// Three directories and no staging file left behind.
+		assert.deepEqual((await readdir(root)).sort(), [first.id, changed.id, renamed.id].sort());
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test("concurrent uploads of the same file share one complete copy", async () => {
+	const root = await mkdtemp(join(tmpdir(), "stepcode-uploads-test-"));
+	try {
+		const content = "y".repeat(100_000);
+		const saved = await Promise.all(Array.from({ length: 5 }, () => saveUpload(chunks(content), "same.txt", root)));
+		assert.equal(new Set(saved.map((item) => item.id)).size, 1);
+		assert.equal(await readFile(saved[0].path, "utf8"), content);
+		assert.deepEqual(await readdir(root), [saved[0].id]);
+		assert.deepEqual(await readdir(dirname(saved[0].path)), ["same.txt"]);
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
@@ -102,6 +126,8 @@ test("withUploadedFiles appends each named upload once, in order, and rejects un
 		);
 		assert.equal(await withUploadedFiles("plain", [], root), "plain");
 		await assert.rejects(withUploadedFiles("x", ["../etc"], root), UploadNotFoundError);
+		await assert.rejects(withUploadedFiles("x", ["0".repeat(64)], root), UploadNotFoundError);
+		// The former random ids are no longer upload ids.
 		await assert.rejects(withUploadedFiles("x", ["00000000-0000-4000-8000-000000000000"], root), UploadNotFoundError);
 	} finally {
 		await rm(root, { recursive: true, force: true });
@@ -111,7 +137,7 @@ test("withUploadedFiles appends each named upload once, in order, and rejects un
 test("resolveUpload refuses a directory that does not hold exactly one file", async () => {
 	const root = await mkdtemp(join(tmpdir(), "stepcode-uploads-test-"));
 	try {
-		const id = "11111111-2222-4333-8444-555555555555";
+		const id = "ab".repeat(32);
 		await mkdir(join(root, id));
 		await writeFile(join(root, id, "one"), "1");
 		assert.equal((await resolveUpload(id, root)).name, "one");

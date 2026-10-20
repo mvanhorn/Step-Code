@@ -58,6 +58,8 @@ export type { StepCliLoginReady, WaitForStepCliLoginInput } from "./login-pollin
 export { MIN_STEP_POLL_INTERVAL_MS, waitForStepCliLogin } from "./login-polling.ts";
 export type { RefreshStepLoginStateInput } from "./login-refresh.ts";
 export { refreshStepLoginState, StepLoginRefreshError } from "./login-refresh.ts";
+export type { FetchStepUserInfoInput, StepUserInfo, StepUserInfoFailure } from "./user-info.ts";
+export { fetchStepUserInfo, StepUserInfoError } from "./user-info.ts";
 
 /** Provider id used by the default Step extension. */
 export const STEP_PROVIDER_ID = "step";

@@ -467,6 +467,12 @@ export interface LoginReport {
 	readonly loginCommand: string;
 }
 
+/** `GET /api/v1/account` (src/account.ts `AccountReport`): the signed-in account for the sidebar. */
+export interface AccountReport {
+	readonly status: "ready" | "missing" | "expired" | "unavailable";
+	readonly account?: { readonly name: string; readonly avatarUrl?: string };
+}
+
 /** One of the four `step login` profiles (src/login.ts `LoginMethod`). */
 export interface LoginMethod {
 	readonly id: "step_plan" | "step_plan_oversea" | "platform_cn" | "platform_oversea";
