@@ -172,6 +172,35 @@ When to add or change one:
   and add a unit test.
 - Anything a reloaded page must show again belongs in the session snapshot (e.g. `pendingApprovals`), not only in
   an SSE event.
+- Thinking elapsed time is host-observed presentation metadata (`src/thinking-timing.ts`), persisted through
+  the session manager's `stepcode-web.thinking-timing` custom entries outside model context. Snapshots and agent
+  envelopes project validated `thinkingTimings` by original content index. Never infer durations for unobserved
+  history or start clocks from browser receipt times.
+- Subagent rows project structured per-task results and use the existing read-only child transcript API.
+  Planned arguments mean queued, not running; missing legacy statuses stay unknown. Background custom messages
+  expose only validated agentId/event/status fields through `src/subagent-notification.ts`. Do not parse
+  notification prose, infer per-task success from the parent tool, or add child execution controls in the inspector.
+- `features/inspector` owns the shared right rail, Summary and Context views.
+  Summary uses DFSC's independent content-height floating board with a close-only
+  header, fixed compact width and an optional reading-space reservation; do not
+  wrap it in the full-height inspector chrome used by the other panels.
+  Summary's DFSC colors are scoped to that surface. Keep grid disclosures,
+  fixed-slot completion motion and reduced-motion support; never replay a
+  live completion animation for initially loaded completed history.
+  Its MCP switch-shaped indicators are decorative, not configuration controls.
+  Latest-turn task/subagent activity can reveal Summary once per selection/turn;
+  respect manual dismissal and never displace an already active inspector.
+  Its task progress uses canonical completed/total tasks, not tool-call counts.
+  Agent rows below the task list reuse validated timeline statuses and existing read-only
+  inspector actions; count records, never infer distinct live agents or success.
+  The header repeats canonical task completion and agent-record counts; its
+  activity dot uses explicit running states and preserves unknown history.
+  File and Subagent entry points select the shared panel through `state/right-panel.ts`.
+  The read-only `/sessions/{id}/inspector` route projects canonical `step-tasks`
+  snapshots and SDK statistics; task-tool completion is not task completion.
+  MCP status is process-scoped, unlike the session's skill count. Do not label
+  recorded messages as assembled model context or turn patches as Git net changes.
+  Conversation navigation is excluded; terminal and browser bridges need separate Web adapters.
 - Workspace navigation metadata is separate from sessions: `web-workspaces.json` stores registered `workspaces`
   and explicit `removedWorkspaces`. Removed entries are returned with `hidden: true`; clients must not recreate
   their project groups from session cwd values. Re-adding restores the group; removal never deletes chats or files.

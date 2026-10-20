@@ -39,6 +39,7 @@
 			"!packages/mom/data/**/*",
 			"!!**/node_modules",
 			"!!**/.worktrees",
+			"!!**/.artifacts",
 			"!!.claude/worktrees"
 		]
 	}

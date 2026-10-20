@@ -77,7 +77,7 @@ function PreviewTools() {
 	);
 }
 
-export function PreviewPanel() {
+export function PreviewPanel({ embedded = false }: { readonly embedded?: boolean }) {
 	const t = useT();
 	const open = useAppStore((state) => state.preview.open);
 	const changes = useAppStore((state) => state.preview.mode === "changes");
@@ -85,8 +85,8 @@ export function PreviewPanel() {
 
 	// Before the first paint: restoring the width here avoids a jump from the default.
 	useLayoutEffect(() => {
-		restorePreviewWidth();
-	}, []);
+		if (!embedded) restorePreviewWidth();
+	}, [embedded]);
 
 	const panelWidth = () => panelRef.current?.getBoundingClientRect().width ?? PREVIEW_DEFAULT;
 
@@ -109,8 +109,9 @@ export function PreviewPanel() {
 				onCommit={(width) => applyPreviewWidth(width)}
 				onReset={() => applyPreviewWidth(PREVIEW_DEFAULT)}
 				onDraggingChange={(resizing) => setUi({ resizing })}
+				hidden={embedded}
 			/>
-			<ChangesView hidden={!open || !changes} />
+			<ChangesView hidden={!open || !changes} embedded={embedded} />
 			<div className="preview-tabs-row" hidden={changes}>
 				<PreviewTabs />
 				<IconButton
@@ -119,6 +120,7 @@ export function PreviewPanel() {
 					title={`${t("closePreview")} ${isMacPlatform() ? "⇧⌘B" : "Ctrl+Shift+B"}`}
 					aria-label="收起文件预览"
 					onClick={() => setPreviewOpen(false)}
+					hidden={embedded}
 				/>
 			</div>
 			<div className="preview-toolbar" hidden={changes}>

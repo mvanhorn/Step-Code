@@ -211,13 +211,11 @@ panel is closed by default and takes its width from the main column, so the
 shell remains two-column when nothing is being previewed. Shift+Cmd+B toggles
 it; Alt+Cmd+P opens the tree for the current workspace.
 
-Two readouts are derived from the session timeline rather than stored: the task
-banner at the top right of the main column (task and subagent progress, from the
-`task_*` and `subagent` tool calls) and the token indicator left of the model
-picker (input/output totals, summed from the usage each assistant turn reports).
-Both stay out of the way when there is nothing to report — the banner hides until
-the session has run a task or a subagent, and the token control hides until a
-turn reports usage — so neither shows a placeholder figure.
+The token indicator left of the model picker derives input/output totals from
+the usage each assistant turn reports and hides until a turn reports usage.
+Task summaries live in the DFSC-style floating Summary board instead of the original
+floating banner. Task completion comes from canonical task state, not completed
+`task_create` / `task_update` calls.
 
 Each finished turn (one user message up to the next, including a message with
 images only) that changed files gets a card under its last row: "Edited N
@@ -292,10 +290,9 @@ and answers from a file; the real spawn, argv and parsing are still covered.
 The production build emits `apps/web/dist/server.js`, the browser assets, and
 `apps/web/dist/openapi.yaml`.
 
-The browser UI follows PRD v2.0 revision 281 §3 and uses Kimi Code Web as its
-information-architecture baseline: a light two-column shell, cwd-grouped
-conversations in the sidebar, a conversation stream, and a centered composer
-control group. There is no main-area header, fixed right rail, or Goal HUD.
+The browser UI retains its cwd-grouped conversations and centered composer.
+The local DFSC presentation migration adds a right tool rail and a mutually
+exclusive inspector area; it does not add a main-area header or Goal HUD.
 
 The first release connects sessions, message/tool streaming, approvals, status,
 cwd file browsing, the three CLI permission presets, model selection, known-workspace
@@ -320,3 +317,136 @@ do not show a workspace switcher.
 Attachments, agent-mode selection, and cron management UI remain outside the
 10/15 first release. Cron capabilities remain available through conversation
 tools.
+
+## Subagent presentation
+
+The Web client uses the DFSC Standard task rows: a persistent Bot icon, a
+separate status icon, an agent label, task summary and trailing disclosure.
+Structured `details.results` own the six task states; missing legacy statuses
+remain unknown. Planned single, parallel and chain calls show queued tasks,
+not fabricated running tasks. A rejected dispatch stays an ordinary failed
+tool with its original input/output; per-task errors remain inspectable.
+
+Selecting a task opens the existing read-only child transcript API in the
+shared right inspector. Narrow screens use an overlay; expand, close and the existing Escape chain
+retain the parent session. The inspector follows the selected tool/task index
+as results arrive, shows model/turn metadata when recorded, and has no prompt,
+execution or permission controls. Pending child records poll sequentially
+without overlapping requests; late replies cannot replace another selection.
+
+Background dispatch results are snapshots, not completion records.
+Custom `agent-notification` entries expose only a validated
+`details: { agentId, event, status }` projection. Known event/status pairs
+update registered lanes without parsing message text. Settled chain steps
+are preserved; a lane's terminal state cannot prove that a queued step ran.
+This does not change orchestration, permissions, JSONL persistence or model
+context. A host restart is needed for the added notification projection;
+client-only task rows and inspector changes need only a page refresh.
+
+## Right inspector
+
+The rail exposes Summary, Context, Changes, File preview and Subagents.
+Summary replaces the original floating task/subagent banner, rather than
+coexisting with it. Summary is an independent content-height surface, not the
+full-height inspector used by other rail entries. The compact board is 320px
+wide with a 20px top inset, a 12px rail-side gap and a close-only header.
+It scrolls internally only when its content exceeds the viewport. With at least
+1120px of workspace width after the sidebar and tool rail, the layout reserves
+reading space as necessary; otherwise the board overlays without narrowing the
+conversation. It shows plan tasks with completion counts and completed-task
+folding, a task progress track, agent records below the tasks, MCP and Skills.
+The header retains the Summary title and close control, with compact task
+completion and agent-record counts. Its activity dot pulses only for explicit
+in-progress tasks or running agent records. Missing task data or unknown agent
+statuses show an unknown indicator rather than implying completion; otherwise
+the indicator is idle. It does not represent the parent model's streaming state.
+The task track uses canonical completed/total tasks, never completed tool calls
+or agent counts. Width changes use a 300ms cubic ease-out and become immediate
+under reduced-motion; empty plans have no invented percentage.
+A current-task headline and collapsed capsule are excluded.
+Conversation navigation is intentionally excluded.
+
+Agent records reuse validated timeline subagent states, including queued,
+running, completed, failed, stopped, skipped and unknown. Counts refer to task
+or dispatch records, not distinct runtime agents. Structured per-task records
+take precedence over legacy child links to avoid double-counting one dispatch.
+Missing legacy status stays unknown regardless of parent tool outcome.
+Selecting a record opens the existing read-only task, child or workflow
+inspector while retaining the parent conversation. No execution controls or
+new session authority are introduced; background updates use the same
+structured projection as the transcript.
+
+Task or subagent activity in the latest user turn automatically opens Summary
+when no inspector is active, including when restoring that turn from history.
+The trigger is consumed once per selected session/turn: same-turn updates do
+not undo manual dismissal, and activity never displaces another inspector.
+Tool outcomes only trigger presentation; they do not determine task completion.
+
+Summary uses DFSC's local light/dark neutral palette, rose running tint, green
+completion and amber MCP failure status. Task and MCP disclosures animate their
+height; task chevrons appear on hover, focus or expansion. A live task completion
+contracts and regrows its fixed icon slot over 660ms, then draws the check mark;
+the row stays visible for 1100ms before folding. Initial completed history does
+not replay this transition. Reduced-motion disables spinner, disclosure and
+status animations. MCP switch-shaped indicators are decorative and read-only.
+These tokens and effects are scoped to Summary, not the transcript or app theme.
+
+Files retain multiple tabs, image/Markdown previews, copy, wrap and refresh. Tool-triggered file, turn-change
+and child-agent opens select the same right panel rather than competing overlays.
+Closing a panel retains its selection; switching panels restores the standard
+layout. Non-Summary inspectors retain draggable persisted widths,
+standard/wide presets and an expanded view. Screens at 1200px or below start
+closed and use an overlay for these inspectors.
+Escape restores an expanded view first, then closes the panel without
+interrupting the parent turn. Existing higher-priority dialogs still dismiss first.
+
+`GET /api/v1/sessions/{id}/inspector` provides whitelisted active-plan task fields,
+the session's available skill count, process-scoped MCP names/statuses and the
+kernel's session statistics. Tasks come from the latest canonical `step-tasks`
+snapshot on the active branch; a successful task tool is not evidence that a task
+completed. Statistics use `AgentSession.getSessionStats()` without reassembling
+model context. Totals include compacted history. Context usage is the kernel's
+estimate; recorded-message inspection is not a claim to show the assembled request.
+Provider transport fields, image payloads and opaque thinking signatures are
+excluded from the recorded JSON view. Missing statistics display unknown values.
+Polling is sequential, aborted on selection changes, and stale replies cannot
+replace the new session's panel.
+
+Per-turn tool changes remain accessible in the transcript and Changes inspector,
+not as a substitute for Summary's repository overview. Repository comparison,
+interactive terminal services and native
+browser hosting remain separate pending adapters; no nonfunctional rail buttons
+are exposed. No Desktop runtime or package is changed.
+
+## Thinking presentation
+
+The browser projects structured `thinking`, `text` and `toolCall` blocks in
+source order, both from saved entries and live `message_update` events.
+Non-redacted thinking supplied by the provider remains expandable in history;
+sessions without thinking blocks do not acquire invented records. Opaque
+thinking signatures and redacted blocks are never rendered.
+
+Thinking uses the standard folded disclosure with a Brain icon. Only the
+currently streaming thinking block has the tool-style running label, shimmer
+and a short content preview. Text/tool output, message completion or a settled
+session stops the running state and folds an open live thought. A settled
+thought can be reopened manually. Reduced-motion skips folding/shimmer effects.
+The host observes each block's structured thinking start/delta/end events.
+The label shows DFSC-style elapsed seconds, ticks once per second only while
+that block is active, and freezes before prose or tool arguments start.
+Each assistant message's completed observations are saved through
+`SessionManager.appendCustomEntry` as `stepcode-web.thinking-timing` metadata
+(version 1, message timestamp identity and per-content-index intervals).
+These custom entries do not enter model context or change provider messages.
+Validated `thinkingTimings` are projected onto saved assistant entries and
+live agent SSE envelopes; browser refresh and host restart restore completed
+observations. No elapsed time is inferred from message timestamps, tokens or
+browser receipt times. Legacy sessions and unobserved child-agent histories
+show no duration. Abrupt host termination cannot reconstruct an unrecorded
+interval. Metadata write failures are reported without preventing the
+canonical assistant message from being persisted.
+
+Thinking is not a tool and does not enter task/tool counts or response-copy
+text. The response footer remains once per settled user turn and is revealed
+only on hover or keyboard focus. Thinking timing is host-owned presentation
+metadata; agent context, provider behavior and tool permissions remain unchanged.

@@ -16,7 +16,10 @@ import { basename, clipDetail, compact, toolArgs, toolInputDetail, toolInputSumm
 import { contentText, skillInvocation } from "../lib/markdown";
 import { FULL_ACCESS_PRESET, isFullAccessRisk } from "../lib/permissions";
 import { isDesktopHost } from "../platform/host";
+import { assistantBlocks } from "./assistant-content";
 import { type AppState, getState, mapWith, setState, setUi } from "./store";
+import { backgroundSubagentStatuses, subagentTasks } from "./subagent-tasks";
+import { readThinkingTimings } from "./thinking-timing";
 import type {
 	AgentMessage,
 	ApprovalRequest,
@@ -34,6 +37,7 @@ import type {
 	SessionSnapshot,
 	SessionStatus,
 	SessionSummary,
+	ThinkingTimings,
 	TimelineItem,
 	ToolArgs,
 	ToolTimelineItem,
@@ -232,7 +236,7 @@ export function timelineFromEntries(entries: readonly SessionEntry[] = [], retry
 			else items.push({ itemId: `retry-${entry.id}`, kind: "retry", errors: [error] });
 			continue;
 		}
-		if (text || error || message.role === "user") {
+		if (message.role !== "assistant" && (text || message.role === "user")) {
 			// Every user message opens a turn (the host's turn boundary), even one without text.
 			items.push({
 				itemId: `message-${entry.id}`,
@@ -246,8 +250,35 @@ export function timelineFromEntries(entries: readonly SessionEntry[] = [], retry
 				timestamp: entry.timestamp,
 			});
 		}
-		if (message.role === "assistant" && Array.isArray(message.content)) {
-			for (const block of (message.content as readonly ContentPart[]).filter((part) => part?.type === "toolCall")) {
+		if (message.role === "assistant") {
+			let hasText = false;
+			const thinkingTimings = readThinkingTimings(entry.thinkingTimings, true);
+			for (const block of assistantBlocks(message.content)) {
+				if (block.type === "thinking") {
+					items.push({
+						itemId: `message-${entry.id}-thinking-${block.index}`,
+						entryId: entry.id,
+						kind: "thinking",
+						content: block.thinking,
+						running: false,
+						...(thinkingTimings?.[block.index] ? { timing: thinkingTimings[block.index] } : {}),
+					});
+					continue;
+				}
+				if (block.type === "text") {
+					if (!error)
+						items.push({
+							itemId: hasText ? `message-${entry.id}-text-${block.index}` : `message-${entry.id}`,
+							entryId: entry.id,
+							kind: "message",
+							role: "assistant",
+							content: block.text,
+							usage: hasText ? undefined : entry.usage,
+							timestamp: entry.timestamp,
+						});
+					hasText = true;
+					continue;
+				}
 				const result = toolResults.get(String(block.id));
 				const change = fileChange(String(block.name ?? ""), block.arguments, result);
 				const links = childAgents(String(block.name ?? ""), result?.details);
@@ -263,8 +294,28 @@ export function timelineFromEntries(entries: readonly SessionEntry[] = [], retry
 					...withArgs(block.arguments),
 					...(change ? { change } : {}),
 					...links,
+					...(block.name === "subagent"
+						? {
+								subagentTasks: subagentTasks(
+									block.arguments,
+									result?.details,
+									result?.isError ? "failed" : result ? "completed" : "pending",
+								),
+							}
+						: {}),
 				});
 			}
+			if (error)
+				items.push({
+					itemId: `message-${entry.id}`,
+					entryId: entry.id,
+					kind: "message",
+					role: "assistant",
+					content: "",
+					error,
+					usage: entry.usage,
+					timestamp: entry.timestamp,
+				});
 		}
 	}
 	if (retry) {
@@ -273,7 +324,27 @@ export function timelineFromEntries(entries: readonly SessionEntry[] = [], retry
 		// The failed attempt is not recorded yet (or not in this branch): the retry still shows.
 		else items.push({ itemId: "retry-live", kind: "retry", errors: [retry.errorMessage], live: retry });
 	}
-	return items;
+	const background = backgroundSubagentStatuses(entries);
+	return items.map((item) =>
+		item.kind === "tool" && item.subagentTasks
+			? {
+					...item,
+					subagentTasks: item.subagentTasks.map((task, _index, tasks) => {
+						const laneStatus = task.backgroundAgentId ? background.get(task.backgroundAgentId) : undefined;
+						if (!laneStatus || (tasks.length > 1 && task.status !== "running" && task.status !== "queued"))
+							return task;
+						// A lane's completion does not establish whether a still-queued chain step executed.
+						return {
+							...task,
+							status:
+								tasks.length > 1 && task.status === "queued" && laneStatus !== "running"
+									? "unknown"
+									: laneStatus,
+						};
+					}),
+				}
+			: item,
+	);
 }
 
 /**
@@ -390,6 +461,7 @@ interface AgentStreamEvent {
 	readonly partialResult?: { readonly content?: unknown; readonly details?: unknown };
 	readonly result?: { readonly content?: unknown; readonly details?: unknown };
 	readonly isError?: boolean;
+	readonly assistantMessageEvent?: { readonly type?: string; readonly contentIndex?: number };
 }
 
 function updateTimeline(update: (items: readonly TimelineItem[]) => readonly TimelineItem[]): void {
@@ -420,28 +492,42 @@ function updateToolItem(
  * live matters: a model writing a file streams the whole file as arguments,
  * and with text alone the page sat still until the turn ended.
  */
-function applyLiveMessage(content: unknown): void {
-	const text = contentText(content);
-	const parts = Array.isArray(content) ? (content as readonly ContentPart[]) : [];
-	const calls = parts.filter((part) => part?.type === "toolCall");
-	updateTimeline((items) => {
-		let next = items;
-		if (text || calls.length === 0) {
-			next = upsertItem(next, {
-				itemId: "message-live",
+export function liveMessageTimeline(
+	items: readonly TimelineItem[],
+	content: unknown,
+	thinkingIndex?: number,
+	thinkingTimings?: ThinkingTimings,
+): readonly TimelineItem[] {
+	const blocks = assistantBlocks(content);
+	const callIds = new Set(blocks.filter((block) => block.type === "toolCall").map((block) => `tool-${block.id}`));
+	const next = items.filter((item) => !item.itemId.startsWith("message-live") && !callIds.has(item.itemId));
+	let hasText = false;
+	for (const call of blocks) {
+		if (call.type === "thinking") {
+			next.push({
+				itemId: `message-live-thinking-${call.index}`,
+				kind: "thinking",
+				content: call.thinking,
+				running: call.index === thinkingIndex,
+				...(thinkingTimings?.[call.index] ? { timing: thinkingTimings[call.index] } : {}),
+			});
+		} else if (call.type === "text") {
+			next.push({
+				itemId: hasText ? `message-live-text-${call.index}` : "message-live",
 				kind: "message",
 				role: "assistant",
-				content: text,
+				content: call.text,
 			});
+			hasText = true;
 		} else {
-			next = next.filter((item) => item.itemId !== "message-live");
-		}
-		for (const call of calls) {
 			const itemId = `tool-${call.id}`;
-			const existing = next.find((item) => item.itemId === itemId);
+			const existing = items.find((item) => item.itemId === itemId);
 			// Once execution started the row is owned by the tool_execution_* events.
-			if (existing?.kind === "tool" && existing.state !== "pending") continue;
-			next = upsertItem(next, {
+			if (existing?.kind === "tool" && existing.state !== "pending") {
+				next.push(existing);
+				continue;
+			}
+			next.push({
 				itemId,
 				kind: "tool",
 				state: "pending",
@@ -451,24 +537,41 @@ function applyLiveMessage(content: unknown): void {
 				inputDetail: toolInputDetail(call.arguments),
 				outputDetail: existing?.kind === "tool" ? existing.outputDetail : "",
 				...withArgs(call.arguments),
+				...(call.name === "subagent"
+					? {
+							subagentTasks:
+								existing?.kind === "tool" && existing.subagentTasks?.length
+									? existing.subagentTasks
+									: subagentTasks(call.arguments, undefined, "pending"),
+						}
+					: {}),
+				...(existing?.kind === "tool" ? { children: existing.children, workflowRun: existing.workflowRun } : {}),
 			});
 		}
-		return next;
-	});
+	}
+	if (!blocks.length) next.push({ itemId: "message-live", kind: "message", role: "assistant", content: "" });
+	return next;
 }
 
 /** message_update fires per token; render at most once per frame. */
-let pendingLiveContent: { readonly content: unknown } | null = null;
+let pendingLiveContent: {
+	readonly content: unknown;
+	readonly thinkingIndex?: number;
+	readonly thinkingTimings?: ThinkingTimings;
+} | null = null;
 let liveFrame = 0;
 
-function scheduleLiveMessage(content: unknown): void {
-	pendingLiveContent = { content };
+function scheduleLiveMessage(content: unknown, thinkingIndex?: number, thinkingTimings?: ThinkingTimings): void {
+	pendingLiveContent = { content, thinkingIndex, thinkingTimings };
 	if (liveFrame) return;
 	liveFrame = requestAnimationFrame(() => {
 		liveFrame = 0;
 		const pending = pendingLiveContent;
 		pendingLiveContent = null;
-		if (pending) applyLiveMessage(pending.content);
+		if (pending)
+			updateTimeline((items) =>
+				liveMessageTimeline(items, pending.content, pending.thinkingIndex, pending.thinkingTimings),
+			);
 	});
 }
 
@@ -478,15 +581,41 @@ function flushLiveMessage(): void {
 	liveFrame = 0;
 	const pending = pendingLiveContent;
 	pendingLiveContent = null;
-	if (pending) applyLiveMessage(pending.content);
+	if (pending)
+		updateTimeline((items) =>
+			liveMessageTimeline(items, pending.content, pending.thinkingIndex, pending.thinkingTimings),
+		);
 }
 
-function handleAgentEvent(agentEvent: AgentStreamEvent): void {
+function handleAgentEvent(agentEvent: AgentStreamEvent, thinkingTimings?: ThinkingTimings): void {
 	if (agentEvent.type === "message_update") {
-		scheduleLiveMessage(agentEvent.message?.content);
+		const event = agentEvent.assistantMessageEvent;
+		scheduleLiveMessage(
+			agentEvent.message?.content,
+			event?.type === "thinking_start" || event?.type === "thinking_delta" ? event.contentIndex : undefined,
+			thinkingTimings,
+		);
 		return;
 	}
 	flushLiveMessage();
+	if (thinkingTimings) {
+		updateTimeline((items) =>
+			items.map((item) => {
+				if (item.kind !== "thinking" || !item.itemId.startsWith("message-live-thinking-")) return item;
+				const index = item.itemId.slice("message-live-thinking-".length);
+				return thinkingTimings[index] ? { ...item, timing: thinkingTimings[index] } : item;
+			}),
+		);
+	}
+	if (
+		agentEvent.type === "message_end" ||
+		agentEvent.type === "tool_execution_start" ||
+		agentEvent.type === "agent_settled"
+	) {
+		updateTimeline((items) =>
+			items.map((item) => (item.kind === "thinking" && item.running ? { ...item, running: false } : item)),
+		);
+	}
 	if (agentEvent.type === "message_start" && agentEvent.message?.role === "user") {
 		// The prompt entered the loop: show it in place now; the refresh after
 		// its message_end replaces this row with the recorded entry.
@@ -515,6 +644,9 @@ function handleAgentEvent(agentEvent: AgentStreamEvent): void {
 				inputDetail: toolInputDetail(agentEvent.args),
 				outputDetail: "",
 				...withArgs(agentEvent.args),
+				...(agentEvent.toolName === "subagent"
+					? { subagentTasks: subagentTasks(agentEvent.args, undefined, "pending") }
+					: {}),
 			}),
 		);
 	}
@@ -526,6 +658,16 @@ function handleAgentEvent(agentEvent: AgentStreamEvent): void {
 			outputDetail: clipDetail(output),
 			// A running subagent call already knows its children's session ids.
 			...childAgents(item.toolName, agentEvent.partialResult?.details),
+			...(item.toolName === "subagent"
+				? {
+						subagentTasks: subagentTasks(
+							undefined,
+							agentEvent.partialResult?.details,
+							"pending",
+							item.subagentTasks,
+						),
+					}
+				: {}),
 		}));
 	}
 	if (agentEvent.type === "tool_execution_end") {
@@ -536,6 +678,16 @@ function handleAgentEvent(agentEvent: AgentStreamEvent): void {
 			outputSummary: compact(output),
 			outputDetail: clipDetail(output),
 			...childAgents(item.toolName, agentEvent.result?.details),
+			...(item.toolName === "subagent"
+				? {
+						subagentTasks: subagentTasks(
+							undefined,
+							agentEvent.result?.details,
+							agentEvent.isError ? "failed" : "completed",
+							item.subagentTasks,
+						),
+					}
+				: {}),
 		}));
 	}
 	if (
@@ -561,7 +713,12 @@ export function connectStream(id: string): void {
 		if (stream === source) renderSnapshot(JSON.parse((event as MessageEvent).data));
 	});
 	source.addEventListener("agent", (event) => {
-		handleAgentEvent(JSON.parse((event as MessageEvent).data).event as AgentStreamEvent);
+		if (stream !== source) return;
+		const payload = JSON.parse((event as MessageEvent).data) as {
+			event: AgentStreamEvent;
+			thinkingTimings?: unknown;
+		};
+		handleAgentEvent(payload.event, readThinkingTimings(payload.thinkingTimings));
 	});
 	source.addEventListener("status", (event) => {
 		const payload = JSON.parse((event as MessageEvent).data) as {

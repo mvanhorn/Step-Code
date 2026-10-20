@@ -193,7 +193,7 @@ function turnLabel(turn: TurnChanges, t: ReturnType<typeof useT>): string {
 	return turn.latest ? t("lastTurn") : t("turnNumber", { count: turn.ordinal });
 }
 
-export function ChangesView({ hidden }: { readonly hidden: boolean }) {
+export function ChangesView({ hidden, embedded = false }: { readonly hidden: boolean; readonly embedded?: boolean }) {
 	const t = useT();
 	const items = useAppStore((state) => state.timelineItems);
 	const cwd = useAppStore((state) => state.current?.cwd ?? "");
@@ -323,6 +323,7 @@ export function ChangesView({ hidden }: { readonly hidden: boolean }) {
 							icon="panelRight"
 							iconSize="sm"
 							aria-label={t("closePreview")}
+							hidden={embedded}
 							onClick={() => setPreviewOpen(false)}
 						/>
 					</Tooltip>

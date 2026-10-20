@@ -365,6 +365,62 @@ select {
   background: var(--surface-soft);
   font: 13px / 1.5 var(--mono);
 }
+.message-body .md-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 12px 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-inline-code);
+  overscroll-behavior-x: contain;
+}
+.message-body .md-table-scroll:focus-visible {
+  outline: 2px solid var(--focus-border);
+  outline-offset: 2px;
+}
+.message-body table {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: collapse;
+  font-size: 13px;
+  line-height: 1.65;
+}
+.message-body th,
+.message-body td {
+  min-width: 6ch;
+  max-width: 36ch;
+  padding: 9px 12px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.message-body th {
+  background: var(--surface-soft);
+  color: var(--ink);
+  font-weight: 600;
+}
+.message-body td {
+  color: var(--ink);
+  font-weight: 400;
+}
+.message-body tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--surface-soft) 55%, var(--canvas));
+}
+.message-body tr > :last-child {
+  border-right: 0;
+}
+.message-body tbody tr:last-child td {
+  border-bottom: 0;
+}
+.message-body .md-align-left {
+  text-align: left;
+}
+.message-body .md-align-center {
+  text-align: center;
+}
+.message-body .md-align-right {
+  text-align: right;
+}
 .code-block {
   overflow: hidden;
   margin: 12px 0;

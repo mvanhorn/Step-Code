@@ -70,6 +70,7 @@ export type ThemeChoice = "system" | "light" | "dark";
 export type ConversationView = "project" | "group";
 export type ModeId = "goal" | "plan" | "ultraloop";
 export type DirectoryPickerMode = "native" | "browse";
+export type RightPanelId = "summary" | "context" | "changes" | "files" | "subagent";
 
 /** Lazy file tree of one workspace (legacy `state.tree`). */
 export interface TreeState {
@@ -134,6 +135,9 @@ export type SettingsEditor =
  * any feature (or the shell's Escape chain) can flip them.
  */
 export interface UiState {
+	readonly rightPanel: RightPanelId | null;
+	readonly rightPanelExpanded: boolean;
+	readonly rightPanelMenu: boolean;
 	/** `.app.sidebar-hidden` */
 	readonly sidebarHidden: boolean;
 	/** Inline `--sidebar-width` on `.app` in px; null leaves the CSS default. */
@@ -192,6 +196,9 @@ export interface ChildView {
 	/** Set when opened from a workflow call: the view lists that run's agents. */
 	readonly workflowRun?: string;
 	readonly label: string;
+	/** Stable selection into the parent's live task projection, including tasks without a child session yet. */
+	readonly toolItemId?: string;
+	readonly taskIndex?: number;
 }
 
 export interface ToastState {
@@ -353,6 +360,9 @@ export function createInitialState(): AppState {
 		theme: initialTheme(),
 		locale: initialLocale(),
 		ui: {
+			rightPanel: typeof window !== "undefined" && window.innerWidth > 1200 ? "summary" : null,
+			rightPanelExpanded: false,
+			rightPanelMenu: false,
 			// `?sb=0` starts with the sidebar collapsed (legacy bootstrap).
 			sidebarHidden: typeof location !== "undefined" && location.search.includes("sb=0"),
 			sidebarWidth: null,

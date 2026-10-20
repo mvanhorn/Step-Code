@@ -4,6 +4,7 @@
 
 import { t } from "../../i18n";
 import { ApiError, apiSend, errorMessage } from "../../lib/api";
+import { closeRightPanel, openRightPanel } from "../../state/right-panel";
 import { forgetApproval, openSession, refreshSessions, renderSnapshot, showError } from "../../state/session";
 import { getState, setUi } from "../../state/store";
 import type { TurnRevertResult } from "../../state/types";
@@ -26,17 +27,43 @@ export async function openSessionAtEntry(sessionId: string, entryId: string | nu
  */
 export function openChildAgent(sessionId: string, label: string): void {
 	const parentId = getState().current?.id;
-	if (parentId) setUi({ childView: { parentId, childId: sessionId, label } });
+	if (parentId) {
+		setUi({ childView: { parentId, childId: sessionId, label } });
+		openRightPanel("subagent");
+	}
+}
+
+export function openSubagentTask(toolItemId: string, taskIndex: number): void {
+	const parentId = getState().current?.id;
+	if (parentId) {
+		setUi({ childView: { parentId, childId: null, label: t("subagent"), toolItemId, taskIndex } });
+		openRightPanel("subagent");
+	}
 }
 
 /** Show the agents of workflow run `runId`, the first one selected once the list loads. */
 export function openWorkflowAgents(runId: string, label: string): void {
 	const parentId = getState().current?.id;
-	if (parentId) setUi({ childView: { parentId, childId: null, workflowRun: runId, label } });
+	if (parentId) {
+		setUi({ childView: { parentId, childId: null, workflowRun: runId, label } });
+		openRightPanel("subagent");
+	}
 }
 
 export function closeChildAgent(): void {
+	const selection = getState().ui.childView;
+	closeRightPanel();
 	setUi({ childView: null });
+	if (selection?.toolItemId && typeof document !== "undefined") {
+		requestAnimationFrame(() => {
+			if (getState().ui.childView || getState().current?.id !== selection.parentId) return;
+			document
+				.querySelector<HTMLButtonElement>(
+					`.lane-row[data-subagent-tool-id="${CSS.escape(selection.toolItemId ?? "")}"][data-subagent-task-index="${selection.taskIndex}"]`,
+				)
+				?.focus();
+		});
+	}
 }
 
 /** Branch the current session at `entryId` (or at its end) and follow the fork (legacy `forkAtEntry`). */

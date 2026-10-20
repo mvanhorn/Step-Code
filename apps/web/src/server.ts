@@ -639,6 +639,8 @@ const server = createServer(async (request, response) => {
 			}
 			const session = await store.getOrOpen(parts[3]);
 			if (parts.length === 4 && method === "GET") return json(response, 200, session.snapshot());
+			if (parts.length === 5 && parts[4] === "inspector" && method === "GET")
+				return json(response, 200, session.inspector());
 			if (parts[4] === "children" && method === "GET") {
 				if (parts.length === 6) {
 					const childId = decodeURIComponent(parts[5]);

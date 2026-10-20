@@ -51,6 +51,7 @@ export const ICON_NAMES = [
 	"paperclip",
 	"close-sm",
 	"brain",
+	"disclosure",
 	"cube",
 	"check",
 	"star",
@@ -84,7 +85,21 @@ export const ICON_NAMES = [
 	"squarePen",
 	"prompt",
 	"wrench",
+	"bot",
+	"circle",
+	"circleCheck",
+	"circleX",
+	"circleMinus",
+	"loaderCircle",
+	"triangleAlert",
 	"image",
+	"maximize",
+	"minimize",
+	"scanLine",
+	"plug",
+	"summaryCheck",
+	"summaryRing",
+	"layers3",
 ] as const;
 
 export type IconName = (typeof ICON_NAMES)[number];
@@ -92,7 +107,154 @@ export type IconName = (typeof ICON_NAMES)[number];
 export function IconSprite() {
 	return (
 		<svg className={cx(styles.root, "icon-sprite")} aria-hidden="true" focusable="false">
+			{/* DFSC Lucide Plug, Layers3 and split CircleCheck for Summary motion. */}
+			<symbol id="i-summaryRing" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9">
+				<circle cx="12" cy="12" r="10" />
+			</symbol>
+			<symbol
+				id="i-layers3"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z" />
+				<path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17" />
+			</symbol>
+			<symbol
+				id="i-plug"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="M12 22v-5M15 8V2M17 8a1 1 0 0 1 1 1v4a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1zM9 8V2" />
+			</symbol>
+			<symbol
+				id="i-summaryCheck"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.9"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="m16 9-5.5 5.5L8 12" pathLength="1" />
+			</symbol>
+			{/* DFSC right-panel controls, Lucide 1.48.0 (ISC). */}
+			<symbol
+				id="i-maximize"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.7"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="M15 3h6v6m0-6-7 7M3 21l7-7M9 21H3v-6" />
+			</symbol>
+			<symbol
+				id="i-minimize"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.7"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="m14 10 7-7M20 10h-6V4M3 21l7-7M4 14h6v6" />
+			</symbol>
+			<symbol
+				id="i-scanLine"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.7"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 12h10" />
+			</symbol>
 			{/* Lucide settings, smartphone, sliders-horizontal, palette, wand-sparkles, trash-2, refresh-cw, download, store and globe, adapted to the shared sprite. */}
+			{/* DFSC Standard subagent icons, Lucide 1.48.0 (ISC). */}
+			<symbol
+				id="i-bot"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="M12 8V4H8" />
+				<rect width="16" height="12" x="4" y="8" rx="2" />
+				<path d="M2 14h2M20 14h2M15 13v2M9 13v2" />
+			</symbol>
+			<symbol id="i-circle" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+				<circle cx="12" cy="12" r="10" />
+			</symbol>
+			<symbol
+				id="i-circleCheck"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.9"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<circle cx="12" cy="12" r="10" />
+				<path d="m16 9-5.5 5.5L8 12" />
+			</symbol>
+			<symbol
+				id="i-circleX"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.9"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<circle cx="12" cy="12" r="10" />
+				<path d="m15 9-6 6m0-6 6 6" />
+			</symbol>
+			<symbol
+				id="i-circleMinus"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.9"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<circle cx="12" cy="12" r="10" />
+				<path d="M8 12h8" />
+			</symbol>
+			<symbol
+				id="i-loaderCircle"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.9"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="M21 12a9 9 0 1 1-6.219-8.56" />
+			</symbol>
+			<symbol
+				id="i-triangleAlert"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.9"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3M12 9v4M12 17h.01" />
+			</symbol>
 			<symbol
 				id="i-cog"
 				viewBox="0 0 24 24"
@@ -607,16 +769,32 @@ export function IconSprite() {
 			</symbol>
 			<symbol
 				id="i-brain"
-				viewBox="0 0 18 18"
+				viewBox="0 0 24 24"
 				fill="none"
 				stroke="currentColor"
-				strokeWidth="1.4"
+				strokeWidth="2"
 				strokeLinecap="round"
 				strokeLinejoin="round"
 			>
-				<path d="M7 4.25a2.25 2.25 0 0 0-4.5 1A2.25 2.25 0 0 0 3 9.5a2.25 2.25 0 0 0 4 1.75z" />
-				<path d="M11 4.25a2.25 2.25 0 0 1 4.5 1A2.25 2.25 0 0 1 15 9.5a2.25 2.25 0 0 1-4 1.75z" />
-				<path d="M9 3.5v11" />
+				<path d="M12 18V5" />
+				<path d="M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4" />
+				<path d="M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5" />
+				<path d="M17.997 5.125a4 4 0 0 1 2.526 5.77" />
+				<path d="M18 18a4 4 0 0 0 2-7.464" />
+				<path d="M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517" />
+				<path d="M6 18a4 4 0 0 1-2-7.464" />
+				<path d="M6.003 5.125a4 4 0 0 0-2.526 5.77" />
+			</symbol>
+			<symbol
+				id="i-disclosure"
+				viewBox="0 0 14 14"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.5"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="M3.5 5.25 7 8.75 10.5 5.25" />
 			</symbol>
 			<symbol
 				id="i-cube"

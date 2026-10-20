@@ -3,11 +3,13 @@ import { useLocale, useT } from "../../i18n";
 import { collectTurnChanges } from "../../lib/turn-changes";
 import { setUi, useAppStore } from "../../state/store";
 import type { SteeringMessage, TimelineItem } from "../../state/types";
-import { MessageItem } from "./MessageItem";
+import { MessageActions, MessageItem } from "./MessageItem";
 import { RetryRow } from "./RetryRow";
+import { ThinkingDisclosure } from "./ThinkingDisclosure";
 import { ThinkingIndicator } from "./ThinkingIndicator";
 import { ApprovalCard, ToolRow } from "./TimelineRows";
 import { TurnChangesCard } from "./TurnChangesCard";
+import { collectTurnFooters } from "./turn-footers";
 
 /** Shown while the timeline is empty (legacy index.html 835-842, `renderTimeline`). */
 function EmptyConversation() {
@@ -87,6 +89,10 @@ export function ConversationStream() {
 	const stick = useRef(true);
 	const keys = itemKeys(items);
 	const turns = useMemo(() => collectTurnChanges(items, cwd), [items, cwd]);
+	const footerAfter = useMemo(
+		() => new Map(collectTurnFooters(items, status, pendingTurn !== null).map((turn) => [turn.lastIndex, turn])),
+		[items, status, pendingTurn],
+	);
 
 	// A new session or a sent message: follow the bottom again.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the session id and the pending messages are the triggers.
@@ -140,6 +146,7 @@ export function ConversationStream() {
 					<>
 						{items.map((item, index) => {
 							const card = cardAfter.get(index);
+							const footer = footerAfter.get(index);
 							// Always a fragment, so a card appearing under a row does not remount the row.
 							return (
 								<Fragment key={keys[index]}>
@@ -147,6 +154,8 @@ export function ConversationStream() {
 										<MessageItem item={item} />
 									) : item.kind === "tool" ? (
 										<ToolRow item={item} />
+									) : item.kind === "thinking" ? (
+										<ThinkingDisclosure item={item} active={running} />
 									) : item.kind === "retry" ? (
 										<RetryRow item={item} />
 									) : (
@@ -155,6 +164,7 @@ export function ConversationStream() {
 									{card ? (
 										<TurnChangesCard turn={card} reverted={Boolean(revertedTurns?.includes(card.turnId))} />
 									) : null}
+									{footer ? <MessageActions key={footer.turnId} messages={footer.messages} /> : null}
 								</Fragment>
 							);
 						})}

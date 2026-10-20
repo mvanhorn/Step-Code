@@ -1,7 +1,8 @@
-import type { CSSProperties } from "react";
+import { type CSSProperties, useLayoutEffect, useRef, useState } from "react";
 import { Composer, ImagePreview, SelectionDialog } from "./features/composer";
-import { ChildAgentView, ConversationStream, FeedbackModal, TaskBanner } from "./features/conversation";
-import { FileTreePanel, PreviewPanel, PreviewShowButton } from "./features/files";
+import { ConversationStream, FeedbackModal } from "./features/conversation";
+import { FileTreePanel } from "./features/files";
+import { RightPanel, RightToolRail } from "./features/inspector";
 import { LoginGate } from "./features/login";
 import { CronView, MarketView } from "./features/market";
 import { SettingsView } from "./features/settings";
@@ -10,6 +11,7 @@ import { SearchModal, SidebarNav, SidebarResizer } from "./features/sidebar";
 import { RemoveWorkspaceModal, WorkspaceBrowserModal, WorkspaceControl } from "./features/workspace";
 import { I18nProvider } from "./i18n";
 import { cx } from "./lib/format";
+import { activeRightPanel } from "./state/right-panel";
 import { shallowEqual, useAppStore } from "./state/store";
 import { IconSprite } from "./ui";
 
@@ -18,14 +20,15 @@ import { IconSprite } from "./ui";
  * original DOM position:
  *
  *   svg.icon-sprite
- *   div.app[.sidebar-hidden][.preview-open][.resizing]  (--sidebar-width, --preview-width)
+ *   div.app[.sidebar-hidden][.right-panel-open][.resizing]  (--sidebar-width, --preview-width)
  *     aside.sidebar      sidebar nav | files tree | shell user area (account, remote control, settings gear)
  *     #sidebarResizer    sidebar
- *     main.main          shell show button | files show button | conversation banner | market cron/market views
- *                        | conversation #childAgentView (read-only child transcript over stream and composer) | stream
+ *     main.main          shell show button | files show button | market cron/market views
+ *                        | conversation stream
  *                        | .composer-zone > composer form (workspace pill above the card)
  *                        | shell toast + auth banner
- *     aside#previewPanel files
+ *     aside#rightPanel   floating Summary, or context/files/changes/child inspector / embedded browser
+ *     nav.right-tool-rail
  *   #settingsView      settings: full-window settings page (menu + page) over the workspace
  *   #feedbackModal, #searchModal, #workspaceBrowserModal, #removeWorkspaceModal, #selectionDialog,
  *   #imagePreview (composer: enlarged image attachment), #loggedOutOverlay
@@ -33,16 +36,35 @@ import { IconSprite } from "./ui";
  *   #workspaceMenu, #sessionMenu, #tagPicker: rendered by their sidebar trigger, in a portal on body, only while open
  */
 export function App() {
+	const appRef = useRef<HTMLDivElement>(null);
+	const [summarySpace, setSummarySpace] = useState(false);
 	const layout = useAppStore(
 		(state) => ({
 			sidebarHidden: state.ui.sidebarHidden,
 			sidebarWidth: state.ui.sidebarWidth,
 			previewWidth: state.ui.previewWidth,
 			resizing: state.ui.resizing,
-			previewOpen: state.preview.open,
+			rightOpen: Boolean(activeRightPanel(state)),
+			summaryOpen: activeRightPanel(state) === "summary",
+			rightExpanded: state.ui.rightPanelExpanded,
 		}),
 		shallowEqual,
 	);
+	useLayoutEffect(() => {
+		const app = appRef.current;
+		if (!app) return;
+		const sidebar = app.querySelector<HTMLElement>(".sidebar");
+		const measure = () => {
+			const sidebarWidth = layout.sidebarHidden ? 0 : (sidebar?.getBoundingClientRect().width ?? 0);
+			const railWidth = Number.parseFloat(getComputedStyle(app).getPropertyValue("--rail-width")) || 44;
+			setSummarySpace(app.clientWidth - sidebarWidth - railWidth >= 1120);
+		};
+		measure();
+		const observer = new ResizeObserver(measure);
+		observer.observe(app);
+		if (sidebar) observer.observe(sidebar);
+		return () => observer.disconnect();
+	}, [layout.sidebarHidden]);
 	const style: Record<string, string> = {};
 	if (layout.sidebarWidth !== null) style["--sidebar-width"] = `${layout.sidebarWidth}px`;
 	if (layout.previewWidth !== null) style["--preview-width"] = `${layout.previewWidth}px`;
@@ -50,10 +72,15 @@ export function App() {
 		<I18nProvider>
 			<IconSprite />
 			<div
+				ref={appRef}
 				className={cx(
 					"app",
 					layout.sidebarHidden && "sidebar-hidden",
-					layout.previewOpen && "preview-open",
+					"has-right-rail",
+					layout.rightOpen && "right-panel-open",
+					layout.summaryOpen && "summary-open",
+					layout.summaryOpen && summarySpace && "summary-docked",
+					layout.rightExpanded && "right-panel-expanded",
 					layout.resizing && "resizing",
 				)}
 				style={style as CSSProperties}
@@ -66,11 +93,8 @@ export function App() {
 				<SidebarResizer />
 				<main className="main">
 					<SidebarShowButton />
-					<PreviewShowButton />
-					<TaskBanner />
 					<CronView />
 					<MarketView />
-					<ChildAgentView />
 					<ConversationStream />
 					<div className="composer-zone">
 						<Composer workspaceControl={<WorkspaceControl />} />
@@ -78,7 +102,8 @@ export function App() {
 					<ErrorToast />
 					<AuthBanner />
 				</main>
-				<PreviewPanel />
+				<RightPanel />
+				<RightToolRail />
 			</div>
 			<SettingsView />
 			<FeedbackModal />

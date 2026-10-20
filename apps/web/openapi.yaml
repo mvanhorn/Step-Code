@@ -6,6 +6,78 @@ info:
 servers:
   - url: http://127.0.0.1:3077
 paths:
+  /api/v1/sessions/{id}/inspector:
+    get:
+      description: |
+        Read-only right-panel projection. Tasks come from the latest step-tasks
+        custom entry on the active branch. Statistics come from getSessionStats
+        (whole-session totals and kernel-estimated current context). Skill count
+        is session-scoped; MCP status is explicitly process-scoped. No task
+        metadata, credentials, system prompt or assembled model context is returned.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Inspector data
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sessionId, tasks, stats, skillCount, mcpScope, mcp]
+                properties:
+                  sessionId: { type: string }
+                  plan:
+                    type: object
+                    required: [id, title]
+                    properties:
+                      id: { type: string }
+                      title: { type: string }
+                  tasks:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, subject, description, status]
+                      properties:
+                        id: { type: string }
+                        subject: { type: string }
+                        description: { type: string }
+                        status: { type: string, enum: [pending, in_progress, completed] }
+                  skillCount: { type: integer, minimum: 0 }
+                  mcpScope: { type: string, const: process }
+                  mcp:
+                    type: array
+                    items:
+                      type: object
+                      required: [name, status]
+                      properties:
+                        name: { type: string }
+                        status: { type: string, enum: [connected, connecting, failed, disabled] }
+                  stats:
+                    type: object
+                    required: [tokens, cost]
+                    properties:
+                      tokens:
+                        type: object
+                        required: [input, output, cacheRead, cacheWrite, total]
+                        properties:
+                          input: { type: number }
+                          output: { type: number }
+                          cacheRead: { type: number }
+                          cacheWrite: { type: number }
+                          total: { type: number }
+                      cost: { type: number }
+                      contextUsage:
+                        type: object
+                        required: [tokens, contextWindow, percent]
+                        properties:
+                          tokens: { type: [number, "null"] }
+                          contextWindow: { type: number }
+                          percent: { type: [number, "null"] }
+        "401": { description: Authentication required }
+        "500": { description: Session could not be opened }
   /healthz:
     get:
       security: []
@@ -353,6 +425,26 @@ paths:
                 type: object
                 properties:
                   permissionPreset: { type: string, enum: [ask, approve-for-me, full-access] }
+                  entries:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        details:
+                          description: >-
+                            Lifecycle projection on custom_message / agent-notification entries only.
+                            Event and status must match; notification text is not a status protocol.
+                          type: object
+                          required: [agentId, event, status]
+                          additionalProperties: false
+                          properties:
+                            agentId: { type: string }
+                            event:
+                              type: string
+                              enum: [background_done, background_failed, background_interrupted, background_progress, background_restarted, background_needs_input]
+                            status: { type: string, enum: [running, completed, failed, aborted] }
+                        thinkingTimings:
+                          $ref: "#/components/schemas/ThinkingTimings"
                   policies:
                     type: array
                     items: { $ref: "#/components/schemas/PolicyPreset" }
@@ -444,6 +536,8 @@ paths:
             SSE snapshot and agent/status/approval/clarification_required/clarification_resolved/selection_required/
             selection_resolved/queue events. clarification_required carries clarification and selection_required carries
             selection; the resolved events carry id; queue carries a QueueState (queued, steering).
+            Agent envelopes optionally carry thinkingTimings, keyed by original content-block index, with host-observed
+            epoch-millisecond startedAt/endedAt fields. Live intervals may omit endedAt; saved intervals are complete.
   /api/v1/sessions/{id}/messages:
     post:
       parameters:
@@ -1150,6 +1244,15 @@ paths:
         "200": { description: Workspace file contents }
 components:
   schemas:
+    ThinkingTimings:
+      type: object
+      description: Host-observed thinking intervals by original content-block index; absent for unobserved legacy history.
+      additionalProperties:
+        type: object
+        required: [startedAt]
+        properties:
+          startedAt: { type: number, description: Host epoch milliseconds when thinking started streaming }
+          endedAt: { type: number, description: Host epoch milliseconds when thinking stopped streaming }
     QueuedMessage:
       type: object
       required: [id, text, attachments, files]

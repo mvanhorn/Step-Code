@@ -1,4 +1,4 @@
-import { type CSSProperties, memo, useMemo, useState } from "react";
+import { type CSSProperties, memo, useId, useMemo, useState } from "react";
 import { useT } from "../../i18n";
 import { cx } from "../../lib/format";
 import { escapeHtml } from "../../lib/markdown";
@@ -10,24 +10,12 @@ import { DiffStat, Icon, type IconName, Tooltip } from "../../ui";
 import { openFile } from "../files/actions";
 import { fileLanguage, highlightLines } from "../files/index";
 import { openChildAgent, openWorkflowAgents } from "./actions";
+import { SubagentLane } from "./SubagentLane";
+import { type ToolKind, toolKind, toolLabel } from "./tool-presentation";
 
 /** Lines of a file excerpt shown before the middle folds away behind a button. */
 const HEAD_LINES = 14;
 const TAIL_LINES = 3;
-
-/** What a tool call means to the reader: which verb the row shows and what the card holds. */
-type ToolKind = "read" | "write" | "edit" | "bash" | "search" | "list" | "other";
-
-const KIND_BY_TOOL: Readonly<Record<string, ToolKind>> = {
-	read: "read",
-	write: "write",
-	edit: "edit",
-	bash: "bash",
-	powershell: "bash",
-	grep: "search",
-	find: "search",
-	ls: "list",
-};
 
 const KIND_ICON: Readonly<Record<ToolKind, IconName>> = {
 	read: "fileText",
@@ -77,48 +65,74 @@ export const ToolRow = memo(function ToolRow({
 	const t = useT();
 	const cwd = useAppStore((state) => state.current?.cwd ?? "");
 	const [open, setOpen] = useState(false);
+	const detailsId = useId();
+	const label = toolLabel(item, t);
 	const output = item.outputDetail || item.outputSummary;
 	const call = callPath(item.args, cwd);
 	const shown = call.shown;
 	// Only a file opens in the preview; a search or list path is usually a folder.
-	const openable = FILE_KINDS.has(kind(item)) ? call.openable : null;
-	const copyValue = kind(item) === "bash" ? (item.args?.command ?? "") : output;
-	const card = kind(item) === "edit" || kind(item) === "write";
+	const openable = FILE_KINDS.has(toolKind(item)) ? call.openable : null;
+	const copyValue = toolKind(item) === "bash" ? (item.args?.command ?? "") : output;
+	const card = toolKind(item) === "edit" || toolKind(item) === "write";
+	if (!readOnly && item.toolName === "subagent" && item.subagentTasks?.length && item.state !== "failed") {
+		return <SubagentLane item={item} />;
+	}
 	return (
-		<div className={cx("tool-call", open && "open")} data-kind={kind(item)}>
+		<div className={cx("tool-call", open && "open")} data-kind={toolKind(item)} data-tool-state={item.state}>
 			{/* Not a button: the subject is a button of its own, and a button cannot hold one. The
 			    toggle stretches under the whole row, so a click anywhere but the subject expands it. */}
 			<div className={cx("tool-row", item.state, open && "open")}>
 				<button
 					type="button"
 					className="tool-toggle"
-					aria-label={`${verb(item, t)} ${item.args?.command ?? shown}`.trim()}
+					aria-label={`${label} ${item.args?.command ?? shown}`.trim()}
 					aria-expanded={open}
+					aria-controls={open ? detailsId : undefined}
 					onClick={() => setOpen((value) => !value)}
 				></button>
-				<span className="tool-glyph" aria-hidden="true">
-					<Icon className="tool-kind-icon" name={KIND_ICON[kind(item)]} size="xs" />
-					<Icon className="tool-twisty" name="chevronRight" size="2xs" />
+				<span className="tool-heading">
+					<span className="tool-glyph" aria-hidden="true">
+						<Icon className="tool-kind-icon" name={KIND_ICON[toolKind(item)]} size="xs" />
+					</span>
+					<span className="tool-verb">
+						{label}
+						<span className="tool-pending" data-label={label} aria-hidden="true" />
+					</span>
+					<Icon className="tool-twisty" name="disclosure" size="xs" />
 				</span>
-				<span className="tool-verb">
-					{item.state === "pending" ? <span className="tool-pending">{verb(item, t)}</span> : verb(item, t)}
+				<span className="tool-detail">
+					<span className="tool-dot" aria-hidden="true">
+						·
+					</span>
+					{item.state === "failed" ? <span className="tool-failed">{t("toolFailed")}</span> : null}
+					<RowSubject item={item} path={shown} openable={openable} />
+					{item.change?.patch ? <DiffStatRow item={item} /> : null}
 				</span>
-				<span className="tool-dot" aria-hidden="true">
-					·
-				</span>
-				{item.state === "failed" ? <span className="tool-failed">{t("toolFailed")}</span> : null}
-				<RowSubject item={item} path={shown} openable={openable} />
-				{item.change?.patch ? <DiffStatRow item={item} /> : null}
 			</div>
 			{!readOnly && (item.children?.length || item.workflowRun) ? <ChildAgentLinks item={item} /> : null}
+			{!readOnly && item.toolName === "subagent" && item.state === "failed" && item.subagentTasks?.length ? (
+				<SubagentLane item={item} />
+			) : null}
 			{open ? (
-				card ? (
-					<ChangeCard item={item} path={shown} openable={openable} />
-				) : (
-					<div className="tool-cx">
+				<div className="tool-cx" id={detailsId}>
+					<details className="tool-cx-input">
+						<summary>
+							<Icon name="chevronRight" size="2xs" />
+							{t("toolInput")}
+							<code>{item.toolName}</code>
+						</summary>
+						<pre className="tool-cx-pre wrap">{item.inputDetail || item.inputSummary || t("toolNoInput")}</pre>
+					</details>
+					{card ? (
+						<ChangeCard item={item} path={shown} openable={openable} />
+					) : (
 						<ToolCard item={item} path={shown} openable={openable} copyValue={copyValue} />
+					)}
+					<div className={cx("tool-cx-status", item.state)}>
+						{item.state === "completed" ? <Icon name="check" size="2xs" /> : null}
+						{t(`toolStatus.${item.state}`)}
 					</div>
-				)
+				</div>
 			) : null}
 		</div>
 	);
@@ -141,7 +155,7 @@ function ChildAgentLinks({ item }: { readonly item: ToolTimelineItem }) {
 					<span>{t("childAgentWorkflowOpen")}</span>
 				</button>
 			) : null}
-			{item.children?.map((child) => (
+			{(item.subagentTasks?.length ? [] : item.children)?.map((child) => (
 				<button
 					key={child.sessionId}
 					type="button"
@@ -155,30 +169,6 @@ function ChildAgentLinks({ item }: { readonly item: ToolTimelineItem }) {
 			))}
 		</div>
 	);
-}
-
-function kind(item: ToolTimelineItem): ToolKind {
-	return KIND_BY_TOOL[item.toolName] ?? "other";
-}
-
-/** The verb of a row; an unknown tool keeps its own name. */
-function verb(item: ToolTimelineItem, t: ReturnType<typeof useT>): string {
-	switch (kind(item)) {
-		case "read":
-			return t("toolVerbRead");
-		case "write":
-			return t("toolVerbWrite");
-		case "edit":
-			return t("toolVerbEdit");
-		case "bash":
-			return t("toolVerbBash");
-		case "search":
-			return item.toolName === "find" ? t("toolVerbFind") : t("toolVerbGrep");
-		case "list":
-			return t("toolVerbLs");
-		default:
-			return item.toolName || "tool";
-	}
 }
 
 function DiffStatRow({ item }: { readonly item: ToolTimelineItem }) {
@@ -198,7 +188,7 @@ function RowSubject({
 }) {
 	const t = useT();
 	const cwd = useAppStore((state) => state.current?.cwd ?? "");
-	const tool = kind(item);
+	const tool = toolKind(item);
 	const text =
 		tool === "bash"
 			? (item.args?.command ?? "").split("\n")[0]
@@ -296,7 +286,7 @@ function ToolCard({
 		setCopied(true);
 		setTimeout(() => setCopied(false), 1200);
 	};
-	const command = kind(item) === "bash";
+	const command = toolKind(item) === "bash";
 	const head = command ? item.args?.command || item.inputSummary : path || item.inputSummary;
 	return (
 		<>
@@ -310,6 +300,7 @@ function ToolCard({
 				wrap={wrap}
 				onWrap={() => setWrap((value) => !value)}
 			/>
+			<div className="tool-cx-section">{t("toolOutput")}</div>
 			<OutputCard item={item} path={path} text={item.outputDetail || item.outputSummary} wrap={wrap} />
 		</>
 	);
@@ -330,7 +321,7 @@ function OutputCard({
 	const t = useT();
 	const [uncollapsed, setUncollapsed] = useState(false);
 	const highlighted = useMemo(
-		() => (kind(item) === "read" && path ? highlightLines(text, fileLanguage(path)) : null),
+		() => (toolKind(item) === "read" && path ? highlightLines(text, fileLanguage(path)) : null),
 		[item, path, text],
 	);
 	if (!text) {
@@ -395,7 +386,7 @@ function ChangeCard({
 		setTimeout(() => setCopied(false), 1200);
 	};
 	return (
-		<div className="tool-cx">
+		<>
 			<CardHead
 				item={item}
 				text={path || item.inputSummary}
@@ -414,7 +405,13 @@ function ChangeCard({
 			) : (
 				<pre className="tool-cx-pre">{item.inputDetail || item.inputSummary || t("toolNoInput")}</pre>
 			)}
-		</div>
+			{item.outputDetail || item.outputSummary ? (
+				<>
+					<div className="tool-cx-section">{t("toolOutput")}</div>
+					<pre className="tool-cx-pre wrap">{item.outputDetail || item.outputSummary}</pre>
+				</>
+			) : null}
+		</>
 	);
 }
 

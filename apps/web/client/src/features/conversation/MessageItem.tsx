@@ -26,19 +26,17 @@ function fileChipHtml(file: AttachedFile | undefined): string {
 export const MessageItem = memo(function MessageItem({
 	item,
 	files: pendingFiles,
-	readOnly = false,
 }: {
 	readonly item: MessageTimelineItem;
 	/** The pending bubble's files: the host has not echoed the message (and its file blocks) yet. */
 	readonly files?: readonly AttachedFile[];
-	/** A child agent's transcript: no voting or forking, which act on the current session. */
-	readonly readOnly?: boolean;
 }) {
 	const t = useT();
 	const role = item.role === "user" ? "user" : "assistant";
-	const live = item.itemId === "message-live";
+	const live = item.itemId.startsWith("message-live");
 	const codeLabel = t("code");
 	const copyLabel = t("copy");
+	const tableLabel = t("markdownTable");
 	const bodyRef = useRef<HTMLDivElement>(null);
 	// Pasted or dropped files arrive as blocks after the user's text; the bubble shows them as inline chips where the user put them.
 	const attached = useMemo(
@@ -51,12 +49,13 @@ export const MessageItem = memo(function MessageItem({
 	// Memoised: a streaming turn re-renders the timeline per frame, and parsing every earlier message each time made long sessions crawl.
 	const files = pendingFiles ?? attached.files;
 	const html = useMemo(() => {
-		if (!files.length) return renderMarkdown(content, { code: codeLabel, copy: copyLabel });
-		return renderMarkdown(markAttachedFiles(content, files), { code: codeLabel, copy: copyLabel }).replace(
-			FILE_MARKER,
-			(_match, index: string) => fileChipHtml(files[Number(index)]),
-		);
-	}, [content, files, codeLabel, copyLabel]);
+		if (!files.length) return renderMarkdown(content, { code: codeLabel, copy: copyLabel, table: tableLabel });
+		return renderMarkdown(markAttachedFiles(content, files), {
+			code: codeLabel,
+			copy: copyLabel,
+			table: tableLabel,
+		}).replace(FILE_MARKER, (_match, index: string) => fileChipHtml(files[Number(index)]));
+	}, [content, files, codeLabel, copyLabel, tableLabel]);
 	useFadeIn(bodyRef, html, live);
 	if (item.error) return <MessageError entryId={item.entryId} error={item.error} />;
 	// The live turn before its first text (reasoning, or waiting on the first token).
@@ -79,7 +78,6 @@ export const MessageItem = memo(function MessageItem({
 					onCopyCode={(code) => void copyText(code)}
 				/>
 			) : null}
-			{item.role === "assistant" && !readOnly ? <MessageActions item={item} /> : null}
 		</article>
 	);
 });
@@ -150,28 +148,34 @@ function MessageError({ entryId, error }: { readonly entryId?: string; readonly 
 
 /**
  * The row under an assistant turn: copy, vote, fork, then what the turn cost and
- * when it happened (legacy `messageActions` + `wireMessageActions`, 2206-2302).
+ * when it happened. The stream mounts it only after the entire turn settles.
  *
  * Voting opens the feedback dialog rather than firing a silent request — a
  * thumbs-down with no detail is much less useful than one with a topic.
  */
-function MessageActions({ item }: { readonly item: MessageTimelineItem }) {
+export function MessageActions({ messages }: { readonly messages: readonly MessageTimelineItem[] }) {
 	const t = useT();
 	const [vote, setVote] = useState<Sentiment | null>(null);
-	const tokens = item.usage ? item.usage.input + item.usage.output : 0;
+	const tokens = messages.reduce((sum, item) => sum + (item.usage ? item.usage.input + item.usage.output : 0), 0);
+	const content = messages
+		.filter((item) => !item.error && item.content)
+		.map((item) => item.content)
+		.join("\n\n");
+	const last = messages.at(-1);
+	const entryId = messages.reduce<string | undefined>((previous, item) => item.entryId ?? previous, undefined);
 	const onVote = (sentiment: Sentiment) => {
 		// One vote visible at a time; clicking the active one clears it.
 		setVote((already) => (already === sentiment ? null : sentiment));
 		openFeedback(sentiment);
 	};
 	return (
-		<div className="message-actions">
+		<div className="message-actions turn-actions">
 			<button
 				className="message-action copy-message"
 				type="button"
 				title={t("copy")}
 				aria-label={t("copy")}
-				onClick={() => void copyText(item.content || "")}
+				onClick={() => void copyText(content)}
 			>
 				<Icon {...LEGACY_ICONS.copy} />
 			</button>
@@ -200,7 +204,7 @@ function MessageActions({ item }: { readonly item: MessageTimelineItem }) {
 				type="button"
 				title={t("forkHere")}
 				aria-label={t("forkHere")}
-				onClick={() => void forkAtEntry(item.entryId)}
+				onClick={() => void forkAtEntry(entryId)}
 			>
 				<Icon name="fork" size="sm" />
 			</button>
@@ -210,7 +214,7 @@ function MessageActions({ item }: { readonly item: MessageTimelineItem }) {
 					{`${t("usage")} ${formatTokens(tokens)} tok`}
 				</span>
 			) : null}
-			{item.timestamp ? <span className="message-time">{formatRelativeTime(item.timestamp)}</span> : null}
+			{last?.timestamp ? <span className="message-time">{formatRelativeTime(last.timestamp)}</span> : null}
 		</div>
 	);
 }

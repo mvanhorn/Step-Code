@@ -5,6 +5,7 @@
  */
 
 import { useEffect } from "react";
+import { activeRightPanel, closeRightPanel } from "../../state/right-panel";
 import { activeCwd, interruptCurrent } from "../../state/session";
 import { getState, setUi } from "../../state/store";
 import { answerSelection, pendingSelection } from "../composer/actions";
@@ -32,6 +33,7 @@ function handleEscape(): void {
 	else if (ui.workspaceRemoval) closeWorkspaceRemoval();
 	else if (ui.slashMenu) setUi({ slashMenu: null });
 	else if (ui.changesMenu) setUi({ changesMenu: null });
+	else if (ui.rightPanelMenu) setUi({ rightPanelMenu: false });
 	else if (ui.searchOpen) closeSearch();
 	else if (ui.workspaceBrowserOpen) setUi({ workspaceBrowserOpen: false });
 	else if (closeTopmostSettingsLayer()) return;
@@ -41,7 +43,8 @@ function handleEscape(): void {
 	else if (ui.sessionMenu) setUi({ sessionMenu: null });
 	else if (ui.fileTreeOpen) setUi({ fileTreeOpen: false });
 	else if (ui.midView) setUi({ midView: null });
-	else if (ui.childView) setUi({ childView: null });
+	else if (ui.rightPanelExpanded) setUi({ rightPanelExpanded: false });
+	else if (activeRightPanel(state)) closeRightPanel();
 	else void interruptCurrent();
 }
 

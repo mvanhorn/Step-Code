@@ -60,7 +60,7 @@ test("paths that leave the workspace are refused, including through a symlink", 
 	try {
 		await assert.rejects(containedWorkspacePath(root, "../outside/secret.txt"), /outside the workspace/);
 		await assert.rejects(readWorkspaceFile(root, join(outside, "secret.txt")), /outside the workspace/);
-		await symlink(outside, join(root, "escape"));
+		await symlink(outside, join(root, "escape"), process.platform === "win32" ? "junction" : "dir");
 		await assert.rejects(listDirectory(root, "escape"), /outside the workspace/);
 		await assert.rejects(readWorkspaceFile(root, "escape/secret.txt"), /outside the workspace/);
 		// A sibling whose name merely starts with the workspace name is still outside.
