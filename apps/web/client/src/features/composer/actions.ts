@@ -28,6 +28,7 @@ import type {
 	SelectionRequest,
 	SessionSnapshot,
 	SteeringMessage,
+	TimelineItem,
 	UploadedFile,
 } from "../../state/types";
 import type { PromptFile } from "./prompt-editor";
@@ -169,40 +170,65 @@ export async function selectEffort(level: string): Promise<boolean> {
 	}
 }
 
-/* ── Session modes (legacy toggleMode, 2879-2903) ─────────────────────────── */
+/* ── Session modes ────────────────────────────────────────────────────────── */
 
-function setMode(id: ModeId, enabled: boolean): void {
-	setState((state) => ({ modes: { ...state.modes, [id]: enabled } }));
+/** The command line a mode maps to, matching what the host's `setMode` runs. */
+function modeCommandLine(id: ModeId, enabled: boolean): string {
+	if (id === "plan") return "/plan";
+	if (id === "ultraloop") return enabled ? "/ultraloop on" : "/ultraloop off";
+	return enabled ? "/goal " : "/goal clear";
 }
 
 /**
- * Flip one mode. Returns whether the mode panel should close: switching goal
- * on keeps it open so the goal can be typed, and sends nothing yet.
+ * Single-select: `id` becomes the only mode on, or turns off when already on.
+ * Returns the command line to stage in the composer — the mode activates when
+ * that line is sent, so what runs is always visible in the input.
  */
-export function toggleMode(id: ModeId): boolean {
-	const next = !getState().modes[id];
-	setMode(id, next);
-	if (id === "goal" && next) return false;
-	void sendModeToggle(id, next);
-	return true;
+export function chooseMode(id: ModeId): string {
+	const enabled = !getState().modes[id];
+	setState({ modes: { goal: false, plan: false, ultraloop: false, [id]: enabled } });
+	return modeCommandLine(id, enabled);
 }
 
-async function sendModeToggle(id: ModeId, next: boolean): Promise<void> {
-	const current = getState().current;
-	if (!current) return;
-	try {
-		// The server accepts the toggle and runs the slash command in the
-		// background, so there is no snapshot to render from the response.
-		await apiSend(`/api/v1/sessions/${current.id}/mode`, "PATCH", {
-			mode: id,
-			enabled: next,
-			goal: getState().goalDraft,
-		});
-		if (id === "goal" && next) setState({ goalDraft: "" });
-	} catch (error) {
-		setMode(id, !next);
-		showError(errorMessage(error));
+/* ── Other-session context ────────────────────────────────────────────────── */
+
+/**
+ * A picked other-session context: shown as one chip above `#prompt`, and its
+ * packaged block rides at the tail of the next sent message.
+ */
+export interface ContextPackage {
+	readonly sessionId: string;
+	readonly title: string;
+	readonly block: string;
+}
+
+/** Caps the packaged transcript, ZCode's selection limits shrunk to one pick. */
+const SESSION_CONTEXT_MAX_CHARS = 4000;
+const SESSION_CONTEXT_MAX_MESSAGES = 20;
+
+/**
+ * Package another session's conversation as a prompt tail block (ZCode's
+ * `# userselect:` pattern): a heading naming the source session and a fenced
+ * transcript of its user/assistant messages, oldest first, capped. The block
+ * is ordinary prompt text — editable before sending, visible in the composer.
+ */
+export function packageSessionContext(title: string, entries: readonly TimelineItem[]): string {
+	const messages = entries
+		.filter(
+			(entry): entry is Extract<TimelineItem, { kind: "message" }> =>
+				entry.kind === "message" &&
+				(entry.role === "user" || entry.role === "assistant") &&
+				Boolean(entry.content?.trim()) &&
+				!entry.error,
+		)
+		.slice(-SESSION_CONTEXT_MAX_MESSAGES);
+	let transcript = messages
+		.map((message) => `${message.role === "user" ? "用户" : "助手"}: ${message.content.trim()}`)
+		.join("\n\n");
+	if (transcript.length > SESSION_CONTEXT_MAX_CHARS) {
+		transcript = `${transcript.slice(0, SESSION_CONTEXT_MAX_CHARS)}\n…（超出部分已截断）`;
 	}
+	return `# 引用会话「${title}」的上下文\n\`\`\`session-context\n${transcript}\n\`\`\``;
 }
 
 /* ── Attachments (legacy 2919-2985) ──────────────────────────────────────── */

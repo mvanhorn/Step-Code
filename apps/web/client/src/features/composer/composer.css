@@ -355,23 +355,6 @@
 	padding-top: 5px;
 	border-top: 1px solid var(--line);
 }
-/* Inline goal entry, shown only while goal mode is being switched on. */
-.control-popover-goal {
-	padding: 4px 7px 2px;
-}
-.control-popover-goal input {
-	width: 100%;
-	height: var(--control-h-sm);
-	padding: 0 9px;
-	border: 1px solid var(--line);
-	border-radius: var(--radius-control);
-	outline: 0;
-	background: var(--surface);
-	font-size: 12px;
-}
-.control-popover-goal input:focus {
-	border-color: var(--focus-border);
-}
 /* Pending attachments, shown above #prompt. */
 .attachment-list {
 	display: flex;
@@ -568,105 +551,6 @@
 	padding: 3px 4px;
 	color: var(--ink-3);
 	font-size: 11px;
-}
-/* ===== token 用量按钮与弹层 ===== */
-.usage-popover {
-	width: 280px;
-	max-width: calc(100vw - 32px);
-}
-.usage-head {
-	padding: 10px 12px 6px;
-	font-size: 11px;
-	opacity: 0.65;
-	letter-spacing: 0.04em;
-}
-.usage-total {
-	display: flex;
-	align-items: baseline;
-	gap: 6px;
-	padding: 0 12px 8px;
-}
-.usage-total b {
-	font-size: 22px;
-	font-weight: 700;
-}
-.usage-total span {
-	font-size: 11px;
-	opacity: 0.6;
-}
-.usage-bars {
-	padding: 0 12px 4px;
-	display: grid;
-	gap: 6px;
-}
-.usage-bar-row {
-	display: grid;
-	grid-template-columns: 34px 1fr 52px;
-	align-items: center;
-	gap: 8px;
-	font-size: 11.5px;
-}
-.usage-bar-row .bar {
-	height: 6px;
-	border-radius: 999px;
-	background: var(--hover);
-	overflow: hidden;
-}
-.usage-bar-row .bar i {
-	display: block;
-	height: 100%;
-	border-radius: 999px;
-}
-.usage-bar-row .val {
-	text-align: right;
-	opacity: 0.75;
-}
-.usage-budget {
-	margin: 8px 12px 4px;
-}
-.usage-budget-track {
-	height: 5px;
-	border-radius: 999px;
-	background: var(--hover);
-	overflow: hidden;
-}
-.usage-budget-fill {
-	height: 100%;
-	border-radius: 999px;
-	background: #7a5cb0;
-}
-.usage-budget-label {
-	display: flex;
-	justify-content: space-between;
-	font-size: 11px;
-	opacity: 0.7;
-	padding-top: 4px;
-}
-.usage-recent {
-	padding: 6px 6px 4px;
-}
-.usage-recent .panel-section {
-	padding: 2px 6px 4px;
-}
-.usage-recent .row {
-	display: flex;
-	justify-content: space-between;
-	gap: 8px;
-	padding: 5px 8px;
-	border-radius: 8px;
-	font-size: 12px;
-}
-.usage-recent .row:hover {
-	background: var(--hover);
-}
-.usage-recent .row .n {
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-}
-.usage-recent .row .v {
-	flex: none;
-	opacity: 0.7;
 }
 /*
  * Not in legacy: the pin toggle was a <button> nested inside the option button
@@ -997,4 +881,167 @@
 .queue-action:disabled {
 	cursor: default;
 	opacity: 0.45;
+}
+/*
+ * Full access is the only preset that runs dangerous commands without asking,
+ * so its trigger reads as a warning for as long as it is the active preset.
+ */
+.permission-control--danger,
+.permission-control--danger:hover {
+	color: var(--danger);
+}
+
+/* ===== ＋ 菜单的更多行与二级面板（PlusMenu / PlusSubPanels） ===== */
+/*
+ * `.control-popover` clips (overflow-y:auto computes overflow-x to auto), which
+ * would cut the secondary panel off at the menu's right edge. When the menu
+ * carries its own scroll wrapper, the popover stops clipping and the list
+ * scrolls inside instead.
+ */
+.control-popover:has(.plus-menu-scroll) {
+	max-height: none;
+	overflow: visible;
+}
+.plus-menu-scroll {
+	max-height: min(420px, 60vh);
+	overflow-y: auto;
+}
+.plus-row {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	width: 100%;
+	padding: 6px 10px;
+	border: 0;
+	border-radius: var(--radius-row);
+	background: none;
+	color: var(--ink);
+	font-size: 12.5px;
+	text-align: left;
+	cursor: pointer;
+}
+.plus-row:hover,
+.plus-row--open {
+	background: var(--surface-soft);
+}
+.plus-row-title {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.plus-row-chevron {
+	flex: none;
+	color: var(--ink-3);
+}
+/*
+ * 二级面板（ZCode 式）：`.plus-sub-slot` 定位在悬停行右侧（inline top 来自
+ * `openSub`），`.plus-sub` 是面板本体。分两层是为了让定位随行动态变化。
+ */
+.plus-sub-slot {
+	position: absolute;
+	left: calc(100% + 8px);
+	z-index: 60;
+}
+.plus-sub {
+	display: flex;
+	flex-direction: column;
+	width: 300px;
+	max-width: calc(100vw - 32px);
+	max-height: min(400px, calc(100vh - 24px));
+	border: 1px solid var(--line);
+	border-radius: var(--radius-control);
+	background: var(--surface);
+	box-shadow: 0 8px 24px rgb(0 0 0 / 0.12);
+}
+.plus-sub .plus-sub-list {
+	max-height: none;
+	flex: 1;
+	min-height: 120px;
+}
+.plus-sub-search {
+	padding: 8px;
+	border-bottom: 1px solid var(--line);
+}
+.plus-sub-list {
+	overflow-y: auto;
+	padding: 4px;
+}
+.plus-sub-row {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	width: 100%;
+	padding: 6px 8px;
+	border: 0;
+	border-radius: var(--radius-row);
+	background: none;
+	text-align: left;
+	cursor: pointer;
+}
+.plus-sub-row:hover {
+	background: var(--hover);
+}
+.plus-sub-row--faded {
+	opacity: 0.55;
+}
+.plus-sub-body {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
+}
+.plus-sub-name {
+	overflow: hidden;
+	font-size: 12.5px;
+	font-weight: 600;
+	color: var(--ink);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.plus-sub-hint {
+	margin-left: 6px;
+	font-size: 11px;
+	font-weight: 400;
+	color: var(--ink-3);
+}
+.plus-sub-desc {
+	overflow: hidden;
+	font-size: 11.5px;
+	color: var(--ink-2);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.plus-sub-footer {
+	padding: 4px 8px;
+	border-top: 1px solid var(--line);
+}
+.plus-sub-footer-action {
+	width: 100%;
+	padding: 5px 8px;
+	border: 0;
+	border-radius: var(--radius-row);
+	background: none;
+	color: var(--ink-2);
+	font-size: 12px;
+	text-align: left;
+	cursor: pointer;
+}
+.plus-sub-footer-action:hover {
+	background: var(--hover);
+	color: var(--ink);
+}
+.plus-sub-note {
+	display: block;
+	padding: 5px 8px;
+	font-size: 11px;
+	color: var(--ink-3);
+}
+.plus-sub-empty {
+	padding: 18px 10px;
+	font-size: 12px;
+	color: var(--ink-3);
+	text-align: center;
 }

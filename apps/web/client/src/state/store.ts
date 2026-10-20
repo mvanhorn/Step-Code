@@ -182,8 +182,17 @@ export interface UiState {
 	readonly changesMenu: string | null;
 	/** The composer's slash menu: matching commands, or the MCP server list picked from it. */
 	readonly slashMenu: "commands" | "mcp" | null;
-	/** A search hit to scroll to once its session is shown; cleared when done. */
-	readonly revealEntry: { readonly sessionId: string; readonly entryId: string } | null;
+	/**
+	 * A search hit to scroll to once its session is shown; cleared when done.
+	 * `behavior`/`block` let a caller ask for a smooth scroll or a top-aligned
+	 * one (the stream locator); the instant centred jump stays as it was.
+	 */
+	readonly revealEntry: {
+		readonly sessionId: string;
+		readonly entryId: string;
+		readonly behavior?: ScrollBehavior;
+		readonly block?: ScrollLogicalPosition;
+	} | null;
 	/** `#childAgentView`: a child agent's read-only transcript covering the conversation of `parentId`. */
 	readonly childView: ChildView | null;
 	/** `#imagePreview`: a staged image attachment shown enlarged; `src` is its data URL. */
@@ -276,7 +285,6 @@ export interface AppState {
 	readonly showArchived: boolean;
 	readonly policiesCache: readonly PolicyPreset[];
 	readonly modes: Readonly<Record<ModeId, boolean>>;
-	readonly goalDraft: string;
 	readonly attachments: readonly Attachment[];
 	readonly theme: ThemeChoice;
 	readonly locale: Locale;
@@ -356,7 +364,6 @@ export function createInitialState(): AppState {
 		showArchived: false,
 		policiesCache: [],
 		modes: { goal: false, plan: false, ultraloop: false },
-		goalDraft: "",
 		attachments: [],
 		theme: initialTheme(),
 		locale: initialLocale(),
