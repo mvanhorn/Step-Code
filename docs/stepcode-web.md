@@ -378,8 +378,11 @@ client-only task rows and inspector changes need only a page refresh.
 
 ## Right inspector
 
-The rail exposes Summary, Context, Terminal, Changes, File preview, Subagents and Browser.
-Terminal is immediately below Context, independently of the DFSC ordering.
+The rail exposes Summary, Context, Changes, File preview, Subagents and Browser, plus the
+Terminal toggle right after Context. The toggle is not a rail panel: it opens the dock below
+the conversation, so it stays available beside any inspector. Summary is excluded from the
+Escape chain while a turn is running or waiting, so Escape stops the turn as it does with no
+inspector open.
 Summary replaces the original floating task/subagent banner, rather than
 coexisting with it. Summary is an independent content-height surface, not the
 full-height inspector used by other rail entries. The compact board is 320px
@@ -399,6 +402,12 @@ or agent counts. Width changes use a 300ms cubic ease-out and become immediate
 under reduced-motion; empty plans have no invented percentage.
 A current-task headline and collapsed capsule are excluded.
 Conversation navigation is intentionally excluded.
+
+Session restoration is one page load's worth of work: after the credential and the launch
+folder are known, the page lists workspaces and sessions and then opens the newest
+conversation in the launch folder, or starts a draft there. A conversation the user opens, or a
+draft they start, while those lists are still loading wins: the late list must not replace the
+choice, so an early "new chat" click is never overwritten by the restored session.
 
 Agent records reuse validated timeline subagent states, including queued,
 running, completed, failed, stopped, skipped and unknown. Counts refer to task

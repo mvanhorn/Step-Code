@@ -933,7 +933,8 @@ test(
 		const view = $("#previewBody .code-view");
 		return {
 			panel: !$("#previewPanel").hidden,
-			shifted: $(".app").classList.contains("preview-open"),
+			shifted: $(".app").classList.contains("right-panel-open"),
+			railPressed: $("[data-right-panel='files']").getAttribute("aria-pressed"),
 			tabs: tabs(),
 			path: $("#previewPath").textContent,
 			code: codeText(),
@@ -948,6 +949,7 @@ test(
 	`)
     assert.equal(opened.panel, true)
     assert.equal(opened.shifted, true)
+    assert.equal(opened.railPressed, "true")
     assert.deepEqual(opened.tabs, ["main.ts"])
     assert.ok(opened.path.startsWith(`${workspace}/src/main.ts`), opened.path)
     assert.equal(
@@ -1061,15 +1063,16 @@ test(
     await browser.chord("KeyB", "b", SHIFT_META)
     const hidden = await browser.run(`
 		await until(() => $("#previewPanel").hidden, "panel to hide");
-		return { shifted: $(".app").classList.contains("preview-open"), reopen: !$("#previewShow").hidden };
+		const rail = $("[data-right-panel='files']");
+		return { shifted: $(".app").classList.contains("right-panel-open"), reopen: Boolean(rail) && !rail.disabled, pressed: rail?.getAttribute("aria-pressed") };
 	`)
-    assert.deepEqual(hidden, { shifted: false, reopen: true })
+    assert.deepEqual(hidden, { shifted: false, reopen: true, pressed: "false" })
     const shown = await browser.run(`
-		$("#previewShow").click();
+		$("[data-right-panel='files']").click();
 		await until(() => !$("#previewPanel").hidden, "panel to return");
-		return tabs().length;
+		return { tabs: tabs().length, shifted: $(".app").classList.contains("right-panel-open") };
 	`)
-    assert.equal(shown, 4)
+    assert.deepEqual(shown, { tabs: 4, shifted: true })
   },
 )
 
@@ -1827,7 +1830,9 @@ test(
 
 test("workspaces with chats can be removed through the dialog, retained after reload and restored", { skip }, async () => {
   const before = await browser.run(`
-    const session = $(".session-row.active").dataset.sessionId;
+    // Pick a conversation instead of assuming the page opened one: the removal must keep it.
+    (await until(() => $("#projectGroups .session-row, #recentTasks .session-row"), "a conversation")).click();
+    const session = await until(() => $(".session-row.active")?.dataset.sessionId, "open conversation");
     const project = $("#projectGroups .project-group");
     const button = project.querySelector(".workspace-menu-button");
     button.focus(); button.click();

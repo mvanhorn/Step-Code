@@ -1,5 +1,5 @@
 /**
- * `aside#previewPanel` and `#previewShow` (legacy index.html 797-809,
+ * `aside#previewPanel` (legacy index.html 797-809,
  * 1028-1113; app.js `renderPreview` toolbar state 1820-1828 and
  * `initPreviewPanel` 1890-1980).
  */
@@ -129,21 +129,5 @@ export function PreviewPanel({ embedded = false }: { readonly embedded?: boolean
 			</div>
 			<PreviewBody hidden={changes} />
 		</aside>
-	);
-}
-
-export function PreviewShowButton() {
-	const t = useT();
-	const hidden = useAppStore((state) => state.preview.open || (!state.preview.tabs.length && !state.preview.changes));
-	return (
-		<IconButton
-			className="preview-show"
-			id="previewShow"
-			icon="panelRight"
-			title={t("openPreview")}
-			aria-label={t("openPreview")}
-			hidden={hidden}
-			onClick={() => setPreviewOpen(true)}
-		/>
 	);
 }
