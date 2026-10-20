@@ -11,9 +11,12 @@ import { useFadeIn, useSmoothText } from "./streaming";
 export const ThinkingDisclosure = memo(function ThinkingDisclosure({
 	item,
 	active = false,
+	onExpandedChange,
 }: {
 	readonly item: ThinkingTimelineItem;
 	readonly active?: boolean;
+	/** Preserve the reader's disclosure choice when a singleton gains siblings. */
+	readonly onExpandedChange?: (expanded: boolean) => void;
 }) {
 	const t = useT();
 	const running = active && item.running;
@@ -40,7 +43,10 @@ export const ThinkingDisclosure = memo(function ThinkingDisclosure({
 				className={`thinking-summary tool-row${running ? " pending" : ""}`}
 				aria-expanded={expanded}
 				aria-controls={id}
-				onClick={() => setExpanded((value) => !value)}
+				onClick={() => {
+					setExpanded(!expanded);
+					onExpandedChange?.(!expanded);
+				}}
 			>
 				<Icon name="brain" size="xs" />
 				<span className="tool-verb">

@@ -609,9 +609,12 @@ sessions without thinking blocks do not acquire invented records. Opaque
 thinking signatures and redacted blocks are never rendered.
 
 The main transcript uses DFSC Simple as a fixed presentation default, without
-a complexity setting. Consecutive thinking and ordinary tools share one folded
-process row. While active, its label and short preview follow the current
-pending tool or thinking block; settled groups summarize completed tool kinds.
+a complexity setting. A single thinking or ordinary tool record shows only its
+own disclosure, without a second group heading or group indentation. Two or more
+consecutive records share one folded process row. Member components retain their
+identity as the group grows or shrinks; a manually opened singleton remains visible
+when another member arrives. While active, the group label and short preview
+follow the current pending tool or thinking block; settled groups summarize completed tool kinds.
 Thinking-only history stays a thinking record, not a fabricated tool result.
 Expanding preserves every original thinking/tool row, input/output and file
 or diff action. Ordinary collapsed tool rows keep their icon and label while

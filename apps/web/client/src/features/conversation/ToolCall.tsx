@@ -57,10 +57,13 @@ function callPath(args: ToolArgs | undefined, cwd: string): { shown: string; ope
 export const ToolRow = memo(function ToolRow({
 	item,
 	readOnly = false,
+	onExpandedChange,
 }: {
 	readonly item: ToolTimelineItem;
 	/** Inside a child agent's transcript, which links to no further children. */
 	readonly readOnly?: boolean;
+	/** Preserve the reader's disclosure choice when a singleton gains siblings. */
+	readonly onExpandedChange?: (expanded: boolean) => void;
 }) {
 	const t = useT();
 	const cwd = useAppStore((state) => state.current?.cwd ?? "");
@@ -91,7 +94,8 @@ export const ToolRow = memo(function ToolRow({
 					aria-controls={detailsId}
 					onClick={() => {
 						setVisited(true);
-						setOpen((value) => !value);
+						setOpen(!open);
+						onExpandedChange?.(!open);
 					}}
 				></button>
 				<span className="tool-heading">

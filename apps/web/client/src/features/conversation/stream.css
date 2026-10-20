@@ -767,6 +767,12 @@
 	overflow: hidden;
 	padding-left: 18px;
 }
+.process-tool-group[data-single="true"] > .tool-group-disclosure {
+	transition: none;
+}
+.process-tool-group[data-single="true"] > .tool-group-disclosure > .tool-group-body {
+	padding-left: 0;
+}
 .compact-process .tool-row:not(.tool-group-trigger) {
 	min-height: 30px;
 }

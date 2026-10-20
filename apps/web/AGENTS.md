@@ -184,8 +184,11 @@ When to add or change one:
   envelopes project validated `thinkingTimings` by original content index. Never infer durations for unobserved
   history or start clocks from browser receipt times.
 - The main transcript uses fixed DFSC Simple process groups, not a complexity
-  setting. Group consecutive thinking and ordinary tools only; keep failed tools,
-  approvals, retries and dedicated lifecycle calls separate. Preserve original
+  setting. Group consecutive thinking and ordinary tools only; singleton groups
+  show the member's own disclosure without a group heading or indentation.
+  Retain keyed member components and a manually opened singleton when siblings
+  arrive. Keep failed tools, approvals, retries and dedicated lifecycle calls
+  separate. Preserve original
   timeline indices for turn footers, file deliveries and search reveal. Group
   completion counts tool results, never canonical Tasks or child-agent success.
 - Subagent rows project structured per-task results and use the existing read-only child transcript API.
