@@ -1,6 +1,8 @@
 /**
- * General: interface language, and the account actions that used to sit in the
- * sidebar popover (Step Plan upgrade link, sign out).
+ * General: interface language, and the account: its plan and region, the Step
+ * Plan upgrade link (the account's own platform, so overseas accounts go to
+ * platform.stepfun.ai) and sign out. The sidebar's account menu offers the
+ * same two actions.
  */
 
 import { type TranslateFn, useT } from "../../i18n";
@@ -9,10 +11,8 @@ import { cx } from "../../lib/format";
 import { useAppStore } from "../../state/store";
 import type { LoginReport } from "../../state/types";
 import { Icon } from "../../ui";
-import { applyLocale, logout } from "../shell/actions";
+import { applyLocale, logout, stepPlanUrl } from "../shell/actions";
 import { PageHeader, SectionHeader, SettingRow, SettingsCard } from "./parts";
-
-const STEP_PLAN_URL = "https://platform.stepfun.com/step-plan";
 
 /** Language names are shown in their own language, never translated. */
 const LANGUAGE_CHOICES: ReadonlyArray<{ readonly value: Locale; readonly label: string }> = [
@@ -73,7 +73,7 @@ export function GeneralPage() {
 						<a
 							className="settings-btn"
 							id="stepPlanLink"
-							href={STEP_PLAN_URL}
+							href={stepPlanUrl(login)}
 							target="_blank"
 							rel="noopener noreferrer"
 						>

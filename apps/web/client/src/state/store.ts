@@ -149,6 +149,8 @@ export interface UiState {
 	readonly searchOpen: boolean;
 	/** `#workspacePopover` visible */
 	readonly workspacePopoverOpen: boolean;
+	/** `#accountMenu`: the sidebar footer's account popover */
+	readonly accountMenuOpen: boolean;
 	/** `#workspaceBrowserModal` visible */
 	readonly workspaceBrowserOpen: boolean;
 	readonly workspaceRemoval: { readonly path: string; readonly pending: boolean } | null;
@@ -365,6 +367,7 @@ export function createInitialState(): AppState {
 			fileTreeOpen: false,
 			searchOpen: false,
 			workspacePopoverOpen: false,
+			accountMenuOpen: false,
 			workspaceBrowserOpen: false,
 			workspaceRemoval: null,
 			settingsPage: null,

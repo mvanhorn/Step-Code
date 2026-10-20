@@ -497,6 +497,7 @@ test(
     assert.equal(report.boot.login.profile, "step_plan")
     assert.equal(report.boot.login.configured, true)
     assert.equal(report.boot.login.loginCommand, "step login")
+    assert.equal(report.boot.login.planUrl, "https://platform.stepfun.com/step-plan")
     assert.equal(report.boot.login.path, authPath)
     assert.deepEqual(report.direct, report.boot.login)
     assert.equal(
@@ -516,6 +517,7 @@ test(
 			popover: !!$("#userPopover"),
 			page: $("#settingsView [data-page]").dataset.page,
 			account: $("#settingsAccountLabel").textContent,
+			upgrade: $("#stepPlanLink").getAttribute("href"),
 			legacy: !!$("#loginNote") || !!$("#loginCommand") || !!$(".user-popover-account"),
 		};
 	`)
@@ -525,7 +527,38 @@ test(
     assert.equal(footer.popover, false, "the popover is gone")
     assert.equal(footer.page, "general")
     assert.equal(footer.account, "Step Plan · 中国大陆")
+    assert.equal(footer.upgrade, "https://platform.stepfun.com/step-plan")
     assert.equal(footer.legacy, false)
+
+    // The account button opens the account menu above it, not the settings view.
+    const menu = await browser.run(`
+		$("#settingsBack").click();
+		await until(() => $("#settingsView").hidden, "settings view to close");
+		$("#userAccountButton").click();
+		await until(() => $("#accountMenu"), "account menu");
+		const opened = {
+			expanded: $("#userAccountButton").getAttribute("aria-expanded"),
+			settingsHidden: $("#settingsView").hidden,
+			items: [...$("#accountMenu").querySelectorAll("[role=menuitem]")].map((item) => item.id),
+			upgrade: $("#accountUpgradeButton").dataset.href,
+			above: $("#accountMenu").getBoundingClientRect().bottom <= $("#userAccountButton").getBoundingClientRect().top,
+		};
+		document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+		await until(() => !$("#accountMenu"), "account menu to close");
+		const expandedAfter = $("#userAccountButton").getAttribute("aria-expanded");
+		// Back to the settings view for the steps below.
+		$("#settingsButton").click();
+		await until(() => !$("#settingsView").hidden, "settings view to reopen");
+		return { ...opened, expandedAfter };
+	`)
+    assert.deepEqual(menu, {
+      expanded: "true",
+      settingsHidden: true,
+      items: ["accountUpgradeButton", "accountLogoutButton"],
+      upgrade: "https://platform.stepfun.com/step-plan",
+      above: true,
+      expandedAfter: "false",
+    })
 
     // Language applies from the general page and is remembered.
     const language = await browser.run(`

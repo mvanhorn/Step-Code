@@ -61,6 +61,11 @@
 	height: 100%;
 	object-fit: cover;
 }
+.user-avatar.large {
+	width: 40px;
+	height: 40px;
+	font-size: 15px;
+}
 .user-name {
 	flex: 1;
 	overflow: hidden;
@@ -206,4 +211,43 @@
 	max-width: 360px;
 	margin-top: 6px;
 	color: var(--ink-2);
+}
+
+/* `#accountMenu`: the account popover above the footer's account button. */
+.account-menu {
+	width: 248px;
+	--popover-gap: 6px;
+}
+.account-menu-header {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 6px 6px 8px;
+}
+.account-menu-identity {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+.account-menu-name {
+	overflow: hidden;
+	color: var(--ink);
+	font-size: 14px;
+	font-weight: 650;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.account-menu-id {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	color: var(--ink-3);
+	font-size: 12px;
+	font-variant-numeric: tabular-nums;
+}
+.account-menu-id .account-menu-copy {
+	width: 20px;
+	height: 20px;
+	color: var(--ink-3);
 }

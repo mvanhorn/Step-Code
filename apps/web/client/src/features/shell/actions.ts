@@ -9,8 +9,18 @@ import { api, errorMessage } from "../../lib/api";
 import { STORAGE_KEYS, writeStorage } from "../../lib/storage";
 import { closeStream, showError } from "../../state/session";
 import { getState, setState, setUi, type ThemeChoice } from "../../state/store";
+import type { LoginReport } from "../../state/types";
 
 const THEMES: readonly ThemeChoice[] = ["system", "light", "dark"];
+
+/**
+ * Where "Upgrade" leads: the Step Plan page of the signed-in account's
+ * platform, which the host derives from the stored profile (overseas accounts
+ * use platform.stepfun.ai). The mainland page stands in until bootstrap answers.
+ */
+export function stepPlanUrl(login: LoginReport | null): string {
+	return login?.planUrl ?? "https://platform.stepfun.com/step-plan";
+}
 
 function systemPrefersDark(): boolean {
 	return typeof matchMedia === "function" && matchMedia("(prefers-color-scheme: dark)").matches;

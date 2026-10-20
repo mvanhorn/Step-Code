@@ -52,8 +52,8 @@ paths:
         The signed-in account's display name and avatar, for the sidebar footer.
         Read from the account session stored beside auth.json (written by a
         Step Plan sign-in, from a terminal or from the sign-in dialog) through
-        the developer center's `Dashboard/UserInfo`. Never carries a token or the
-        account id. Cached by the host; a sign-in from this host invalidates it.
+        the developer center's `Dashboard/UserInfo`. Never carries a token.
+        Cached by the host; a sign-in from this host invalidates it.
       responses:
         "200":
           description: Account profile, or why there is none
@@ -1436,13 +1436,14 @@ components:
           properties:
             name: { type: string, description: "Nickname, else email, else the (masked) phone number" }
             avatarUrl: { type: string, format: uri }
+            uid: { type: string, description: "Account id, as the developer center shows it" }
     LoginReport:
       description: |
         Where the model credential comes from. Never contains the credential.
         `configured` reports that one exists; `validity` reports what the
         provider said when it was checked.
       type: object
-      required: [source, configured, loginCommand]
+      required: [source, configured, loginCommand, planUrl]
       properties:
         source: { type: string, enum: [environment, auth.json, none] }
         provider: { type: string, description: "Provider id the credential belongs to" }
@@ -1454,6 +1455,13 @@ components:
           enum: [valid, invalid, unavailable, missing]
           description: "The provider's verdict; unavailable means it could not be reached"
         loginCommand: { type: string, description: "The command that changes this state" }
+        planUrl:
+          type: string
+          format: uri
+          description: |
+            Step Plan page of the credential's platform, where Upgrade leads:
+            platform.stepfun.ai for an overseas plan or key, platform.stepfun.com
+            otherwise (also when the region is unknown).
   parameters:
     SessionId:
       name: id

@@ -29,6 +29,7 @@ function handleEscape(): void {
 	const selection = pendingSelection(state);
 	if (selection) void answerSelection(selection, undefined);
 	else if (ui.imagePreview) setUi({ imagePreview: null });
+	else if (ui.accountMenuOpen) setUi({ accountMenuOpen: false });
 	else if (ui.workspaceRemoval) closeWorkspaceRemoval();
 	else if (ui.slashMenu) setUi({ slashMenu: null });
 	else if (ui.changesMenu) setUi({ changesMenu: null });

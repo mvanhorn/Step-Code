@@ -4,8 +4,9 @@ import type { StepAccountProfileOutcome } from "@step-harness/coding-agent";
  * The signed-in account as the sidebar shows it: a display name and an avatar.
  *
  * Read from the account session `step login` (or the sign-in dialog) stored
- * beside `auth.json`. Only display fields cross to the browser; the session
- * tokens and the account id stay in the host.
+ * beside `auth.json`. Only what the account menu shows crosses to the browser —
+ * the name, the avatar and the account id the developer center itself displays;
+ * the session tokens stay in the host.
  */
 export interface AccountReport {
 	/**
@@ -14,7 +15,7 @@ export interface AccountReport {
 	 * `unavailable`: the developer center could not be reached; ask again later.
 	 */
 	readonly status: StepAccountProfileOutcome["status"];
-	readonly account?: { readonly name: string; readonly avatarUrl?: string };
+	readonly account?: { readonly name: string; readonly avatarUrl?: string; readonly uid?: string };
 }
 
 /** A profile changes rarely; a live session is re-asked after this long. */
@@ -83,6 +84,6 @@ export class AccountProfileCache {
 /** Project the product outcome into the browser-safe report. */
 export function toAccountReport(outcome: StepAccountProfileOutcome): AccountReport {
 	if (outcome.status !== "ready") return { status: outcome.status };
-	const { name, avatarUrl } = outcome.account;
-	return { status: "ready", account: { name, ...(avatarUrl ? { avatarUrl } : {}) } };
+	const { name, avatarUrl, uid } = outcome.account;
+	return { status: "ready", account: { name, ...(avatarUrl ? { avatarUrl } : {}), ...(uid ? { uid } : {}) } };
 }
