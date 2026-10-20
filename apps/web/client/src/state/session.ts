@@ -17,6 +17,7 @@ import { contentText, skillInvocation } from "../lib/markdown";
 import { FULL_ACCESS_PRESET, isFullAccessRisk } from "../lib/permissions";
 import { isDesktopHost } from "../platform/host";
 import { assistantBlocks } from "./assistant-content";
+import { observePerformance } from "./performance";
 import { type AppState, getState, mapWith, setState, setUi } from "./store";
 import { backgroundSubagentStatuses, subagentTasks } from "./subagent-tasks";
 import { readThinkingTimings } from "./thinking-timing";
@@ -405,6 +406,7 @@ export function renderSnapshot(snapshot: SessionSnapshot): void {
 			state.pendingTurn && countUserMessages(timelineItems) > state.pendingTurn.userCount ? null : state.pendingTurn;
 		return {
 			current: snapshot,
+			performanceRun: state.current?.id === snapshot.id ? state.performanceRun : null,
 			policiesCache: snapshot.policies ?? state.policiesCache,
 			draftCwd: snapshot.cwd,
 			draftPolicy: snapshot.permissionPreset || "approve-for-me",
@@ -447,6 +449,7 @@ let stream: EventSource | null = null;
 export function closeStream(): void {
 	stream?.close();
 	stream = null;
+	setState({ performanceRun: null });
 	liveApprovals.clear();
 	liveClarifications.clear();
 	resolvedClarifications.clear();
@@ -454,7 +457,7 @@ export function closeStream(): void {
 
 interface AgentStreamEvent {
 	readonly type: string;
-	readonly message?: { readonly role?: string; readonly content?: unknown };
+	readonly message?: { readonly role?: string; readonly content?: unknown; readonly usage?: unknown };
 	readonly toolCallId?: string;
 	readonly toolName?: string;
 	readonly args?: unknown;
@@ -588,6 +591,16 @@ function flushLiveMessage(): void {
 }
 
 function handleAgentEvent(agentEvent: AgentStreamEvent, thinkingTimings?: ThinkingTimings): void {
+	if (
+		agentEvent.type === "agent_start" ||
+		agentEvent.type === "message_start" ||
+		agentEvent.type === "message_end" ||
+		agentEvent.type === "agent_settled"
+	) {
+		setState((state) => ({
+			performanceRun: observePerformance(state.performanceRun, agentEvent, performance.now()),
+		}));
+	}
 	if (agentEvent.type === "message_update") {
 		const event = agentEvent.assistantMessageEvent;
 		scheduleLiveMessage(
@@ -707,6 +720,7 @@ function handleAgentEvent(agentEvent: AgentStreamEvent, thinkingTimings?: Thinki
 /** Subscribe to a session's SSE stream, replacing any previous one (legacy `connectStream`, 3013-3109). */
 export function connectStream(id: string): void {
 	stream?.close();
+	setState({ performanceRun: null });
 	const source = new EventSource(`/api/v1/sessions/${id}/events`);
 	stream = source;
 	source.addEventListener("snapshot", (event) => {
@@ -820,6 +834,9 @@ export function connectStream(id: string): void {
 		showError(JSON.parse((event as MessageEvent).data).message || "运行错误");
 	});
 	source.onerror = () => {
+		if (stream !== source) return;
+		// A disconnected interval is unobserved, not slow generation.
+		setState({ performanceRun: null });
 		setTimeout(() => void refreshCurrent().catch(() => {}), 600);
 	};
 }

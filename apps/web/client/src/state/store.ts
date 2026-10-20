@@ -3,6 +3,7 @@ import type { Locale, TagColor } from "../i18n/messages";
 import type { AttachedFile } from "../lib/attached-files";
 import { readStorage, STORAGE_KEYS } from "../lib/storage";
 import { isDesktopHost } from "../platform/host";
+import type { PerformanceRun } from "./performance";
 import type {
 	Attachment,
 	DirectoryListing,
@@ -221,6 +222,8 @@ export interface PendingTurn {
 export interface AppState {
 	readonly sessions: readonly SessionSummary[];
 	readonly current: SessionSnapshot | null;
+	/** Current selection's locally observed run; cleared on replacement or stream interruption. */
+	readonly performanceRun: PerformanceRun | null;
 	readonly timelineItems: readonly TimelineItem[];
 	/**
 	 * A message sent but not yet in the session entries. The composer sets it on
@@ -319,6 +322,7 @@ export function createInitialState(): AppState {
 	return {
 		sessions: [],
 		current: null,
+		performanceRun: null,
 		timelineItems: [],
 		pendingTurn: null,
 		bootstrapCwd: "",

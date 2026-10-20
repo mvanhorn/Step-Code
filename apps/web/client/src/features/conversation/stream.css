@@ -672,6 +672,23 @@
 	overflow: hidden;
 	color: var(--ink-3);
 }
+.thinking-chevron,
+.tool-twisty,
+.tool-group-chevron {
+	opacity: 0;
+}
+.tool-row:is(:hover, :focus-visible, :has(:focus-visible)) .thinking-chevron,
+.tool-row:is(:hover, :focus-visible, :has(:focus-visible)) .tool-twisty,
+.tool-row:is(:hover, :focus-visible, :has(:focus-visible)) .tool-group-chevron {
+	opacity: 1;
+}
+@media (hover: none) {
+	.thinking-chevron,
+	.tool-twisty,
+	.tool-group-chevron {
+		opacity: 1;
+	}
+}
 .approval {
 	padding: 16px;
 	border: 1px solid color-mix(in srgb, var(--line) 65%, var(--surface));

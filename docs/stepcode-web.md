@@ -493,6 +493,28 @@ The inspector's external-open control is an explicit separate action, not the
 browser implementation. Browser storage and navigation have no connection to
 Agent model context, tool execution or the user's provider credentials.
 
+## Composer performance
+
+A compact DFSC-style row below the composer shows run elapsed time, average
+output throughput, cumulative session input/output tokens and cache hit rate.
+The existing usage menu remains available. Tokens come from the SDK statistics
+on the existing inspector endpoint, not rendered message rows; input includes
+cache reads/writes and totals include compacted history and tool-only responses.
+Cache hit is cacheRead / (input + cacheRead + cacheWrite), and remains unknown
+when no cache usage was reported. Missing or failed statistics are not zero.
+
+Timing is temporary browser-local observation, separate from persisted thinking
+timing. Elapsed time starts at an observed agent start and freezes at settlement,
+including approval and retry waits. Throughput uses reported output tokens over
+completed, observed assistant response intervals, including thinking but excluding
+tool execution and retry backoff. It is response throughput, not the provider's
+decoder speed or an estimate from text length. Switching sessions, disconnecting
+the stream or reloading clears timing; historical timing is never synthesized.
+Statistics reads are sequential, aborted on selection changes, and polled only
+while the selected session is active. Hints explain each measurement's scope.
+The row wraps complete metrics on narrow screens and uses the existing themes.
+No new HTTP/SSE fields, dependencies, persistence or Desktop-specific code are added.
+
 ## Interactive terminals
 
 The Terminal inspector uses `@xterm/xterm` with `@xterm/addon-fit`; the Host

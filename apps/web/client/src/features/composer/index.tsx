@@ -16,6 +16,7 @@ import { sendMessage, turnActive, updateQueued } from "./actions";
 import { ClarificationPanel } from "./ClarificationPanel";
 import { ModelMenu } from "./ModelMenu";
 import { ModeMenu } from "./ModeMenu";
+import { PerformanceBar } from "./PerformanceBar";
 import { PolicyMenu } from "./PolicyMenu";
 import { PromptInput } from "./PromptInput";
 import {
@@ -199,6 +200,7 @@ export function Composer({ workspaceControl }: ComposerProps) {
 					</div>
 				</div>
 			</div>
+			<PerformanceBar />
 		</form>
 	);
 }

@@ -100,6 +100,8 @@ export const ICON_NAMES = [
 	"summaryCheck",
 	"summaryRing",
 	"layers3",
+	"timer",
+	"database",
 	"clipboardPaste",
 	"eraser",
 ] as const;
@@ -109,6 +111,31 @@ export type IconName = (typeof ICON_NAMES)[number];
 export function IconSprite() {
 	return (
 		<svg className={cx(styles.root, "icon-sprite")} aria-hidden="true" focusable="false">
+			{/* Lucide 1.48.0 Timer and Database, for the compact DFSC performance row (ISC). */}
+			<symbol
+				id="i-timer"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="M10 2h4m-2 12 3-3" />
+				<circle cx="12" cy="14" r="8" />
+			</symbol>
+			<symbol
+				id="i-database"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<ellipse cx="12" cy="5" rx="9" ry="3" />
+				<path d="M3 5V19A9 3 0 0 0 21 19V5M3 12A9 3 0 0 0 21 12" />
+			</symbol>
 			{/* DFSC terminal controls, Lucide 1.48.0 (ISC). */}
 			<symbol
 				id="i-clipboardPaste"
