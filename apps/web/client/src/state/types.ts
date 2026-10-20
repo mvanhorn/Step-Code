@@ -460,6 +460,7 @@ export interface LoginReport {
 	readonly source: "environment" | "auth.json" | "none";
 	readonly provider?: string;
 	readonly profile?: string;
+	readonly userId?: string;
 	readonly path?: string;
 	readonly configured: boolean;
 	readonly validity?: string;

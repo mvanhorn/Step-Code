@@ -515,7 +515,7 @@ test(
 			remoteDisabled: $("#remoteControlButton").getAttribute("aria-disabled"),
 			popover: !!$("#userPopover"),
 			page: $("#settingsView [data-page]").dataset.page,
-			account: $("#settingsAccountLabel").textContent,
+			account: !!$("#settingsAccountLabel"),
 			legacy: !!$("#loginNote") || !!$("#loginCommand") || !!$(".user-popover-account"),
 		};
 	`)
@@ -524,8 +524,37 @@ test(
     assert.equal(footer.remoteDisabled, "true")
     assert.equal(footer.popover, false, "the popover is gone")
     assert.equal(footer.page, "general")
-    assert.equal(footer.account, "Step Plan · 中国大陆")
+    assert.equal(footer.account, false, "account settings no longer live on General")
     assert.equal(footer.legacy, false)
+
+    const account = await browser.run(`
+		$("[data-settings-page='account']").click();
+		await until(() => $("#settingsAccountLabel"), "account page");
+		await until(() => $$(".settings-account-channel").length === 4, "four sign-in methods");
+		const result = {
+			page: $("#settingsView [data-page]").dataset.page,
+			label: $("#settingsAccountLabel").textContent,
+			mark: !!$(".settings-account-logo use[href='#i-stepPlatform']"),
+			channels: $$(".settings-account-channel").map((row) => row.dataset.loginProfile),
+			logout: !!$("#logoutButton"),
+			firstPage: $(".settings-nav-item").dataset.settingsPage,
+			logoutInIdentity: !!$(".settings-account-identity #logoutButton use[href='#i-accountLogout']"),
+			loginIcon: !!$("#settingsAccountLogin use[href='#i-accountExternal']"),
+			twoColumns: (() => {
+				const rows = $$(".settings-account-channel").map((row) => row.getBoundingClientRect());
+				return rows[0].y === rows[1].y && rows[2].y > rows[0].y && rows[2].y === rows[3].y;
+			})(),
+		};
+		$("[data-settings-page='general']").click();
+		await until(() => $("[data-language-choice='en-US']"), "general page");
+		return result;
+	`);
+    assert.deepEqual(account, {
+      page: "account", label: "Step Plan · 中国大陆", mark: true,
+      channels: ["step_plan", "step_plan_oversea", "platform_cn", "platform_oversea"],
+      logout: true,
+      firstPage: "account", logoutInIdentity: true, loginIcon: true, twoColumns: true,
+    });
 
     // Language applies from the general page and is remembered.
     const language = await browser.run(`

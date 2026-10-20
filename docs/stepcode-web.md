@@ -42,9 +42,22 @@ CLI does:
 `GET /api/v1/login` (and the `login` field of `/api/v1/bootstrap`) reports where
 the credential comes from: `environment` or `auth.json`, with the provider,
 login profile, validity, and the `step login` command that changes it. The
-credential itself is never part of the response, and the settings dialog shows
-this section read-only — there is no key field, because a field here could not
-sign anything in.
+credential itself is never part of the response. A separate Account settings
+page shows the channel, region and credential verdict. Optional `userId` is a
+bounded stored OAuth UID matching the kernel's valid checked account; profile
+labels and environment keys never stand in for an identity. General settings
+retain language only. Account uses the DFSC Step platform mark and four
+channel choices, without balance or allowance placeholders.
+
+The Account page reuses the existing browser/API-key sign-in routes, including
+authorization waiting, reopening, cancellation and error feedback. Closing the
+page cancels its browser authorization and prevents late client updates. API-key
+submissions cannot be undone after the Host saves them. An environment credential
+is read-only here because it takes precedence over a saved credential; change it
+in the launch environment and restart instead. Switching is disabled while the
+page knows of running/waiting sessions. Existing Host credential reload behavior
+is unchanged. Account retains the upgrade link and cookie-only logout: logout
+does not remove Step credentials or terminate the Host's Agent sessions.
 
 Presence and reachability are reported separately: `getStepLoginStatus` treats an
 unreachable provider as "not logged in", but the credential is still on disk and
@@ -56,7 +69,8 @@ the next request may succeed, so `configured` reflects the stored credential and
 When the bootstrap report says `configured: false` (no `auth.json`, an empty
 one, or no `step` entry, and no `STEP_API_KEY`), bootstrap stops before it opens
 any session and shows `#loginGate`, a dialog with no close control; Escape and
-global shortcuts are ignored while it is open. Web and Desktop both show it.
+global shortcuts are ignored while it is open. This startup gate is currently
+enabled only for Desktop; plain Web can sign in from Account settings.
 
 A session fixes its model catalog and provider endpoint when it is built, so
 one opened before the credential existed (another tab, or a page loaded before

@@ -258,6 +258,13 @@ When to add or change one:
   `step mcp`, `/plugin` and the TUI resource selector use — and never project scope. Only user-scope state moves;
   a change reaches a session when that session starts (MCP servers connect at `session_start`, skills load with its
   resources), so the client says so instead of reloading sessions.
+- Account settings are separate from General and reuse `features/login/actions.ts`
+  and the existing Host sign-in routes. Keep credential presence separate from
+  validity; an unavailable check is not a rejected credential. Optional UID is
+  only a bounded stored OAuth identity matching the kernel's valid account,
+  never a profile name, key or token. Environment credentials remain read-only.
+  Cancel page-owned browser authorization on exit and ignore late callbacks.
+  Keep cookie-only `/auth/logout` unchanged; no balance/allowance placeholders.
 - Do not depend on `process.cwd()` being the workspace; the desktop starts the server elsewhere (macOS privacy
   blocks a cwd inside `~/Documents`).
 

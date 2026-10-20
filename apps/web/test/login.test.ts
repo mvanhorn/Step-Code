@@ -25,8 +25,7 @@ test("a stored plan credential is reported with its profile and never its value"
 		validity: "valid",
 		loginCommand: "step login",
 	});
-	// The account id the kernel returns is deliberately not forwarded, and no
-	// field can carry a token.
+	// A kernel account label without a matching stored UID is not an identity.
 	assert.equal(JSON.stringify(report).includes("uid-1"), false);
 	assert.equal(JSON.stringify(report).includes("the-token"), false);
 });
@@ -45,6 +44,27 @@ test("an unreachable provider still has a credential, and says so", () => {
 	assert.equal(report.configured, true);
 	assert.equal(report.source, "auth.json");
 	assert.equal(report.profile, "step_plan");
+});
+
+test("only a bounded stored OAuth UID matching a valid checked account reaches the report", () => {
+	const status = { loggedIn: true, loginMethod: "step_plan" as const, profile: "step_plan" as const, account: "uid-fixture", validity: "valid" as const };
+	const input = {
+		status, authPath, env: {},
+		read: () => JSON.stringify({ step: { type: "oauth", access: "secret-fixture", uid: " uid-fixture ", profile: "step_plan" } }),
+		exists: () => true,
+	};
+	const report = buildLoginReport(input);
+	assert.equal(report.userId, "uid-fixture");
+	assert.equal(JSON.stringify(report).includes("secret-fixture"), false);
+	for (const changed of [
+		{ ...input, status: { ...status, account: "step_plan" } },
+		{ ...input, status: { ...status, validity: "invalid" as const } },
+		{ ...input, status: { ...status, validity: "unavailable" as const } },
+		{ ...input, status: { ...status, loggedIn: false } },
+		{ ...input, env: { STEP_API_KEY: "environment-fixture" } },
+		{ ...input, read: () => JSON.stringify({ step: { type: "api_key", key: "key-fixture", uid: "uid-fixture" } }) },
+		{ ...input, read: () => JSON.stringify({ step: { type: "oauth", access: "secret-fixture", uid: "x".repeat(257) } }) },
+	]) assert.equal(buildLoginReport(changed).userId, undefined);
 });
 
 test("a rejected token keeps its source and reports the verdict", () => {

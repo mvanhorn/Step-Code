@@ -9,6 +9,11 @@ import styles from "./IconSprite.module.css";
  * resolving.
  */
 export const ICON_NAMES = [
+	"stepPlatform",
+	"keyRound",
+	"accountCheck",
+	"accountExternal",
+	"accountLogout",
 	"sidebar",
 	"newChat",
 	"search",
@@ -111,6 +116,60 @@ export type IconName = (typeof ICON_NAMES)[number];
 export function IconSprite() {
 	return (
 		<svg className={cx(styles.root, "icon-sprite")} aria-hidden="true" focusable="false">
+			{/* DFSC StepPlatformIcon, retained as the account brand mark. */}
+			{/* DFSC account controls, Lucide (ISC), scoped to avoid changing other Web surfaces. */}
+			<symbol
+				id="i-accountCheck"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="M20 6 9 17l-5-5" />
+			</symbol>
+			<symbol
+				id="i-accountExternal"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+			</symbol>
+			<symbol
+				id="i-accountLogout"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="m16 17 5-5-5-5M21 12H9M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+			</symbol>
+			<symbol id="i-stepPlatform" viewBox="0 0 24 24" fill="currentColor">
+				<rect x="9" y="2" width="6" height="6" />
+				<rect x="17" y="2" width="6" height="6" />
+				<rect x="9" y="10" width="6" height="6" />
+				<rect x="1" y="18" width="6" height="6" />
+				<rect x="9" y="18" width="6" height="6" />
+			</symbol>
+			<symbol
+				id="i-keyRound"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z" />
+				<circle cx="16.5" cy="7.5" r=".5" fill="currentColor" />
+			</symbol>
 			{/* Lucide 1.48.0 Timer and Database, for the compact DFSC performance row (ISC). */}
 			<symbol
 				id="i-timer"

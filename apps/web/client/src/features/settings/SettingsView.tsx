@@ -8,7 +8,8 @@ import type { ReactNode } from "react";
 import { useT } from "../../i18n";
 import { cx } from "../../lib/format";
 import { type SettingsPage, useAppStore } from "../../state/store";
-import { Icon, type IconName } from "../../ui";
+import { Icon, type IconName, Tooltip } from "../../ui";
+import { AccountPage } from "./AccountPage";
 import { AppearancePage } from "./AppearancePage";
 import { closeSettings, showSettingsPage } from "./actions";
 import { GeneralPage } from "./GeneralPage";
@@ -27,6 +28,7 @@ const MENU: ReadonlyArray<{ readonly title: string; readonly entries: readonly M
 	{
 		title: "settingsGroupBasics",
 		entries: [
+			{ page: "account", label: "settingsAccount", icon: "stepPlatform" },
 			{ page: "general", label: "settingsGeneral", icon: "sliders" },
 			{ page: "models", label: "settingsModels", icon: "cube" },
 			{ page: "appearance", label: "settingsAppearance", icon: "palette" },
@@ -46,6 +48,8 @@ function pageContent(page: SettingsPage): ReactNode {
 	switch (page) {
 		case "general":
 			return <GeneralPage />;
+		case "account":
+			return <AccountPage />;
 		case "appearance":
 			return <AppearancePage />;
 		case "models":
@@ -65,25 +69,28 @@ export function SettingsView() {
 	return (
 		<div className="settings-view" id="settingsView" hidden={page === null}>
 			<nav className="settings-nav" aria-label={t("settings")}>
-				<button type="button" className="settings-back" id="settingsBack" onClick={closeSettings}>
-					<Icon name="back" size="sm" />
-					<span>{t("settingsBack")}</span>
-				</button>
+				<Tooltip content={t("settingsBack")}>
+					<button type="button" className="settings-back" id="settingsBack" onClick={closeSettings}>
+						<Icon name="back" size="sm" />
+						<span>{t("settingsBack")}</span>
+					</button>
+				</Tooltip>
 				{MENU.map((group) => (
 					<div className="settings-nav-group" key={group.title}>
 						<div className="settings-nav-title">{t(group.title)}</div>
 						{group.entries.map((entry) => (
-							<button
-								key={entry.page}
-								type="button"
-								className={cx("settings-nav-item", page === entry.page && "active")}
-								data-settings-page={entry.page}
-								aria-current={page === entry.page ? "page" : undefined}
-								onClick={() => showSettingsPage(entry.page)}
-							>
-								<Icon name={entry.icon} size="sm" />
-								<span>{t(entry.label)}</span>
-							</button>
+							<Tooltip key={entry.page} content={t(entry.label)}>
+								<button
+									type="button"
+									className={cx("settings-nav-item", page === entry.page && "active")}
+									data-settings-page={entry.page}
+									aria-current={page === entry.page ? "page" : undefined}
+									onClick={() => showSettingsPage(entry.page)}
+								>
+									<Icon name={entry.icon} size="sm" />
+									<span>{t(entry.label)}</span>
+								</button>
+							</Tooltip>
 						))}
 					</div>
 				))}

@@ -1885,6 +1885,7 @@ components:
         source: { type: string, enum: [environment, auth.json, none] }
         provider: { type: string, description: "Provider id the credential belongs to" }
         profile: { type: string, description: "Login profile recorded at sign-in" }
+        userId: { type: string, maxLength: 256, description: "Stored OAuth UID matching the kernel's valid checked account; omitted for environment keys or unknown identities" }
         path: { type: string, description: "Credential file, when one exists" }
         configured: { type: boolean, description: "A credential exists, whatever the provider said about it" }
         validity:

@@ -24,8 +24,9 @@ export function openLoginPage(url: string): void {
 	window.open(url, "_blank", "noopener,noreferrer");
 }
 
-async function finishLogin(): Promise<void> {
-	completeLogin(await api<LoginReport>("/api/v1/login"));
+async function finishLogin(signal?: AbortSignal): Promise<void> {
+	const login = await api<LoginReport>("/api/v1/login", { signal });
+	if (!signal?.aborted) completeLogin(login);
 }
 
 export type ApiKeyOutcome =
@@ -35,10 +36,18 @@ export type ApiKeyOutcome =
 	| { readonly kind: "error"; readonly message: string };
 
 /** Validate and save a platform key; the gate closes when it is accepted. */
-export async function signInWithApiKey(profile: LoginMethod["id"], apiKey: string): Promise<ApiKeyOutcome> {
+export async function signInWithApiKey(
+	profile: LoginMethod["id"],
+	apiKey: string,
+	signal?: AbortSignal,
+): Promise<ApiKeyOutcome> {
 	try {
-		const result = await apiSend<{ login: LoginReport }>("/api/v1/login/api-key", "POST", { profile, apiKey });
-		completeLogin(result.login);
+		const result = await api<{ login: LoginReport }>("/api/v1/login/api-key", {
+			method: "POST",
+			body: JSON.stringify({ profile, apiKey }),
+			signal,
+		});
+		if (!signal?.aborted) completeLogin(result.login);
 		return { kind: "ok" };
 	} catch (caught) {
 		if (caught instanceof ApiError && caught.body.code === "invalid_key") return { kind: "invalid" };
@@ -49,6 +58,8 @@ export async function signInWithApiKey(profile: LoginMethod["id"], apiKey: strin
 
 /** Bumped by every start and cancel, so a stale poll loop stops on its own. */
 let browserAttempt = 0;
+let browserStart: Promise<BrowserLoginState> | undefined;
+let browserCancellation: Promise<void> = Promise.resolve();
 
 /**
  * Step Plan sign-in: the host starts the same cloud flow as `step login` and
@@ -59,23 +70,30 @@ let browserAttempt = 0;
 export async function signInWithBrowser(
 	profile: LoginMethod["id"],
 	onAuthUrl: (url: string) => void,
+	signal?: AbortSignal,
 ): Promise<"completed" | "cancelled"> {
 	browserAttempt += 1;
 	const attempt = browserAttempt;
 	try {
-		const started = await apiSend<BrowserLoginState>("/api/v1/login/browser", "POST", { profile });
-		if (attempt !== browserAttempt) return "cancelled";
+		await browserCancellation;
+		if (attempt !== browserAttempt || signal?.aborted) return "cancelled";
+		const pending = apiSend<BrowserLoginState>("/api/v1/login/browser", "POST", { profile });
+		browserStart = pending;
+		const started = await pending;
+		if (browserStart === pending) browserStart = undefined;
+		if (attempt !== browserAttempt || signal?.aborted) return "cancelled";
+		if (started.state === "failed") throw new Error(started.error ?? "failed");
 		if (started.authUrl) {
 			onAuthUrl(started.authUrl);
 			openLoginPage(started.authUrl);
 		}
 		for (;;) {
 			await new Promise((resolve) => setTimeout(resolve, BROWSER_POLL_MS));
-			if (attempt !== browserAttempt) return "cancelled";
-			const state = await api<BrowserLoginState>("/api/v1/login/browser");
-			if (attempt !== browserAttempt) return "cancelled";
+			if (attempt !== browserAttempt || signal?.aborted) return "cancelled";
+			const state = await api<BrowserLoginState>("/api/v1/login/browser", { signal });
+			if (attempt !== browserAttempt || signal?.aborted) return "cancelled";
 			if (state.state === "completed") {
-				await finishLogin();
+				await finishLogin(signal);
 				return "completed";
 			}
 			if (state.state === "failed") throw new Error(state.error ?? "failed");
@@ -83,7 +101,7 @@ export async function signInWithBrowser(
 		}
 	} catch (caught) {
 		// After the user went back, a late failure is not theirs to see.
-		if (attempt !== browserAttempt) return "cancelled";
+		if (attempt !== browserAttempt || signal?.aborted) return "cancelled";
 		throw caught;
 	}
 }
@@ -92,5 +110,9 @@ export function cancelBrowserSignIn(): void {
 	browserAttempt += 1;
 	// Best effort: if this request is lost, the host's sign-in still ends at its
 	// own timeout, and the poll loop above has already stopped.
-	void apiSend("/api/v1/login/browser", "DELETE").catch(() => {});
+	// Serialize cleanup after an in-flight start and before the next start:
+	// a slow DELETE must never cancel a replacement authorization.
+	browserCancellation = Promise.allSettled([browserCancellation, browserStart]).then(async () => {
+		await apiSend("/api/v1/login/browser", "DELETE").catch(() => {});
+	});
 }
