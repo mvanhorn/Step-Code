@@ -595,6 +595,11 @@ export {
 	type SessionSearchService,
 } from "./server/session-search-service.ts";
 export {
+	getStepAccountProfile,
+	type StepAccountProfile,
+	type StepAccountProfileOutcome,
+} from "./step/account-profile.ts";
+export {
 	getLegacyStepAuthPath,
 	getStepAuthPath,
 	logoutStepCredentials,

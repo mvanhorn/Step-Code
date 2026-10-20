@@ -304,7 +304,32 @@ export async function loginStepWithApiKey(
 		obtainedAt: (input.now ?? (() => new Date()))().toISOString(),
 	});
 	syncStepLoginProfileEndpoint(input.authPath, input.env ?? process.env);
+	// An API key carries no account session. A previous account's session must
+	// not outlive it, or a host would show an identity that no longer matches.
+	await replaceHeadlessLoginState(input, undefined);
 	return result;
+}
+
+/**
+ * Replace the stored account session after a headless sign-in, as `step login` does.
+ *
+ * The session sits beside `input.authPath`, so a host that isolates its
+ * credential file isolates the session too. Best-effort: the API key is already
+ * written, and a session problem must never fail the sign-in; account features
+ * then report "missing" and ask for a new sign-in.
+ */
+async function replaceHeadlessLoginState(
+	input: StepHeadlessLoginOptions,
+	login: StepCliLoginState | undefined,
+	profile?: StepLoginProfileId,
+): Promise<void> {
+	const env = { ...(input.env ?? process.env), STEPCODE_AUTH_PATH: input.authPath };
+	try {
+		await clearStepLoginState(env);
+		if (login && profile) await saveStepLoginState(buildStepLoginState(login, profile), env);
+	} catch {
+		// Ignored on purpose; see above.
+	}
 }
 
 /**
@@ -333,6 +358,7 @@ export async function loginStepInBrowser(
 		obtainedAt: (input.now ?? (() => new Date()))().toISOString(),
 	});
 	syncStepLoginProfileEndpoint(input.authPath, input.env ?? process.env);
+	await replaceHeadlessLoginState(input, readLoginState(credential.login), profile.id);
 }
 
 export async function runStepLogin(options: RunStepLoginOptions = {}): Promise<StepLoginOutcome> {

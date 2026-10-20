@@ -287,6 +287,8 @@ export type StepLoginTokenOutcome =
 	| {
 			readonly status: "ready";
 			readonly accessToken: string;
+			/** Long-lived; account calls rebuild the `Oasis-Token` value from both halves. Never log or forward it. */
+			readonly refreshToken: string;
 			readonly deviceId: string;
 			readonly appId: string;
 			readonly profile: StepLoginProfileId;
@@ -368,6 +370,7 @@ function ready(state: StepLoginState): StepLoginTokenOutcome {
 	return {
 		status: "ready",
 		accessToken: state.accessToken,
+		refreshToken: state.refreshToken,
 		deviceId: state.deviceId,
 		appId: state.appId,
 		profile: state.profile,
@@ -418,7 +421,7 @@ async function refreshAndCommit(
 	let refreshed: StepCliLoginState;
 	try {
 		refreshed = await refreshStepLoginState({
-			authBaseUrl: resolveAuthBaseUrl(before.profile, env),
+			authBaseUrl: resolveStepLoginAuthBaseUrl(before.profile, env),
 			state: {
 				accessToken: before.accessToken,
 				refreshToken: before.refreshToken,
@@ -478,7 +481,10 @@ async function refreshAndCommit(
 }
 
 /** The developer center that issued the session is the one that refreshes it. */
-function resolveAuthBaseUrl(profile: StepLoginProfileId, env: Record<string, string | undefined>): string {
+export function resolveStepLoginAuthBaseUrl(
+	profile: StepLoginProfileId,
+	env: Record<string, string | undefined>,
+): string {
 	const resolved = resolveStepLoginProfiles(env).find((candidate) => candidate.id === profile);
 	return resolved?.authBaseUrl ?? "https://platform.stepfun.com";
 }

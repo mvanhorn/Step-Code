@@ -9,6 +9,7 @@ import {
 	readStepLoginCredential,
 	readStepLoginProfile,
 } from "../src/step/login-flow.ts";
+import { readStepLoginState, saveStepLoginState } from "../src/step/login-state.ts";
 
 const dirs: string[] = [];
 afterEach(async () => {
@@ -111,5 +112,75 @@ describe("headless Step login (desktop)", () => {
 		expect(authUrl).toContain(flowId);
 		expect(readStepLoginCredential(authPath)).toMatchObject({ type: "oauth", access: "plan-key", uid: "u-9" });
 		expect(readStepLoginProfile(authPath)).toBe("step_plan_oversea");
+	});
+
+	it("stores the account session beside auth.json and an API key sign-in drops it", async () => {
+		const authPath = await authFile();
+		const sessionEnv = { STEPCODE_AUTH_PATH: authPath };
+		// A previous account's session must be replaced, not kept.
+		await saveStepLoginState(
+			{
+				version: 1,
+				profile: "step_plan",
+				appId: "10300",
+				deviceId: "old-device",
+				accessToken: "old-access",
+				refreshToken: "old-refresh",
+				accessExpiresAt: Math.floor(Date.now() / 1000) + 1800,
+			},
+			sessionEnv,
+		);
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (url: string) => {
+				if (url.endsWith("/init"))
+					return new Response(
+						JSON.stringify({
+							status: 0,
+							flow_id: "c".repeat(32),
+							poll_interval_sec: 1,
+							expires_at: Date.now() / 1000 + 600,
+						}),
+					);
+				return new Response(
+					JSON.stringify({
+						status: 0,
+						state: "ready",
+						credential: {
+							api_key: "plan-key",
+							login: {
+								access_token: "new-access",
+								refresh_token: "new-refresh",
+								device_id: "device-2",
+								app_id: "10300",
+								expires_in: 1800,
+							},
+						},
+					}),
+				);
+			}),
+		);
+		await loginStepInBrowser({
+			authPath,
+			env: {},
+			profile: "step_plan",
+			signal: new AbortController().signal,
+			onAuthUrl: () => {},
+		});
+		expect(readStepLoginState(sessionEnv)).toMatchObject({
+			profile: "step_plan",
+			accessToken: "new-access",
+			refreshToken: "new-refresh",
+			deviceId: "device-2",
+		});
+
+		await loginStepWithApiKey({
+			authPath,
+			env: {},
+			profile: "platform_cn",
+			apiKey: "sk-cn",
+			fetch: async () => new Response("{}", { status: 200 }),
+		});
+		expect(readStepLoginState(sessionEnv)).toBeUndefined();
 	});
 });
