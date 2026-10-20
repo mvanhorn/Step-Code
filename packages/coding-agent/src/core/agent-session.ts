@@ -78,6 +78,7 @@ import {
 	type LiveContextOutcome,
 	type LiveContextStatus,
 } from "./compaction/live-context/manager.ts";
+import { StableContextNotices } from "./compaction/live-context/stable-notices.ts";
 import { DEFAULT_THINKING_LEVEL, THINKING_LEVEL_OPTIONS } from "./defaults.ts";
 import { exportSessionToHtml, type ToolHtmlRenderer } from "./export-html/index.ts";
 import { createToolHtmlRenderer } from "./export-html/tool-renderer.ts";
@@ -882,6 +883,7 @@ export class AgentSession {
 
 	private _installLiveContext(): void {
 		const transform = this.agent.transformContext;
+		const notices = new StableContextNotices();
 		this.agent.transformContext = async (raw, signal) => {
 			const live = this._getLiveContext();
 			if (!live) return transform ? transform(raw, signal) : raw;
@@ -911,9 +913,7 @@ export class AgentSession {
 				this.model?.contextWindow ?? 0,
 				guidanceOptions,
 			);
-			return notice || pressure
-				? [...messages, ...(notice ? [notice] : []), ...(pressure ? [pressure] : [])]
-				: messages;
+			return notices.project(messages, [...(notice ? [notice] : []), ...(pressure ? [pressure] : [])]);
 		};
 		const stream = this.agent.streamFunction;
 		this._liveContextBaseStream = stream;

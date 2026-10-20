@@ -85,6 +85,7 @@ import type {
 	WriteToolInput,
 } from "../tools/index.ts";
 import type { ClarificationQuestion, ClarificationResult } from "./clarification.ts";
+import type { UIDecisionRequest } from "./ui-decisions.ts";
 
 export type { ExecOptions, ExecResult } from "../exec.ts";
 export type { BuildSystemPromptOptions } from "../system-prompt.ts";
@@ -97,6 +98,8 @@ export type { AppKeybinding, KeybindingsManager } from "../keybindings.ts";
 
 /** Options for extension UI dialogs. */
 export interface ExtensionUIDialogOptions {
+	/** Explicitly allow an in-process mirror to display and resolve this select/confirm. Never use for secrets. */
+	mirror?: boolean;
 	/** AbortSignal to programmatically dismiss the dialog. */
 	signal?: AbortSignal;
 	/** Timeout in milliseconds. Dialog auto-dismisses with live countdown display. */
@@ -177,6 +180,8 @@ export interface ExtensionUIContext {
 	/** Collect a complete question set using a host-native UI, with cancellation support. */
 	clarify?(questions: ClarificationQuestion[], signal?: AbortSignal): Promise<ClarificationResult>;
 
+	/** Observe explicitly mirrorable decisions; unsubscribe does not dismiss the local dialog. */
+	onDecision?(listener: (request: UIDecisionRequest) => void): () => void;
 	/** Show a selector and return the user's choice. */
 	select(title: string, options: string[], opts?: ExtensionUIDialogOptions): Promise<string | undefined>;
 
