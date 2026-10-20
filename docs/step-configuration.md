@@ -14,7 +14,7 @@ The retired `step-settings.json` and `settings.json` files are no longer read,
 written, or covered by the project trust prompt. A project that still ships one
 is ignored; move any settings it holds into the project `config.toml`.
 
-There is no automatic import from the pre-pi `config.json` layout. `models.json`
+There is no automatic import from the legacy pre-Step `config.json` layout. `models.json`
 and `auth.json` keep their own formats — they hold model definitions and
 credentials, not settings — and a stale Step endpoint recorded in `models.json`
 by an older release is still repaired in place at startup.

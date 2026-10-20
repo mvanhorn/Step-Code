@@ -95,7 +95,6 @@ function AccountMenu({
 					id="accountUpgradeButton"
 					data-href={planUrl}
 					icon="upgrade"
-					trailing={<Icon name="external" size="xs" />}
 					onClick={() => {
 						closeAccountMenu();
 						openLoginPage(planUrl);
