@@ -313,6 +313,8 @@ Session metadata (e.g., user-defined display name). Set via `/name`, `--name` / 
 
 The session name is displayed in the session selector (`/resume`) instead of the first message when set.
 
+The existing `session_info_changed` UI path updates the terminal title using OSC 0, with control characters removed from dynamic title text. Named sessions display only their name; unnamed sessions retain the product and directory fallback. This protocol is used by Apple Terminal, iTerm2, Ghostty, Otty, and other compatible terminals; visibility depends on the terminal's tab/window title settings. Per-tab busy state is a separate OSC 9;4 indicator controlled by `terminal.showTerminalProgress` (see [settings](settings.md)); no notification, bell, or completion status is added.
+
 ## Tree Structure
 
 Entries form a tree:
