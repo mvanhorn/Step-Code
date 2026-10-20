@@ -46,6 +46,20 @@ paths:
                   cwd: { type: string, description: Launch working directory }
                   directoryPicker: { type: string, enum: [native, browse] }
                   login: { $ref: "#/components/schemas/LoginReport" }
+  /api/v1/account:
+    get:
+      description: |
+        The signed-in account's display name and avatar, for the sidebar footer.
+        Read from the account session stored beside auth.json (written by a
+        Step Plan sign-in, from a terminal or from the sign-in dialog) through
+        the developer center's `Dashboard/UserInfo`. Never carries a token or the
+        account id. Cached by the host; a sign-in from this host invalidates it.
+      responses:
+        "200":
+          description: Account profile, or why there is none
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AccountReport" }
   /api/v1/login:
     get:
       description: |
@@ -1405,6 +1419,23 @@ components:
         profile: { type: string }
         authUrl: { type: string, description: Authorize URL to open while pending }
         error: { type: string }
+    AccountReport:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ready, missing, expired, unavailable]
+          description: |
+            ready: `account` is set. missing: no account session (API-key sign-in).
+            expired: the session was rejected; signing in again restores it.
+            unavailable: the developer center could not be reached.
+        account:
+          type: object
+          required: [name]
+          properties:
+            name: { type: string, description: "Nickname, else email, else the (masked) phone number" }
+            avatarUrl: { type: string, format: uri }
     LoginReport:
       description: |
         Where the model credential comes from. Never contains the credential.

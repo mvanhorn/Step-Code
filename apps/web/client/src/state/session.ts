@@ -18,6 +18,7 @@ import { FULL_ACCESS_PRESET, isFullAccessRisk } from "../lib/permissions";
 import { isDesktopHost } from "../platform/host";
 import { type AppState, getState, mapWith, setState, setUi } from "./store";
 import type {
+	AccountReport,
 	AgentMessage,
 	ApprovalRequest,
 	BootstrapPayload,
@@ -844,6 +845,19 @@ export interface BootstrapOptions {
 	readonly openTree?: (project: { cwd: string }) => Promise<void>;
 }
 
+/**
+ * Ask the host who is signed in (name and avatar) for the sidebar footer. A
+ * failure keeps the previous answer: the footer falls back to the credential
+ * label, so there is nothing to report.
+ */
+export async function refreshAccount(): Promise<void> {
+	try {
+		setState({ account: await api<AccountReport>("/api/v1/account") });
+	} catch {
+		// Decoration only; see above.
+	}
+}
+
 let bootstrapped = false;
 let resumeAfterLogin: (() => void) | undefined;
 
@@ -854,6 +868,7 @@ let resumeAfterLogin: (() => void) | undefined;
  */
 export function completeLogin(login: LoginReport): void {
 	setState({ login });
+	void refreshAccount();
 	setUi({ loginRequired: false });
 	const resume = resumeAfterLogin;
 	resumeAfterLogin = undefined;
@@ -878,6 +893,7 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<void> {
 			login: boot.login ?? null,
 			draftCwd: boot.cwd,
 		});
+		if (boot.login?.configured) void refreshAccount();
 		// Desktop asks for a credential before anything else; a browser host
 		// keeps the terminal `step login` path and its banner.
 		if (isDesktopHost() && boot.login && !boot.login.configured) {

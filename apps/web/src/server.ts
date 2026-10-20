@@ -7,6 +7,7 @@ import { dirname, extname, join, normalize, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url";
 import type { StepPermissionPresetId } from "@step-harness/coding-agent";
 import {
+	getStepAccountProfile,
 	getStepAuthPath,
 	getStepLoginStatus,
 	openBrowser,
@@ -15,6 +16,7 @@ import {
 	resolveStepConfigRoot,
 	SessionSearchRequestError,
 } from "@step-harness/coding-agent";
+import { AccountProfileCache } from "./account.ts";
 import { WebAuth } from "./auth.ts";
 import { formatStartupBanner, launchUrl, resolveLaunchPort } from "./banner.ts";
 import { recordBrowserOpened, shouldOpenBrowser } from "./browser-open.ts";
@@ -308,10 +310,20 @@ async function loginReport(): Promise<LoginReport> {
  * Sign-in from the page. A saved credential invalidates the cached report and
  * the open sessions, which were built without it.
  */
+/**
+ * The signed-in account's name and avatar, for the sidebar footer. The session
+ * is read beside the credential file this host uses, the same place a sign-in
+ * from this host or a terminal `step login` writes it.
+ */
+const account = new AccountProfileCache(() =>
+	getStepAccountProfile({ env: { ...process.env, STEPCODE_AUTH_PATH: getStepAuthPath() } }),
+);
+
 const login = new WebLoginController({
 	authPath: () => getStepAuthPath(),
 	onSaved: () => {
 		loginCache = undefined;
+		account.invalidate();
 		void store.reloadCredentials();
 	},
 });
@@ -533,6 +545,9 @@ const server = createServer(async (request, response) => {
 		if (parts[0] !== "api" || parts[1] !== "v1") return error(response, 404, "Not found");
 		if (parts[2] === "bootstrap" && method === "GET") {
 			return json(response, 200, { cwd: defaultWorkspace(), directoryPicker, login: await loginReport() });
+		}
+		if (parts[2] === "account" && parts.length === 3 && method === "GET") {
+			return json(response, 200, await account.get());
 		}
 		if (parts[2] === "login" && parts.length === 3 && method === "GET") {
 			return json(response, 200, await loginReport());

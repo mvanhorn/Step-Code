@@ -2,24 +2,58 @@
  * `.user-area` at the foot of the sidebar: the signed-in account on the left,
  * and two icon buttons on the right. The phone button is a placeholder for
  * mobile remote control (not available yet); the gear opens the settings view.
+ *
+ * The account shows the nickname and avatar the host reads from the account
+ * session (`GET /api/v1/account`). Without one (API-key sign-in, or the
+ * developer center unreachable) it falls back to a label for the credential.
  */
 
+import { useState } from "react";
 import { type TranslateFn, useT } from "../../i18n";
 import { useAppStore } from "../../state/store";
-import type { LoginReport } from "../../state/types";
+import type { AccountReport, LoginReport } from "../../state/types";
 import { Icon, Tooltip } from "../../ui";
 import { openSettings } from "../settings/actions";
 
-function accountName(t: TranslateFn, login: LoginReport | null): string {
+function isStepPlan(login: LoginReport | null): boolean {
+	return login?.source === "auth.json" && login.profile?.startsWith("step_plan") === true;
+}
+
+/** The name to show; empty while a Step Plan account is still being looked up. */
+function accountName(t: TranslateFn, login: LoginReport | null, account: AccountReport | null): string {
 	if (!login?.configured) return t("footerSignedOut");
-	if (login.source === "environment") return t("footerApiKey");
-	return login.profile?.startsWith("step_plan") ? "Step Plan" : t("footerApiKey");
+	if (account?.account) return account.account.name;
+	if (!isStepPlan(login)) return t("footerApiKey");
+	return account ? t("footerSignedIn") : "";
+}
+
+function AccountAvatar({ name, url }: { name: string; url: string | undefined }) {
+	// Remember which URL failed, so a new URL gets a fresh attempt.
+	const [brokenUrl, setBrokenUrl] = useState<string>();
+	return (
+		<span className="user-avatar" aria-hidden="true">
+			{url && url !== brokenUrl ? (
+				<img
+					className="user-avatar-image"
+					src={url}
+					alt=""
+					referrerPolicy="no-referrer"
+					draggable={false}
+					onError={() => setBrokenUrl(url)}
+				/>
+			) : (
+				name.slice(0, 1).toUpperCase()
+			)}
+		</span>
+	);
 }
 
 export function UserArea() {
 	const t = useT();
 	const login = useAppStore((state) => state.login);
-	const name = accountName(t, login);
+	const account = useAppStore((state) => state.account);
+	const name = accountName(t, login, account);
+	const avatarUrl = login?.configured ? account?.account?.avatarUrl : undefined;
 	return (
 		<div className="user-area">
 			<button
@@ -29,9 +63,7 @@ export function UserArea() {
 				aria-label={t("footerAccount", { name })}
 				onClick={() => openSettings("general")}
 			>
-				<span className="user-avatar" aria-hidden="true">
-					{name.slice(0, 1).toUpperCase()}
-				</span>
+				<AccountAvatar name={name} url={avatarUrl} />
 				<span className="user-name">{name}</span>
 			</button>
 			<div className="user-actions">
