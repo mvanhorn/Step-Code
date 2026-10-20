@@ -24,6 +24,7 @@ test("a stored plan credential is reported with its profile and never its value"
 		configured: true,
 		validity: "valid",
 		loginCommand: "step login",
+		planUrl: "https://platform.stepfun.com/step-plan",
 	});
 	// A kernel account label without a matching stored UID is not an identity.
 	assert.equal(JSON.stringify(report).includes("uid-1"), false);
@@ -118,7 +119,12 @@ test("an empty or malformed store reports none and names the command that fixes 
 			read,
 			exists: () => false,
 		});
-		assert.deepEqual(report, { source: "none", configured: false, loginCommand: "step login" });
+		assert.deepEqual(report, {
+			source: "none",
+			configured: false,
+			loginCommand: "step login",
+			planUrl: "https://platform.stepfun.com/step-plan",
+		});
 	}
 });
 
@@ -137,8 +143,33 @@ test("a plain API-key credential is recognised without a profile", () => {
 		configured: true,
 		validity: "missing",
 		loginCommand: "step login",
+		planUrl: "https://platform.stepfun.com/step-plan",
 	});
 	assert.equal(JSON.stringify(report).includes("sk-not-echoed"), false);
+});
+
+test("Upgrade leads to the Step Plan page of the credential's region", () => {
+	const reportFor = (profile: string | undefined, env: Record<string, string | undefined> = {}) =>
+		buildLoginReport({
+			status: { loggedIn: true, loginMethod: "step_plan", validity: "valid" },
+			authPath,
+			env,
+			read: () =>
+				JSON.stringify({ step: { type: "api_key", key: "sk", ...(profile ? { profile } : {}) } }),
+			exists: () => true,
+		}).planUrl;
+	assert.equal(reportFor("step_plan"), "https://platform.stepfun.com/step-plan");
+	assert.equal(reportFor("platform_cn"), "https://platform.stepfun.com/step-plan");
+	assert.equal(reportFor("step_plan_oversea"), "https://platform.stepfun.ai/step-plan");
+	assert.equal(reportFor("platform_oversea"), "https://platform.stepfun.ai/step-plan");
+	// No recorded region: the mainland platform, like the provider default.
+	assert.equal(reportFor(undefined), "https://platform.stepfun.com/step-plan");
+	assert.equal(reportFor("step_plan", { STEP_API_KEY: "sk-env" }), "https://platform.stepfun.com/step-plan");
+	// The same endpoint overrides `step login` honours.
+	assert.equal(
+		reportFor("step_plan_oversea", { STEPCODE_DEVCENTER_AUTH_OVERSEA_URL: "https://dev.example.test/" }),
+		"https://dev.example.test/step-plan",
+	);
 });
 
 test("the desktop dialog offers the four step login profiles, split by region", () => {

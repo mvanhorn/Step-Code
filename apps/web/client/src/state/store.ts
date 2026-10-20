@@ -154,6 +154,8 @@ export interface UiState {
 	readonly searchOpen: boolean;
 	/** `#workspacePopover` visible */
 	readonly workspacePopoverOpen: boolean;
+	/** `#accountMenu`: the sidebar footer's account popover */
+	readonly accountMenuOpen: boolean;
 	/** `#workspaceBrowserModal` visible */
 	readonly workspaceBrowserOpen: boolean;
 	readonly workspaceRemoval: { readonly path: string; readonly pending: boolean } | null;
@@ -173,6 +175,8 @@ export interface UiState {
 	readonly authExpired: boolean;
 	/** `#loggedOutOverlay` visible. */
 	readonly loggedOut: boolean;
+	/** `#logoutDialog`: confirming Log out; `pending` while `/auth/logout` runs. */
+	readonly logoutConfirm: { readonly pending: boolean } | null;
 	/** `#loginGate` visible: Desktop has no Step credential yet, and the app waits behind it. */
 	readonly loginRequired: boolean;
 	/** Incremented to ask the composer to focus `#prompt` (legacy `$("#prompt").focus()`). */
@@ -379,6 +383,7 @@ export function createInitialState(): AppState {
 			fileTreeOpen: false,
 			searchOpen: false,
 			workspacePopoverOpen: false,
+			accountMenuOpen: false,
 			workspaceBrowserOpen: false,
 			workspaceRemoval: null,
 			settingsPage: null,
@@ -389,6 +394,7 @@ export function createInitialState(): AppState {
 			tagPicker: null,
 			authExpired: false,
 			loggedOut: false,
+			logoutConfirm: null,
 			loginRequired: false,
 			promptFocusRequest: 0,
 			midView: null,

@@ -27,7 +27,11 @@ export function SidebarShowButton() {
 	);
 }
 
-/** `#errorToast`, filled by `showError` (legacy app.js 3184-3193; index.html 1011). */
+/**
+ * `#errorToast`, filled by `showError` (legacy app.js 3184-3193; index.html
+ * 1011). The look and placement are `ui/Toast`'s; `.error-toast` stays as the
+ * element's public class.
+ */
 export function ErrorToast() {
 	const toast = useAppStore((state) => state.toast);
 	return <Toast id="errorToast" className="error-toast" message={toast?.message} tone={toast?.tone} />;

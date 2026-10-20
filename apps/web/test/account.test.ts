@@ -8,10 +8,16 @@ const ready: StepAccountProfileOutcome = {
 	account: { name: "Ada", avatarUrl: "https://cdn.example.test/a.png", uid: "42", profile: "step_plan" },
 };
 
-test("the report carries only the display name and avatar", () => {
+test("the report carries the name, avatar and account id, and drops the profile", () => {
 	const report = toAccountReport(ready);
-	assert.deepEqual(report, { status: "ready", account: { name: "Ada", avatarUrl: "https://cdn.example.test/a.png" } });
-	assert.equal(JSON.stringify(report).includes("42"), false);
+	assert.deepEqual(report, {
+		status: "ready",
+		account: { name: "Ada", avatarUrl: "https://cdn.example.test/a.png", uid: "42" },
+	});
+	assert.deepEqual(
+		toAccountReport({ status: "ready", account: { name: "Bo", profile: "step_plan" } }),
+		{ status: "ready", account: { name: "Bo" } },
+	);
 	assert.deepEqual(toAccountReport({ status: "expired", reason: "token is illegal" }), { status: "expired" });
 	assert.deepEqual(toAccountReport({ status: "missing" }), { status: "missing" });
 });

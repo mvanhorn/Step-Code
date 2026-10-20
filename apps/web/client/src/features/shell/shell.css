@@ -61,6 +61,11 @@
 	height: 100%;
 	object-fit: cover;
 }
+.user-avatar.large {
+	width: 40px;
+	height: 40px;
+	font-size: 15px;
+}
 .user-name {
 	flex: 1;
 	overflow: hidden;
@@ -115,26 +120,6 @@
 	padding: 6px 11px;
 }
 
-/* Fixed, so the toast also shows above the settings view and its dialogs. */
-.error-toast {
-	position: fixed;
-	right: 20px;
-	bottom: 20px;
-	z-index: 120;
-	max-width: 390px;
-	padding: 10px 13px;
-	border: 1px solid color-mix(in srgb, var(--danger) 38%, var(--line));
-	border-radius: var(--radius-surface);
-	background: var(--danger-surface);
-	color: var(--danger);
-	box-shadow: 0 8px 24px rgb(0 0 0 / 9%);
-	font-size: 12px;
-}
-.error-toast[data-tone="neutral"] {
-	border-color: var(--line);
-	background: var(--surface);
-	color: var(--ink-2);
-}
 /*
  * Shown when the session cookie stops being accepted. Without it a failed
  * exchange just leaves an empty sidebar and an empty model list, which reads
@@ -206,4 +191,98 @@
 	max-width: 360px;
 	margin-top: 6px;
 	color: var(--ink-2);
+}
+
+/* `#accountMenu`: the account popover above the footer's account button. */
+.account-menu {
+	width: 248px;
+	--popover-gap: 6px;
+}
+.account-menu-header {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 6px 6px 8px;
+}
+.account-menu-identity {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+.account-menu-name {
+	overflow: hidden;
+	color: var(--ink);
+	font-size: 14px;
+	font-weight: 650;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.account-menu-id {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	color: var(--ink-3);
+	font-size: 12px;
+	font-variant-numeric: tabular-nums;
+}
+.account-menu-id .account-menu-copy {
+	width: 20px;
+	height: 20px;
+	color: var(--ink-3);
+}
+
+/* `#logoutDialog`: Log out confirmation (title, consequence, Cancel esc / Log out ↵). */
+.logout-dialog {
+	width: min(440px, 100%);
+	padding: 22px 22px 18px;
+}
+.logout-dialog h2 {
+	color: var(--ink);
+	font-size: 18px;
+	font-weight: 650;
+	line-height: 1.35;
+}
+.logout-dialog > p {
+	margin-top: 10px;
+	color: var(--ink-3);
+	font-size: 14px;
+	line-height: 1.5;
+}
+.logout-dialog > footer {
+	display: flex;
+	justify-content: flex-end;
+	gap: 10px;
+	margin-top: 22px;
+}
+.logout-dialog footer > button {
+	display: inline-flex;
+	align-items: center;
+	gap: 12px;
+	min-height: var(--control-h-lg);
+	padding: 0 14px;
+	border-radius: var(--radius-panel);
+	font-size: 14px;
+}
+.logout-dialog footer > button:focus-visible {
+	outline: 2px solid var(--focus-border);
+	outline-offset: 2px;
+}
+#logoutCancel {
+	background: var(--surface-soft);
+	color: var(--ink);
+}
+#logoutCancel:hover:not(:disabled) {
+	background: var(--hover);
+}
+/* Buttons stay black and white, as in the workspace removal dialog. */
+#logoutConfirm {
+	background: var(--ink);
+	color: var(--canvas);
+	font-weight: 500;
+}
+.logout-dialog-key {
+	font-family: inherit;
+	font-size: 13px;
+	opacity: 0.5;
 }

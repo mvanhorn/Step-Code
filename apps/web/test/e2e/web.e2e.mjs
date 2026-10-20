@@ -497,6 +497,7 @@ test(
     assert.equal(report.boot.login.profile, "step_plan")
     assert.equal(report.boot.login.configured, true)
     assert.equal(report.boot.login.loginCommand, "step login")
+    assert.equal(report.boot.login.planUrl, "https://platform.stepfun.com/step-plan")
     assert.equal(report.boot.login.path, authPath)
     assert.deepEqual(report.direct, report.boot.login)
     assert.equal(
@@ -537,6 +538,7 @@ test(
 			mark: !!$(".settings-account-logo use[href='#i-stepPlatform']"),
 			channels: $$(".settings-account-channel").map((row) => row.dataset.loginProfile),
 			logout: !!$("#logoutButton"),
+			upgrade: $("#stepPlanLink").getAttribute("href"),
 			firstPage: $(".settings-nav-item").dataset.settingsPage,
 			logoutInIdentity: !!$(".settings-account-identity #logoutButton use[href='#i-accountLogout']"),
 			loginIcon: !!$("#settingsAccountLogin use[href='#i-accountExternal']"),
@@ -553,8 +555,72 @@ test(
       page: "account", label: "Step Plan · 中国大陆", mark: true,
       channels: ["step_plan", "step_plan_oversea", "platform_cn", "platform_oversea"],
       logout: true,
+      upgrade: "https://platform.stepfun.com/step-plan",
       firstPage: "account", logoutInIdentity: true, loginIcon: true, twoColumns: true,
     });
+
+    // The account button opens the account menu above it, not the settings view.
+    const menu = await browser.run(`
+		$("#settingsBack").click();
+		await until(() => $("#settingsView").hidden, "settings view to close");
+		$("#userAccountButton").click();
+		await until(() => $("#accountMenu"), "account menu");
+		const opened = {
+			expanded: $("#userAccountButton").getAttribute("aria-expanded"),
+			settingsHidden: $("#settingsView").hidden,
+			items: [...$("#accountMenu").querySelectorAll("[role=menuitem]")].map((item) => item.id),
+			upgrade: $("#accountUpgradeButton").dataset.href,
+			above: $("#accountMenu").getBoundingClientRect().bottom <= $("#userAccountButton").getBoundingClientRect().top,
+		};
+		document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+		await until(() => !$("#accountMenu"), "account menu to close");
+		const expandedAfter = $("#userAccountButton").getAttribute("aria-expanded");
+		// Log out asks in the app's own dialog; Escape cancels it and keeps the session.
+		const nativeConfirm = window.confirm;
+		let nativeAsked = false;
+		window.confirm = () => { nativeAsked = true; return false; };
+		$("#userAccountButton").click();
+		await until(() => $("#accountLogoutButton"), "account menu again");
+		$("#accountLogoutButton").click();
+		await until(() => !$("#logoutDialog").hidden, "log-out dialog");
+		const dialog = {
+			menuClosed: !$("#accountMenu"),
+			focused: document.activeElement?.id,
+			buttons: [...$("#logoutDialog").querySelectorAll("footer button")].map((button) => button.textContent),
+			nativeAsked,
+		};
+		document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+		await until(() => $("#logoutDialog").hidden, "log-out dialog to close");
+		window.confirm = nativeConfirm;
+		// Enter on a dialog button is that button's own; Enter on Cancel cancels.
+		$("#settingsButton").click();
+		await until(() => !$("#settingsView").hidden, "settings view for account");
+		$("[data-settings-page='account']").click();
+		await until(() => $("#logoutButton"), "settings log-out button");
+		$("#logoutButton").click();
+		await until(() => !$("#logoutDialog").hidden, "log-out dialog from settings");
+		$("#logoutCancel").focus();
+		$("#logoutCancel").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+		$("#logoutCancel").click();
+		await until(() => $("#logoutDialog").hidden, "log-out dialog to cancel");
+		$("#settingsBack").click();
+		await until(() => $("#settingsView").hidden, "settings view to close again");
+		const stillIn = $("#loggedOutOverlay").hidden && (await fetch("/api/v1/login")).ok;
+		// Back to the settings view for the steps below.
+		$("#settingsButton").click();
+		await until(() => !$("#settingsView").hidden, "settings view to reopen");
+		return { ...opened, expandedAfter, dialog, stillIn };
+	`)
+    assert.deepEqual(menu, {
+      expanded: "true",
+      settingsHidden: true,
+      items: ["accountUpgradeButton", "accountLogoutButton"],
+      upgrade: "https://platform.stepfun.com/step-plan",
+      above: true,
+      expandedAfter: "false",
+      dialog: { menuClosed: true, focused: "logoutConfirm", buttons: ["取消esc", "退出登录↵"], nativeAsked: false },
+      stillIn: true,
+    })
 
     // Language applies from the general page and is remembered.
     const language = await browser.run(`
@@ -1984,4 +2050,56 @@ test("a subagent or workflow call opens its child agents' transcripts read-only 
     return [other.status, notChild.status];
   `)
   assert.deepEqual(refused, [404, 404])
+})
+
+test("the token usage panel opens centred above its trigger without growing the composer", { skip }, async () => {
+  const now = new Date().toISOString()
+  const sessionId = "e2e-usage-session"
+  const usage = { input: 10, output: 2000, cacheRead: 0, cacheWrite: 0, totalTokens: 2010, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }
+  const lines = [
+    { type: "session", version: 3, id: sessionId, timestamp: now, cwd: workspace },
+    { type: "message", id: "u1", parentId: null, timestamp: now, message: { role: "user", content: "count the tokens", timestamp: Date.now() } },
+    {
+      type: "message", id: "a1", parentId: "u1", timestamp: now,
+      message: { role: "assistant", content: [{ type: "text", text: "Counted." }], api: "openai-completions", provider: "e2e", model: "e2e", usage, stopReason: "stop", timestamp: Date.now() },
+    },
+  ]
+  const dir = join(base, "agent", "sessions", "--e2e-usage--")
+  await mkdir(dir, { recursive: true })
+  await writeFile(join(dir, `${now.replace(/[:.]/g, "-")}_${sessionId}.jsonl`), lines.map((line) => JSON.stringify(line)).join("\n") + "\n")
+
+  await browser.goto(`${origin}/`)
+  const seen = await browser.run(`
+    (await until(() => $('.session-row[data-session-id="${sessionId}"]'), "usage session row")).click();
+    const trigger = await until(() => !$("#usageTrigger").hidden && $("#usageTrigger"), "usage trigger");
+    const composer = $(".composer-card") ?? $("#composer");
+    const before = composer.getBoundingClientRect().height;
+    const closedPanel = Boolean($("#usagePopover"));
+    trigger.click();
+    const panel = await until(() => $("#usagePopover"), "usage panel");
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const box = panel.getBoundingClientRect();
+    const anchor = trigger.getBoundingClientRect();
+    const opened = {
+      closedPanel,
+      expanded: trigger.getAttribute("aria-expanded"),
+      outsideComposer: !composer.contains(panel),
+      above: box.bottom <= anchor.top,
+      centred: Math.abs(box.left + box.width / 2 - (anchor.left + anchor.width / 2)) < 2,
+      composerGrew: composer.getBoundingClientRect().height !== before,
+      total: panel.querySelector(".usage-total b").textContent,
+    };
+    document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    await until(() => !$("#usagePopover"), "usage panel to close");
+    return opened;
+  `)
+  assert.deepEqual(seen, {
+    closedPanel: false,
+    expanded: "true",
+    outsideComposer: true,
+    above: true,
+    centred: true,
+    composerGrew: false,
+    total: "2.0K",
+  })
 })

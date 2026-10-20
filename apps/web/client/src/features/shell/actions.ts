@@ -3,14 +3,23 @@
  * owns this file; legacy app.js line numbers are noted per function.
  */
 
-import { t } from "../../i18n";
 import type { Locale } from "../../i18n/messages";
 import { api, errorMessage } from "../../lib/api";
 import { STORAGE_KEYS, writeStorage } from "../../lib/storage";
 import { closeStream, showError } from "../../state/session";
 import { getState, setState, setUi, type ThemeChoice } from "../../state/store";
+import type { LoginReport } from "../../state/types";
 
 const THEMES: readonly ThemeChoice[] = ["system", "light", "dark"];
+
+/**
+ * Where "Upgrade" leads: the Step Plan page of the signed-in account's
+ * platform, which the host derives from the stored profile (overseas accounts
+ * use platform.stepfun.ai). The mainland page stands in until bootstrap answers.
+ */
+export function stepPlanUrl(login: LoginReport | null): string {
+	return login?.planUrl ?? "https://platform.stepfun.com/step-plan";
+}
 
 function systemPrefersDark(): boolean {
 	return typeof matchMedia === "function" && matchMedia("(prefers-color-scheme: dark)").matches;
@@ -49,17 +58,30 @@ export function toggleSidebar(): void {
 	setUi((ui) => ({ sidebarHidden: !ui.sidebarHidden }));
 }
 
+/** Ask before logging out: opens `#logoutDialog`, which calls `confirmLogout`. */
+export function logout(): void {
+	setUi({ logoutConfirm: { pending: false } });
+}
+
+/** Cancel the log-out dialog; ignored while the request is in flight. */
+export function closeLogoutConfirm(): void {
+	if (!getState().ui.logoutConfirm?.pending) setUi({ logoutConfirm: null });
+}
+
 /**
- * Log out after a confirm, close the live stream and cover the page with the
- * logged-out overlay (legacy `logout`, 3233-3243).
+ * Log out, close the live stream and cover the page with the logged-out
+ * overlay (legacy `logout`, 3233-3243). A failure keeps the dialog open, so
+ * the user can retry or cancel.
  */
-export async function logout(): Promise<void> {
-	if (!window.confirm(t("confirmLogout"))) return;
+export async function confirmLogout(): Promise<void> {
+	if (getState().ui.logoutConfirm?.pending) return;
+	setUi({ logoutConfirm: { pending: true } });
 	try {
 		await api("/auth/logout", { method: "POST", body: "{}" });
 		closeStream();
-		setUi({ loggedOut: true, settingsPage: null, settingsEditor: null, settingsDialog: null });
+		setUi({ logoutConfirm: null, loggedOut: true, settingsPage: null, settingsEditor: null, settingsDialog: null });
 	} catch (error) {
+		setUi({ logoutConfirm: { pending: false } });
 		showError(errorMessage(error));
 	}
 }

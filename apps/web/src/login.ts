@@ -38,6 +38,12 @@ export interface LoginReport {
 	readonly validity?: StepLoginStatus["validity"];
 	/** Terminal alternative to the page's sign-in controls. */
 	readonly loginCommand: string;
+	/**
+	 * The Step Plan page of the platform this credential belongs to, where
+	 * "Upgrade" leads: `platform.stepfun.ai` for an overseas plan or key, the
+	 * mainland platform otherwise (also when the region is unknown).
+	 */
+	readonly planUrl: string;
 }
 
 export interface LoginReportInput {
@@ -102,6 +108,18 @@ function storedCredential(
 }
 
 /**
+ * The Step Plan page for a stored profile, as `step login` links it
+ * (`${authBaseUrl}/step-plan`). An environment key or a key stored without a
+ * profile has no recorded region; the mainland platform is the default there,
+ * as it is for the provider itself.
+ */
+function stepPlanUrl(profile: string | undefined, env: Record<string, string | undefined>): string {
+	const profiles = resolveStepLoginProfiles(env);
+	const match = profiles.find((candidate) => candidate.id === profile) ?? profiles.find((p) => p.id === "step_plan");
+	return `${match?.authBaseUrl ?? "https://platform.stepfun.com"}/step-plan`;
+}
+
+/**
  * Project the kernel's login status into the browser-safe report.
  *
  * Presence comes from the filesystem or the environment; reachability comes
@@ -134,6 +152,7 @@ export function buildLoginReport(input: LoginReportInput): LoginReport {
 		// provider reports "unavailable", not a failure of the credential.
 		...(configured ? { validity: input.status.validity } : {}),
 		loginCommand: "step login",
+		planUrl: stepPlanUrl(configured ? profile : undefined, env),
 	};
 }
 

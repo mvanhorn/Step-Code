@@ -21,10 +21,15 @@ export interface PopoverTriggerProps {
 	readonly ref?: Ref<HTMLElement>;
 }
 
-/** Side of the trigger, then which edges line up: `start` = left edges, `end` = right edges. */
-export type PopoverPlacement = "bottom-start" | "bottom-end" | "top-start" | "top-end";
+/**
+ * Side of the trigger, then which edges line up: `start` = left edges, `end` =
+ * right edges, none = centred on the trigger (shifted only at a viewport edge).
+ */
+export type PopoverPlacement = "bottom" | "bottom-start" | "bottom-end" | "top" | "top-start" | "top-end";
 
 const PLACEMENT_CLASS: Record<PopoverPlacement, string | undefined> = {
+	bottom: styles.bottom,
+	top: styles.top,
 	"bottom-start": styles.bottomStart,
 	"bottom-end": styles.bottomEnd,
 	"top-start": styles.topStart,

@@ -13,7 +13,7 @@ import { openTree, setPreviewOpen } from "../files/actions";
 import { closeTopmostSettingsLayer } from "../settings/actions";
 import { closeSearch, closeWorkspaceMenu, openSearch } from "../sidebar/actions";
 import { chooseWorkspaceFolder, closeWorkspaceRemoval } from "../workspace/actions";
-import { toggleSidebar, watchSystemTheme } from "./actions";
+import { closeLogoutConfirm, confirmLogout, toggleSidebar, watchSystemTheme } from "./actions";
 
 /**
  * Escape closes the topmost overlay, first match only, and otherwise stops the
@@ -29,7 +29,9 @@ function handleEscape(): void {
 	// Escape dismisses it, which the kernel reads as "cancel".
 	const selection = pendingSelection(state);
 	if (selection) void answerSelection(selection, undefined);
+	else if (ui.logoutConfirm) closeLogoutConfirm();
 	else if (ui.imagePreview) setUi({ imagePreview: null });
+	else if (ui.accountMenuOpen) setUi({ accountMenuOpen: false });
 	else if (ui.workspaceRemoval) closeWorkspaceRemoval();
 	else if (ui.slashMenu) setUi({ slashMenu: null });
 	else if (ui.changesMenu) setUi({ changesMenu: null });
@@ -54,6 +56,17 @@ function handleKeydown(event: KeyboardEvent): void {
 	const mod = event.metaKey || event.ctrlKey;
 	// Autofill and some IMEs dispatch keydown without a `key`.
 	const key = typeof event.key === "string" ? event.key.toLowerCase() : "";
+	// The log-out dialog's ↵ hint holds wherever focus is (it can land on the
+	// page behind, e.g. after a click on the dialog text). A focused dialog
+	// button keeps its own Enter, so Enter on Cancel still cancels.
+	if (event.key === "Enter" && !event.isComposing && !mod && getState().ui.logoutConfirm) {
+		const target = event.target;
+		if (!(target instanceof HTMLButtonElement && target.closest("#logoutDialog"))) {
+			event.preventDefault();
+			void confirmLogout();
+		}
+		return;
+	}
 	// With Alt held, macOS reports the composed character in `key`, so the
 	// Alt chords match on the physical key instead.
 	if (mod && event.altKey && event.code === "KeyO") {

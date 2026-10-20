@@ -465,12 +465,14 @@ export interface LoginReport {
 	readonly configured: boolean;
 	readonly validity?: string;
 	readonly loginCommand: string;
+	/** Step Plan page of the credential's region (src/login.ts): where Upgrade leads. */
+	readonly planUrl: string;
 }
 
 /** `GET /api/v1/account` (src/account.ts `AccountReport`): the signed-in account for the sidebar. */
 export interface AccountReport {
 	readonly status: "ready" | "missing" | "expired" | "unavailable";
-	readonly account?: { readonly name: string; readonly avatarUrl?: string };
+	readonly account?: { readonly name: string; readonly avatarUrl?: string; readonly uid?: string };
 }
 
 /** One of the four `step login` profiles (src/login.ts `LoginMethod`). */

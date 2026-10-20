@@ -51,7 +51,7 @@ import type {
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 let toastSeq = 0;
 
-/** Show the bottom-right toast for 4.2s (legacy `showError`, 3184-3193). `danger=false` is the neutral tone. */
+/** Show the top-centre toast for 4.2s (legacy `showError`, 3184-3193). `danger=false` is the neutral tone. */
 export function showError(message: string, danger = true): void {
 	toastSeq += 1;
 	const seq = toastSeq;

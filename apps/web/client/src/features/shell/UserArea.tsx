@@ -6,14 +6,19 @@
  * The account shows the nickname and avatar the host reads from the account
  * session (`GET /api/v1/account`). Without one (API-key sign-in, or the
  * developer center unreachable) it falls back to a label for the credential.
+ * Pressing it opens `#accountMenu` above it: the account (avatar, name, id)
+ * and the account actions, Upgrade and Log out.
  */
 
 import { useState } from "react";
 import { type TranslateFn, useT } from "../../i18n";
-import { useAppStore } from "../../state/store";
+import { copyText } from "../../state/session";
+import { setUi, useAppStore } from "../../state/store";
 import type { AccountReport, LoginReport } from "../../state/types";
-import { Icon, Tooltip } from "../../ui";
+import { Icon, IconButton, Menu, MenuDivider, MenuItem, Popover, Tooltip } from "../../ui";
+import { openLoginPage } from "../login/actions";
 import { openSettings } from "../settings/actions";
+import { logout, stepPlanUrl } from "./actions";
 
 function isStepPlan(login: LoginReport | null): boolean {
 	return login?.source === "auth.json" && login.profile?.startsWith("step_plan") === true;
@@ -27,11 +32,11 @@ function accountName(t: TranslateFn, login: LoginReport | null, account: Account
 	return account ? t("footerSignedIn") : "";
 }
 
-function AccountAvatar({ name, url }: { name: string; url: string | undefined }) {
+function AccountAvatar({ name, url, className }: { name: string; url: string | undefined; className?: string }) {
 	// Remember which URL failed, so a new URL gets a fresh attempt.
 	const [brokenUrl, setBrokenUrl] = useState<string>();
 	return (
-		<span className="user-avatar" aria-hidden="true">
+		<span className={className ? `user-avatar ${className}` : "user-avatar"} aria-hidden="true">
 			{url && url !== brokenUrl ? (
 				<img
 					className="user-avatar-image"
@@ -48,24 +53,107 @@ function AccountAvatar({ name, url }: { name: string; url: string | undefined })
 	);
 }
 
+const closeAccountMenu = () => setUi({ accountMenuOpen: false });
+
+function AccountMenu({
+	name,
+	avatarUrl,
+	uid,
+}: {
+	name: string;
+	avatarUrl: string | undefined;
+	uid: string | undefined;
+}) {
+	const t = useT();
+	const planUrl = useAppStore((state) => stepPlanUrl(state.login));
+	return (
+		<>
+			<div className="account-menu-header">
+				<AccountAvatar name={name} url={avatarUrl} className="large" />
+				<div className="account-menu-identity">
+					<span className="account-menu-name">{name}</span>
+					{uid ? (
+						<span className="account-menu-id">
+							<span id="accountMenuId">{t("accountId", { uid })}</span>
+							<Tooltip content={t("copyAccountId")}>
+								<IconButton
+									className="account-menu-copy"
+									icon="copy"
+									iconSize="xs"
+									aria-label={t("copyAccountId")}
+									onClick={() => void copyText(uid)}
+								/>
+							</Tooltip>
+						</span>
+					) : null}
+				</div>
+			</div>
+			<MenuDivider />
+			<Menu bare role="menu" aria-label={t("footerAccount", { name })}>
+				<MenuItem
+					role="menuitem"
+					id="accountUpgradeButton"
+					data-href={planUrl}
+					icon="upgrade"
+					trailing={<Icon name="external" size="xs" />}
+					onClick={() => {
+						closeAccountMenu();
+						openLoginPage(planUrl);
+					}}
+				>
+					{t("upgrade")}
+				</MenuItem>
+				<MenuItem
+					role="menuitem"
+					id="accountLogoutButton"
+					icon="logout"
+					danger
+					onClick={() => {
+						closeAccountMenu();
+						logout();
+					}}
+				>
+					{t("logout")}
+				</MenuItem>
+			</Menu>
+		</>
+	);
+}
+
 export function UserArea() {
 	const t = useT();
 	const login = useAppStore((state) => state.login);
 	const account = useAppStore((state) => state.account);
 	const name = accountName(t, login, account);
 	const avatarUrl = login?.configured ? account?.account?.avatarUrl : undefined;
+	const uid = login?.configured ? account?.account?.uid : undefined;
+	const menuOpen = useAppStore((state) => state.ui.accountMenuOpen);
 	return (
 		<div className="user-area">
-			<button
-				type="button"
-				className="user-account"
-				id="userAccountButton"
-				aria-label={t("footerAccount", { name })}
-				onClick={() => openSettings("general")}
+			{/* Escape belongs to the shell's chain. */}
+			<Popover
+				className="account-menu"
+				id="accountMenu"
+				placement="top-start"
+				open={menuOpen}
+				onClose={closeAccountMenu}
+				closeOnEscape={false}
+				content={<AccountMenu name={name} avatarUrl={avatarUrl} uid={uid} />}
 			>
-				<AccountAvatar name={name} url={avatarUrl} />
-				<span className="user-name">{name}</span>
-			</button>
+				<button
+					type="button"
+					className="user-account"
+					id="userAccountButton"
+					aria-label={t("footerAccount", { name })}
+					aria-haspopup="menu"
+					aria-expanded={menuOpen}
+					aria-controls="accountMenu"
+					onClick={() => setUi((ui) => ({ accountMenuOpen: !ui.accountMenuOpen }))}
+				>
+					<AccountAvatar name={name} url={avatarUrl} />
+					<span className="user-name">{name}</span>
+				</button>
+			</Popover>
 			<div className="user-actions">
 				<Tooltip
 					id="remoteControlTip"

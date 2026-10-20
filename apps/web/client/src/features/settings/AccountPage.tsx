@@ -6,7 +6,7 @@ import { setState, useAppStore } from "../../state/store";
 import type { LoginMethod, LoginReport } from "../../state/types";
 import { Icon, IconButton, Spinner, Tooltip } from "../../ui";
 import { cancelBrowserSignIn, openLoginPage, signInWithApiKey, signInWithBrowser } from "../login/actions";
-import { logout } from "../shell/actions";
+import { logout, stepPlanUrl } from "../shell/actions";
 import { useSettingsResource } from "./actions";
 import { PageHeader, ResourceState, SectionHeader, StatusDot } from "./parts";
 import "./account.css";
@@ -296,7 +296,7 @@ export function AccountPage() {
 				<a
 					className="settings-link"
 					id="stepPlanLink"
-					href="https://platform.stepfun.com/step-plan"
+					href={stepPlanUrl(login)}
 					target="_blank"
 					rel="noopener noreferrer"
 				>
