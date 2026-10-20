@@ -364,7 +364,8 @@ client-only task rows and inspector changes need only a page refresh.
 
 ## Right inspector
 
-The rail exposes Summary, Context, Changes, File preview and Subagents.
+The rail exposes Summary, Context, Terminal, Changes, File preview, Subagents and Browser.
+Terminal is immediately below Context, independently of the DFSC ordering.
 Summary replaces the original floating task/subagent banner, rather than
 coexisting with it. Summary is an independent content-height surface, not the
 full-height inspector used by other rail entries. The compact board is 320px
@@ -432,10 +433,114 @@ Polling is sequential, aborted on selection changes, and stale replies cannot
 replace the new session's panel.
 
 Per-turn tool changes remain accessible in the transcript and Changes inspector,
-not as a substitute for Summary's repository overview. Repository comparison,
-interactive terminal services and native
-browser hosting remain separate pending adapters; no nonfunctional rail buttons
-are exposed. No Desktop runtime or package is changed.
+not as a substitute for Summary's repository overview. Repository comparison
+remains pending. Interactive terminals use the separate adapter below. No Desktop runtime
+or package is changed.
+
+## Embedded browser
+
+The Browser inspector uses a host-owned Chromium process controlled through
+`playwright-core`. This is streamed webpage rendering and input forwarding,
+not DFSC's native Electron WebContentsView. The dependency includes no browser
+binary. Install compatible Chrome, Edge or Chromium, or set
+`STEPCODE_WEB_BROWSER_PATH` to its executable. Detection covers common Windows,
+macOS and Linux locations; only Windows Chrome has been exercised locally.
+The engine starts on the first explicit tab creation, not on inspector open.
+
+Tabs and cookies belong to an isolated, temporary browser context, never a
+personal browser profile. They survive inspector hiding and Web page reloads
+while the Host lives. Closing a tab destroys that page. Normal Host shutdown
+closes its owned browser; restarting the Host starts with no browser tabs or
+site cookies. This does not terminate unrelated browsers or external servers.
+Crash recovery and durable site-profile persistence are not implemented.
+
+`/api/v1/browser/*` uses the existing HttpOnly cookie and Origin checks. One
+page at a time owns a 15-second input lease; polling every five seconds renews
+it. The page's sessionStorage client id allows refresh to rotate the token,
+and a late old-page release cannot remove its replacement. A competing page
+gets 409 rather than silently moving another page's tabs or viewport. Closing
+or hiding the inspector releases input/stream ownership, not tabs. A lost
+connection exposes Reconnect; its lease expires if the page cannot release it.
+
+HTTP(S) navigation, back/forward, reload/stop, twelve tabs, popup tabs and
+50-200% reflow zoom are connected. Navigation errors remain visible on the tab.
+Tab selection changes the remote frame source. The surface resizes with the
+inspector, including its expanded view. Chromium renders the site, so
+X-Frame-Options and site CSP are not removed or bypassed. Permissions are denied,
+service workers blocked, and StepCode Host/client ports blocked across HTTP(S)
+and WebSocket requests, including subresources and hostname aliases. No raw
+debugging endpoint or arbitrary evaluation route is exposed.
+
+Frames are JPEG over authenticated SSE. The host ACKs Chromium frames locally,
+caps delivery at 15 fps and keeps at most one newest scheduled frame. A blocked
+response drops frames and keeps only the newest metadata; the client keeps
+one decoding image plus one pending latest frame. Input is serialized and
+bounded (48 client / 64 host operations); pointer moves are coalesced. Hidden
+inspectors disconnect the stream instead of decoding background frames.
+
+Mouse clicks/dragging, wheel, editing/navigation keys, text paste and committed
+Chinese composition text are forwarded. Copy selection reads selected text in
+the main document or focused non-password input and writes it to the outer
+browser clipboard only on an explicit action. Cross-origin iframe selection,
+rich clipboard, native context menus, file upload/download, audio transport,
+web permissions and a remote accessibility tree are not implemented. File
+chooser attempts and downloads are cancelled with visible notices; JS dialogs
+are dismissed with a notice. Video may appear as sampled frames, not smooth
+media playback. Automated Chinese composition commits are covered; physical
+IME candidate-window ergonomics still need manual acceptance.
+
+The inspector's external-open control is an explicit separate action, not the
+browser implementation. Browser storage and navigation have no connection to
+Agent model context, tool execution or the user's provider credentials.
+
+## Interactive terminals
+
+The Terminal inspector uses `@xterm/xterm` with `@xterm/addon-fit`; the Host
+owns isolated Node helper processes using `node-pty`. This is a real interactive
+shell, not a model tool log or a pipe-based command runner. Creating a terminal
+is explicit. Windows chooses installed PowerShell 7 or Windows PowerShell;
+macOS/Linux choose an available bash, zsh or sh. User startup profiles and
+inherited startup-injection variables are suppressed. The environment keeps
+an OS-variable allowlist, not the Host's API keys or Node loader configuration.
+This is not a sandbox: entered commands run with the Host user's filesystem
+and network privileges and can read credentials available to that OS user.
+
+`/api/v1/terminals/*` is behind the existing HttpOnly cookie and Origin checks.
+Creation accepts a known workspace and bounded dimensions, not a caller-chosen
+executable or startup command. There are at most eight tabs per workspace and
+24 per Host, including exited/failed tabs. Tabs belong to workspaces, not Agent
+sessions. Changing conversation within the same workspace retains the tabs.
+Multiple authenticated pages may view/control the same shell; dimensions and
+input are shared. There is no per-page terminal ownership lease.
+
+Closing/hiding the inspector disconnects its output stream, not the shell.
+Switching terminal tabs does the same. Refresh lists existing terminals and
+replays retained output without creating a second process. Closing a terminal
+tab terminates its owned process tree before removing it. Normal Host shutdown
+attempts cleanup of all owned terminals and reports failures with a nonzero
+exit status; unrelated externally launched services are untouched. Host restart
+does not restore terminals. Crash recovery and processes deliberately detached
+from terminal ownership are not guaranteed to be cleaned up.
+
+SSE snapshots carry sequenced output and lifecycle metadata. The Host retains
+at most 512 KiB / 2048 chunks per terminal; a replay gap produces a visible
+truncation notice. Replaying a truncated ANSI tail is not a full terminal-screen
+snapshot and may produce an incomplete screen layout. No output/history files
+are written by this adapter. The helper pauses output at 256 KiB of unacknowledged
+IPC and resumes below 64 KiB; Host acknowledgement is independent of UI presence.
+Network backpressure reads from the bounded ring rather than accumulating a
+subscriber queue. Input is bounded to 64 KiB per request, 32 outstanding Host
+commands and 64 client commands. Timed-out input is not automatically repeated.
+
+The client fits the PTY to the panel, supports ANSI rendering, selection,
+explicit clipboard copy/paste, Ctrl+C and normal terminal input including IME.
+OSC 52 clipboard writes and link activation are disabled. Clear affects the
+local display only and does not stop the shell or erase the Host replay buffer.
+Clipboard access still requires browser permission. Only Windows native PTY
+startup has been verified locally; Linux/macOS require their own acceptance.
+Dependencies are pinned and installed without lifecycle scripts. A missing or
+incompatible native binary fails the terminal without taking down the Web Host;
+it does not trigger an automatic download, compilation or toolchain install.
 
 ## Thinking presentation
 

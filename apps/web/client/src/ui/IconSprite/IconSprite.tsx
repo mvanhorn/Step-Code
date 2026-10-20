@@ -100,6 +100,8 @@ export const ICON_NAMES = [
 	"summaryCheck",
 	"summaryRing",
 	"layers3",
+	"clipboardPaste",
+	"eraser",
 ] as const;
 
 export type IconName = (typeof ICON_NAMES)[number];
@@ -107,6 +109,30 @@ export type IconName = (typeof ICON_NAMES)[number];
 export function IconSprite() {
 	return (
 		<svg className={cx(styles.root, "icon-sprite")} aria-hidden="true" focusable="false">
+			{/* DFSC terminal controls, Lucide 1.48.0 (ISC). */}
+			<symbol
+				id="i-clipboardPaste"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="M11 14h10M16 4h2a2 2 0 0 1 2 2v1.344m-3 10.656 4-4-4-4M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 1.793-1.113" />
+				<rect x="8" y="2" width="8" height="4" rx="1" />
+			</symbol>
+			<symbol
+				id="i-eraser"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="M21 21H8a2 2 0 0 1-1.42-.587l-3.994-3.999a2 2 0 0 1 0-2.828l10-10a2 2 0 0 1 2.829 0l5.999 6a2 2 0 0 1 0 2.828L12.834 21m-7.752-9.91 8.828 8.828" />
+			</symbol>
 			{/* DFSC Lucide Plug, Layers3 and split CircleCheck for Summary motion. */}
 			<symbol id="i-summaryRing" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9">
 				<circle cx="12" cy="12" r="10" />

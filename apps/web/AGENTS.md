@@ -25,9 +25,9 @@ A change to the client is a change to the desktop app. Check both hosts when it 
 | Markdown, highlighting, i18n | In-house (`lib/markdown.ts`, `features/files/highlight.ts`, `i18n/`) | No libraries |
 | Types | TypeScript strict, `erasableSyntaxOnly`, `verbatimModuleSyntax` | Type-checked by `tsgo` (both tsconfigs) |
 | Lint / format | Biome (root `biome.json`) | Tabs, indent width 3, line width 120, double quotes, semicolons |
-| Tests | `node:test` + `tsx` (unit), headless Chrome over CDP (e2e) | No Jest, Vitest, Playwright |
+| Tests | `node:test` + `tsx` (unit), headless Chrome over CDP (e2e) | No Jest, Vitest or Playwright Test runner; the browser adapter itself uses playwright-core |
 
-The runtime dependencies are `react`, `react-dom` and the workspace `@step-harness/coding-agent`. Adding any dependency
+The runtime dependencies are `react`, `react-dom`, `playwright-core`, `node-pty`, `@xterm/xterm`, `@xterm/addon-fit` and the workspace `@step-harness/coding-agent`. Adding any dependency
 needs the user's approval first; pin it to an exact version and install with `pnpm install --ignore-scripts`.
 
 ## Directory layout
@@ -47,6 +47,11 @@ apps/web/
     workspaces.ts        workspace registry (newest first)
     files.ts             workspace file tree / read / search
     auth.ts, login.ts    cookie secret, launch-token exchange, credential status, desktop sign-in
+    browser.ts           isolated Chromium ownership, leased controller, bounded frames and input
+    browser-routes.ts, browser-policy.ts  authenticated browser HTTP/SSE adapter and input/URL policy
+    terminal.ts          bounded host-owned terminal sessions and process cleanup
+    terminal-process.ts  isolated node-pty helper; native failures must not crash the Host
+    terminal-routes.ts, terminal-policy.ts  authenticated HTTP/SSE and shell/environment/input policy
     directory-picker.ts  server-side folder chooser
     settings.ts          settings back end: MCP servers, plugins/marketplaces, skills
     attachments.ts, feedback.ts, banner.ts, bootstrap.ts, writer-lease.ts
@@ -200,7 +205,23 @@ When to add or change one:
   snapshots and SDK statistics; task-tool completion is not task completion.
   MCP status is process-scoped, unlike the session's skill count. Do not label
   recorded messages as assembled model context or turn patches as Git net changes.
-  Conversation navigation is excluded; terminal and browser bridges need separate Web adapters.
+  Conversation navigation is excluded. Terminal uses its separate Web adapter.
+  `features/terminal` renders xterm and belongs directly below Context in the
+  shared rail. Only explicit tab creation starts a shell. Hiding/switching tabs
+  disconnects streams without killing processes; closing a tab awaits owned
+  process-tree cleanup. Refresh replays bounded sequenced output, never creates
+  replacement shells. Retention gaps must be visible; do not claim full-screen
+  restoration from a truncated ANSI tail. Keep input/IPC/SSE queues bounded,
+  disable OSC 52 and automatic links, and do not inherit Host API keys or
+  startup-injection environment variables. Never load sibling-project binaries
+  as runtime dependencies or silently install/compile native modules.
+  `features/browser` uses the authenticated host-owned Chromium adapter in
+  `src/browser.ts` / `browser-routes.ts`, not a Desktop bridge or iframe.
+  Hiding releases its stream/controller but keeps tabs. Refresh rotates a
+  leased controller token; late cleanup must not release its replacement.
+  Keep frame/input queues bounded and block host/client ports for subresources
+  and WebSockets too. Never attach a personal profile, expose arbitrary CDP,
+  download a browser automatically or disable its sandbox.
 - File delivery recognition is a frontend projection, not a persisted or
   filesystem-verified registry. Settled turns collect local Markdown links
   and supported structured successful write/edit outputs; inline basenames
@@ -216,6 +237,8 @@ When to add or change one:
   `STEPCODE_WEB_PUBLIC_DIR` (client directory), `STEPCODE_WEB_AUTH_SECRET`, `STEPCODE_WEB_OPEN` (below),
   `STEPCODE_WEB_CLIENT_PORT` (the launch URL points at this port instead of the host's; `web:watch` sets it to the
   Vite dev server, default 5173).
+  `STEPCODE_WEB_BROWSER_PATH` optionally names an installed Chrome/Edge/Chromium executable.
+  The browser adapter detects common locations otherwise and reports missing engines without installing one.
   Document new ones here and in `apps/desktop/README.md` if the desktop passes them through.
 - Opening a browser on start is **opt-in**, because Desktop shows the client in its own window and the tests must stay
   headless. `STEPCODE_WEB_OPEN=1|true|on` makes the host open the launch URL right after printing the banner; unset or
@@ -245,6 +268,8 @@ Run from the repo root.
 | `pnpm --filter @step-harness/web typecheck` | Host and client type check |
 | `pnpm --filter @step-harness/web test` | Host unit tests |
 | `TSX_TSCONFIG_PATH=../../tsconfig.json node --import tsx --test test/<name>.test.ts` | One unit test file (from `apps/web/`); without the tsconfig, workspace packages resolve to `dist/` and fail |
+| `STEPCODE_WEB_BROWSER_TEST=1 TSX_TSCONFIG_PATH=../../tsconfig.json node --import tsx --test test/browser.test.ts` | Opt-in installed-Chromium adapter acceptance against a local fixture only; no account, provider or engine download |
+| `STEPCODE_WEB_TERMINAL_TEST=1 TSX_TSCONFIG_PATH=../../tsconfig.json node --import tsx --test test/terminal.test.ts` | Opt-in real local-shell acceptance in temporary folders; no account/provider calls |
 | `pnpm --filter @step-harness/web test:e2e` | Client build + e2e in headless Chrome (`CHROME_PATH` to override; skipped without Chrome) |
 | `pnpm run check` | Required before handing back any code change: Biome, guards, type checks, web unit tests, web runtime, browser smoke, desktop type check |
 

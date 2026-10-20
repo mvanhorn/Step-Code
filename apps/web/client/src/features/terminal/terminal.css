@@ -1,0 +1,29 @@
+.embedded-terminal { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; }
+.app.right-panel-expanded .right-panel.is-terminal { grid-column: 1 / -1; }
+.terminal-tabs { display: flex; flex: none; align-items: center; gap: 4px; padding: 0 8px; min-height: 40px; overflow-x: auto; border-bottom: 1px solid var(--line); }
+.terminal-tab { display: flex; align-items: center; flex: 0 0 auto; max-width: 200px; min-width: 0; height: 40px; border-bottom: 2px solid transparent; }
+.terminal-tab.is-active { border-bottom-color: var(--ink); }
+.terminal-tab > button[role="tab"] { flex: 1; min-width: 0; height: 36px; padding: 0 8px; color: var(--ink-2); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.terminal-tab.is-active > button[role="tab"] { color: var(--ink); }
+.terminal-tabs .icon-button { width: 26px; height: 26px; flex: none; }
+.terminal-toolbar { display: flex; align-items: center; gap: 4px; min-height: 36px; padding: 4px 10px; flex: none; }
+.terminal-toolbar > span { flex: 1; min-width: 0; color: var(--ink-2); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.terminal-toolbar .icon-button { width: 28px; height: 28px; flex: none; }
+.terminal-output { position: relative; flex: 1; min-height: 80px; min-width: 0; margin: 2px 8px 8px 12px; overflow: hidden; }
+.terminal-view { position: absolute; inset: 0; min-width: 0; }
+.terminal-view .xterm { height: 100%; }
+.terminal-view .xterm-viewport { background: var(--canvas) !important; }
+.terminal-view .composition-view { background: var(--surface); color: var(--ink); }
+@media (prefers-reduced-motion: reduce) {
+	.terminal-view .xterm .xterm-scrollable-element > .visible,
+	.terminal-view .xterm .xterm-scrollable-element > .invisible.fade { transition: none; }
+}
+.terminal-footer { display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 7px 12px; border-top: 1px solid var(--line); color: var(--ink-2); font-size: 10px; flex: none; }
+.terminal-footer > span:first-child { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.terminal-footer > span:last-child { flex: none; }
+.terminal-empty { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 12px; position: absolute; inset: 0; color: var(--ink-2); font-size: 12px; }
+.terminal-error, .terminal-notice { flex: none; padding: 7px 10px; font-size: 11px; line-height: 1.5; max-height: 120px; overflow-y: auto; overflow-wrap: anywhere; border-bottom: 1px solid var(--line); }
+.terminal-error { display: flex; gap: 8px; align-items: center; color: var(--danger); background: var(--danger-surface); }
+.terminal-error > span { flex: 1; min-width: 0; }
+.terminal-error .icon-button { flex: none; }
+.terminal-notice { color: var(--ink-2); background: var(--surface-soft); }

@@ -17,7 +17,9 @@ import {
 } from "@step-harness/coding-agent";
 import { WebAuth } from "./auth.ts";
 import { formatStartupBanner, launchUrl, resolveLaunchPort } from "./banner.ts";
+import { WebBrowser } from "./browser.ts";
 import { recordBrowserOpened, shouldOpenBrowser } from "./browser-open.ts";
+import { browserRoute } from "./browser-routes.ts";
 import { listWorkflowChildren, readChildTranscript } from "./child-sessions.ts";
 import { type DirectoryPickerMode, pickNativeDirectory, resolveDirectoryPickerMode } from "./directory-picker.ts";
 import {
@@ -63,6 +65,8 @@ import {
 	setSkillEnabled,
 	updateMarketplace,
 } from "./settings.ts";
+import { WebTerminals } from "./terminal.ts";
+import { terminalRoute } from "./terminal-routes.ts";
 import { TurnRevertError } from "./turn-changes.ts";
 import {
 	MAX_UPLOAD_BYTES,
@@ -247,6 +251,8 @@ async function directoryList(inputPath: string): Promise<unknown> {
 const sessionSearch = new WebSessionSearch(resolveStepAgentDir());
 const store = new WebSessionStore({ index: sessionSearch });
 const workspaces = new WorkspaceRegistry(join(resolveStepAgentDir(), WORKSPACES_FILE));
+const embeddedBrowser = new WebBrowser([port, launchPort]);
+const terminals = new WebTerminals();
 
 /**
  * Resolve the `cwd` of a workspace-scoped request, or undefined when the folder
@@ -531,6 +537,9 @@ const server = createServer(async (request, response) => {
 
 		const parts = url.pathname.split("/").filter(Boolean);
 		if (parts[0] !== "api" || parts[1] !== "v1") return error(response, 404, "Not found");
+		if (parts[2] === "browser") return await browserRoute(embeddedBrowser, parts.slice(3), request, response);
+		if (parts[2] === "terminals")
+			return await terminalRoute(terminals, parts.slice(3), url, request, response, knownWorkspace);
 		if (parts[2] === "bootstrap" && method === "GET") {
 			return json(response, 200, { cwd: defaultWorkspace(), directoryPicker, login: await loginReport() });
 		}
@@ -912,12 +921,28 @@ server.listen(port, bindHost, () => {
 const shutdown = async (): Promise<void> => {
 	server.close();
 	server.closeAllConnections();
+	let failed = false;
 	try {
-		await store.close();
-		// After the sessions: their last writes are flushed into the index before it stops.
-		await sessionSearch.close();
+		const results = await Promise.allSettled([
+			embeddedBrowser.close(),
+			terminals.stopAll(),
+			(async () => {
+				try {
+					await store.close();
+				} finally {
+					// Flush sessions before stopping their index, even if session teardown fails.
+					await sessionSearch.close();
+				}
+			})(),
+		]);
+		for (const result of results) {
+			if (result.status === "rejected") {
+				failed = true;
+				console.error("Web host shutdown failed:", result.reason);
+			}
+		}
 	} finally {
-		process.exit(0);
+		process.exit(failed ? 1 : 0);
 	}
 };
 process.once("SIGINT", () => void shutdown());

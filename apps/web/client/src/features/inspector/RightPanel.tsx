@@ -12,9 +12,11 @@ import {
 import { getState, type RightPanelId, setUi, useAppStore } from "../../state/store";
 import type { SessionInspector } from "../../state/types";
 import { IconButton, type IconName, Menu, MenuItem, Popover, ResizeHandle, Tooltip } from "../../ui";
+import { BrowserPanel } from "../browser";
 import { ChildAgentView } from "../conversation";
 import { PreviewPanel } from "../files";
 import { applyPreviewWidth, PREVIEW_DEFAULT, restorePreviewWidth } from "../files/actions";
+import { TerminalPanel } from "../terminal";
 import { ContextPanel } from "./ContextPanel";
 import { SummaryBoard } from "./SummaryBoard";
 import { SummaryHeader } from "./SummaryHeader";
@@ -22,9 +24,11 @@ import { SummaryHeader } from "./SummaryHeader";
 const PANELS: readonly { id: RightPanelId; icon: IconName; label: string }[] = [
 	{ id: "summary", icon: "layers", label: "rightSummary" },
 	{ id: "context", icon: "scanLine", label: "rightContext" },
+	{ id: "terminal", icon: "terminal", label: "terminalTitle" },
 	{ id: "changes", icon: "fileDiff", label: "rightChanges" },
 	{ id: "files", icon: "fileText", label: "filePreview" },
 	{ id: "subagent", icon: "bot", label: "subagents" },
+	{ id: "browser", icon: "globe", label: "browserTitle" },
 ];
 
 export function RightToolRail() {
@@ -100,7 +104,7 @@ export function RightPanel() {
 		<aside
 			id="rightPanel"
 			ref={ref}
-			className={`right-panel${summary ? " summary-board" : ""}${expanded ? " is-expanded" : ""}`}
+			className={`right-panel${summary ? " summary-board" : ""}${panel === "browser" ? " is-browser" : ""}${panel === "terminal" ? " is-terminal" : ""}${expanded ? " is-expanded" : ""}`}
 			aria-label={t(PANELS.find((entry) => entry.id === panel)?.label ?? "rightTools")}
 			hidden={!panel}
 		>
@@ -195,6 +199,8 @@ export function RightPanel() {
 			</div>
 			<PreviewPanel embedded />
 			<ChildAgentView embedded />
+			<BrowserPanel open={panel === "browser"} />
+			<TerminalPanel open={panel === "terminal"} />
 			{panel === "subagent" && (!currentId || childParentId !== currentId) ? (
 				<p className="preview-message">{t("rightNoSubagent")}</p>
 			) : null}

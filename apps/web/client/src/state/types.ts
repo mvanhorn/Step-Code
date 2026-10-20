@@ -7,6 +7,49 @@
 
 import type { TagColor } from "../i18n/messages";
 
+/** Host-owned interactive shells; independent of Agent tool execution. */
+export interface TerminalInfo {
+	readonly id: string;
+	readonly cwd: string;
+	readonly title: string;
+	readonly status: "starting" | "running" | "exited" | "failed";
+	readonly cols: number;
+	readonly rows: number;
+	readonly pid?: number;
+	readonly exitCode?: number;
+	readonly error?: string;
+}
+export interface TerminalSnapshot {
+	readonly info: TerminalInfo;
+	readonly seq: number;
+	readonly truncated: boolean;
+	readonly chunks: readonly { readonly seq: number; readonly data: string }[];
+}
+
+/** Host-wide embedded-browser projection, independent of model sessions. */
+export interface EmbeddedBrowserTab {
+	readonly id: string;
+	readonly title: string;
+	readonly url: string;
+	readonly loading: boolean;
+	readonly canGoBack: boolean;
+	readonly canGoForward: boolean;
+	readonly zoom: number;
+	readonly error?: string;
+	readonly notice?: "download" | "upload" | "dialog" | "popup" | "navigation";
+}
+export interface EmbeddedBrowserSnapshot {
+	readonly revision: number;
+	readonly activeId: string | null;
+	readonly tabs: readonly EmbeddedBrowserTab[];
+}
+export interface EmbeddedBrowserFrame {
+	readonly tabId: string;
+	readonly width: number;
+	readonly height: number;
+	readonly data: string;
+}
+
 export type SessionStatus = "idle" | "running" | "waiting" | "completed" | "failed";
 
 export interface ModelRef {

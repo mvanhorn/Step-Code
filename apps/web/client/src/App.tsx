@@ -27,7 +27,7 @@ import { IconSprite } from "./ui";
  *                        | conversation stream
  *                        | .composer-zone > composer form (workspace pill above the card)
  *                        | shell toast + auth banner
- *     aside#rightPanel   floating Summary, or context/files/changes/child inspector / embedded browser
+ *     aside#rightPanel   floating Summary, or context/files/changes/child inspector / browser / terminal
  *     nav.right-tool-rail
  *   #settingsView      settings: full-window settings page (menu + page) over the workspace
  *   #feedbackModal, #searchModal, #workspaceBrowserModal, #removeWorkspaceModal, #selectionDialog,
