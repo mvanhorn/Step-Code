@@ -12,7 +12,7 @@ async function readBody(request: IncomingMessage): Promise<Record<string, unknow
 	for await (const chunk of request) {
 		const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
 		bytes += buffer.length;
-		if (bytes > 131072) throw new TerminalError("Terminal request exceeds 128 KiB", 413);
+		if (bytes > 524288) throw new TerminalError("Terminal request exceeds 512 KiB", 413);
 		chunks.push(buffer);
 	}
 	let value: unknown;
@@ -43,7 +43,8 @@ export async function terminalRoute(
 				method === "GET" ? url.searchParams.get("cwd") : typeof input.cwd === "string" ? input.cwd : null,
 			);
 			if (!cwd) throw new TerminalError("Folder is not a known workspace", 403);
-			if (method === "GET") return reply(response, 200, { terminals: terminals.list(cwd) });
+			if (method === "GET")
+				return reply(response, 200, { terminals: terminals.list(cwd), support: await terminals.support() });
 			return reply(response, 201, await terminals.create(cwd, input.cols, input.rows));
 		}
 		const id = parts[0];

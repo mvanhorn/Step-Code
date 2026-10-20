@@ -1,14 +1,18 @@
-import { type ChildProcess, execFile, spawn } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { extname, join } from "node:path";
+import { basename, extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { cleanExitedWindowsShell } from "./terminal-cleanup.ts";
+import { cleanExitedWindowsShell, posixProcessTable, posixTerminalProcesses } from "./terminal-cleanup.ts";
+import { type TerminalSupport, terminalSupport } from "./terminal-native.ts";
 import { TerminalError, terminalEnvironment, terminalInput, terminalShell, terminalSize } from "./terminal-policy.ts";
 
 export interface TerminalInfo {
 	id: string;
 	cwd: string;
+	/** Workspace folder name, numbered when the folder already has a terminal. */
 	title: string;
+	/** Shell program name, e.g. `zsh` or `PowerShell`. */
+	shell: string;
 	status: "starting" | "running" | "exited" | "failed";
 	cols: number;
 	rows: number;
@@ -29,6 +33,8 @@ export interface TerminalSnapshot {
 type Entry = {
 	info: TerminalInfo;
 	child: ChildProcess;
+	/** Controlling pty name reported by the helper; valid only while the helper keeps the pty open. */
+	tty?: string;
 	chunks: TerminalChunk[];
 	bytes: number;
 	seq: number;
@@ -45,7 +51,6 @@ type Entry = {
 export class WebTerminals {
 	private readonly entries = new Map<string, Entry>();
 	private stopping = false;
-	private number = 0;
 
 	list(cwd: string): TerminalInfo[] {
 		return [...this.entries.values()].filter((entry) => entry.info.cwd === cwd).map((entry) => ({ ...entry.info }));
@@ -74,10 +79,26 @@ export class WebTerminals {
 	private publish(entry: Entry): void {
 		for (const listener of entry.listeners) listener();
 	}
+	/** Native availability is rechecked on each call so a repaired install works without a Host restart. */
+	support(): Promise<TerminalSupport> {
+		return terminalSupport();
+	}
+	private title(cwd: string): string {
+		const name = basename(cwd) || cwd;
+		const used = new Set(this.list(cwd).map((info) => info.title));
+		if (!used.has(name)) return name;
+		let number = 2;
+		while (used.has(`${name} ${number}`)) number++;
+		return `${name} ${number}`;
+	}
 	async create(cwd: string, cols: unknown = 80, rows: unknown = 24): Promise<TerminalSnapshot> {
 		if (this.stopping) throw new TerminalError("Terminals are shutting down", 503);
 		if (this.entries.size >= 24 || this.list(cwd).length >= 8) throw new TerminalError("Terminal limit reached", 409);
 		const size = terminalSize(cols, rows);
+		const support = await this.support();
+		if (!support.available) throw new TerminalError(support.reason, 503);
+		if (this.stopping) throw new TerminalError("Terminals are shutting down", 503);
+		if (this.entries.size >= 24 || this.list(cwd).length >= 8) throw new TerminalError("Terminal limit reached", 409);
 		const worker = new URL(`./terminal-process${extname(fileURLToPath(import.meta.url))}`, import.meta.url);
 		const loaders = worker.pathname.endsWith(".ts") ? ["--import", import.meta.resolve("tsx")] : [];
 		const startedAt = Date.now();
@@ -87,7 +108,13 @@ export class WebTerminals {
 		});
 		const child = spawn(process.execPath, [...loaders, fileURLToPath(worker)], {
 			cwd,
-			env: terminalEnvironment(process.env),
+			// Desktop's Host is the Electron binary in Node mode; the helper needs the same mode.
+			env: process.versions.electron
+				? { ...terminalEnvironment(process.env), ELECTRON_RUN_AS_NODE: "1" }
+				: terminalEnvironment(process.env),
+			// POSIX: a separate process group keeps a Ctrl+C aimed at the Host's console from killing the
+			// helper before the Host has cleaned up the shell it owns. Windows needs no console of its own.
+			detached: process.platform !== "win32",
 			windowsHide: true,
 			stdio: ["ignore", "ignore", "pipe", "ipc"],
 		});
@@ -95,7 +122,8 @@ export class WebTerminals {
 			info: {
 				id: randomUUID(),
 				cwd,
-				title: `${terminalShell().title} ${++this.number}`,
+				title: this.title(cwd),
+				shell: terminalShell().title,
 				status: "starting",
 				...size,
 			},
@@ -144,6 +172,7 @@ export class WebTerminals {
 					message.pid > 0
 				) {
 					entry.info.pid = message.pid;
+					if (typeof message.tty === "string" && /^[\w./-]{1,64}$/.test(message.tty)) entry.tty = message.tty;
 					finishStartup();
 					if (entry.closing) {
 						if (!settled) {
@@ -220,7 +249,8 @@ export class WebTerminals {
 				}
 				for (const pending of entry.pending.values()) pending.reject(new TerminalError("Terminal exited", 409));
 				entry.pending.clear();
-				if (!entry.closing && entry.info.status !== "exited")
+				// Keep the first specific failure (for example a native spawn error) visible.
+				if (!entry.closing && entry.info.status !== "exited" && entry.info.status !== "failed")
 					fail(
 						diagnostics.includes("native module")
 							? "Terminal native module unavailable. Check the node-pty installation for this platform."
@@ -297,9 +327,45 @@ export class WebTerminals {
 		if (process.platform === "win32" && entry.info.pid)
 			await cleanExitedWindowsShell(entry.info.pid, entry.startedAt, entry.exitedAt ?? Date.now());
 	}
+	/**
+	 * Stops the shell and every process it owns. Enumeration and permission failures are not fatal:
+	 * the shell's process group is still signalled, and closing the pty (the helper exits next) hangs
+	 * up the remaining foreground jobs, including another user's processes such as `sudo`.
+	 */
+	private async stopPosixShell(entry: Entry, helperAlive: boolean): Promise<void> {
+		const shell = entry.info.pid;
+		if (!shell) return;
+		// Without a live helper the shell PID may already belong to an unrelated process.
+		const running = helperAlive && entry.exitedAt === undefined;
+		let owned: number[] = [];
+		try {
+			owned = posixTerminalProcesses(
+				await posixProcessTable(),
+				{ pid: shell, running, tty: helperAlive ? entry.tty : undefined },
+				new Set([process.pid, entry.child.pid ?? 0]),
+			);
+		} catch {
+			// Best effort: see the method comment for what still stops the shell.
+		}
+		const kill = (pid: number) => {
+			try {
+				process.kill(pid, "SIGKILL");
+			} catch (error) {
+				const code = (error as NodeJS.ErrnoException).code;
+				if (code !== "ESRCH" && code !== "EPERM") throw error;
+			}
+		};
+		for (const pid of owned) kill(pid);
+		if (running) {
+			kill(-shell);
+			kill(shell);
+		}
+	}
 	private async terminateHelper(entry: Entry): Promise<void> {
 		const child = entry.child;
-		if (child.exitCode !== null || child.signalCode !== null || !child.pid) return;
+		const helperAlive = child.exitCode === null && child.signalCode === null && Boolean(child.pid);
+		if (process.platform !== "win32") await this.stopPosixShell(entry, helperAlive);
+		if (!helperAlive) return;
 		const stopped = new Promise<void>((resolve, reject) => {
 			const timer = setTimeout(() => {
 				child.off("exit", onExit);
@@ -337,42 +403,7 @@ export class WebTerminals {
 					else reject(new Error("Could not terminate terminal process tree"));
 				});
 			});
-		} else {
-			// Interactive jobs can have their own process groups; enumerate descendants
-			// before killing the shell so ordinary background jobs cannot be orphaned.
-			const listing = await new Promise<string>((resolve, reject) => {
-				execFile("/bin/ps", ["-eo", "pid=,ppid="], { timeout: 3000, maxBuffer: 1048576 }, (error, stdout) => {
-					if (error) reject(error);
-					else resolve(stdout);
-				});
-			});
-			const processes = listing
-				.trim()
-				.split("\n")
-				.map((line) => line.trim().split(/\s+/).map(Number));
-			const owned = [child.pid];
-			for (let index = 0; index < owned.length; index++) {
-				for (const [pid, parent] of processes) {
-					if (parent === owned[index] && Number.isSafeInteger(pid) && pid > 1 && !owned.includes(pid))
-						owned.push(pid);
-				}
-			}
-			for (const pid of owned.slice(1).reverse()) {
-				try {
-					process.kill(pid, "SIGKILL");
-				} catch (error) {
-					if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
-				}
-			}
-			if (entry.info.pid) {
-				try {
-					process.kill(-entry.info.pid, "SIGKILL");
-				} catch (error) {
-					if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
-				}
-			}
-			child.kill("SIGTERM");
-		}
+		} else child.kill("SIGKILL");
 		const error = await observed;
 		if (error) throw error;
 	}

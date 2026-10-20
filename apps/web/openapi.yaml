@@ -18,9 +18,16 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [terminals]
+                required: [terminals, support]
                 properties:
                   terminals: { type: array, items: { $ref: "#/components/schemas/TerminalInfo" } }
+                  support:
+                    description: Whether this Host can start shells. Rechecked on each request; the client disables creation and shows reason when unavailable.
+                    type: object
+                    required: [available]
+                    properties:
+                      available: { type: boolean }
+                      reason: { type: string }
         "403": { description: Unknown workspace }
     post:
       description: Create an interactive shell in a known workspace. Maximum eight per workspace and 24 per Host, including exited tabs. Opening the inspector alone does not launch a shell.
@@ -43,8 +50,8 @@ paths:
               schema: { $ref: "#/components/schemas/TerminalSnapshot" }
         "400": { description: Invalid dimensions or JSON }
         "403": { description: Unknown workspace }
-        "409": { description: Terminal limit reached }
-        "503": { description: Native module or shell unavailable }
+        "409": { description: Terminal limit reached, or the terminal was closed during startup }
+        "503": { description: Native module or shell unavailable. A failure after the helper started leaves a failed tab that must be closed. }
   /api/v1/terminals/{terminalId}:
     parameters:
       - { name: terminalId, in: path, required: true, schema: { type: string } }
@@ -67,7 +74,7 @@ paths:
               type: object
               required: [data]
               properties:
-                data: { type: string, minLength: 1, maxLength: 65536 }
+                data: { type: string, minLength: 1, description: At most 65536 UTF-8 bytes (not characters) }
       responses:
         "200": { description: Input accepted by the PTY helper }
         "400": { description: Invalid input }
@@ -1579,11 +1586,12 @@ components:
   schemas:
     TerminalInfo:
       type: object
-      required: [id, cwd, title, status, cols, rows]
+      required: [id, cwd, title, shell, status, cols, rows]
       properties:
         id: { type: string }
-        cwd: { type: string }
-        title: { type: string }
+        cwd: { type: string, description: Canonical (realpath) workspace folder; may differ from the requested spelling }
+        title: { type: string, description: Workspace folder name, numbered when the folder already has terminals }
+        shell: { type: string, description: Shell program name such as zsh or PowerShell }
         status: { type: string, enum: [starting, running, exited, failed] }
         cols: { type: integer, minimum: 2, maximum: 500 }
         rows: { type: integer, minimum: 1, maximum: 300 }

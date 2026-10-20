@@ -19,14 +19,21 @@ process.on("message", (raw: unknown) => {
 			if (typeof message.cwd !== "string") throw new Error("Invalid terminal directory");
 			const size = terminalSize(message.cols, message.rows);
 			const shell = terminalShell();
+			// Electron runs this helper as Node only for the helper itself; the shell must not inherit it.
+			const env = { ...process.env };
+			delete env.ELECTRON_RUN_AS_NODE;
 			pty = spawn(shell.file, shell.args, {
 				...size,
 				cwd: message.cwd,
-				env: process.env,
+				env,
 				name: "xterm-256color",
 				useConpty: true,
 			});
-			send({ type: "ready", pid: pty.pid, title: shell.title });
+			// The pty name lets the Host find jobs that leave the shell's process tree (POSIX only).
+			// `ptsName` is a public UnixTerminal getter missing from node-pty's typings.
+			const name: unknown = process.platform === "win32" ? undefined : Reflect.get(pty, "ptsName");
+			const tty = typeof name === "string" ? name.replace(/^\/dev\//, "") : undefined;
+			send({ type: "ready", pid: pty.pid, title: shell.title, tty });
 			pty.onData((data) => {
 				// IPC output is acknowledged by the Host, independently of UI presence.
 				for (let start = 0; start < data.length; start += 8192) {
@@ -64,7 +71,7 @@ process.on("message", (raw: unknown) => {
 			const size = terminalSize(message.cols, message.rows);
 			pty.resize(size.cols, size.rows);
 			send({ type: "applied", requestId: message.requestId });
-		} else if (message.type === "stop") pty?.kill();
+		}
 	} catch (error) {
 		send({
 			type: "failed",

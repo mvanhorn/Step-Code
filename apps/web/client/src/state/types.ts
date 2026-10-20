@@ -12,6 +12,7 @@ export interface TerminalInfo {
 	readonly id: string;
 	readonly cwd: string;
 	readonly title: string;
+	readonly shell: string;
 	readonly status: "starting" | "running" | "exited" | "failed";
 	readonly cols: number;
 	readonly rows: number;
@@ -19,6 +20,7 @@ export interface TerminalInfo {
 	readonly exitCode?: number;
 	readonly error?: string;
 }
+export type TerminalSupport = { readonly available: true } | { readonly available: false; readonly reason: string };
 export interface TerminalSnapshot {
 	readonly info: TerminalInfo;
 	readonly seq: number;

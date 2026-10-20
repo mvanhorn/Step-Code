@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
 import { terminalEnvironment, terminalInput, terminalShell, terminalSize } from "../src/terminal-policy.ts";
@@ -56,7 +56,7 @@ test("terminal HTTP adapter rejects unknown workspaces, malformed JSON and unkno
 		assert.equal((await fetch(`${root}/bad/input`, { method: "POST", body: '{"data":""}' })).status, 404);
 		assert.equal((await fetch(`${root}/bad/events?after=0`)).status, 404);
 		assert.equal((await fetch(`${root}/bad`, { method: "DELETE" })).status, 404);
-		assert.equal((await fetch(root, { method: "POST", body: JSON.stringify({ cwd: "x", data: "a".repeat(131073) }) })).status, 413);
+		assert.equal((await fetch(root, { method: "POST", body: JSON.stringify({ cwd: "x", data: "a".repeat(524289) }) })).status, 413);
 	} finally {
 		server.closeAllConnections();
 		await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -109,17 +109,30 @@ test("native terminal: Unicode output, resize, interrupt, bounded replay, reconn
 		await writeFile(fixture, "setInterval(() => {}, 1000);");
 		const childCommand = windows
 			? `$p = Start-Process -FilePath '${process.execPath.replaceAll("'", "''")}' -ArgumentList '"${fixture.replaceAll("'", "''")}"' -NoNewWindow -PassThru; [Console]::WriteLine('CHILD' + 'PID:' + $p.Id)\r`
-			: `'${process.execPath.replaceAll("'", "'\\''")}' '${fixture.replaceAll("'", "'\\''")}' & printf 'CHILDPID:%s\\n' "$!"\r`;
+			: `'${process.execPath.replaceAll("'", "'\\''")}' '${fixture.replaceAll("'", "'\\''")}' & printf 'CHILDPID:%s\\n' $!\r`;
 		await terminals.write(id, childCommand);
 		await waitFor(() => /CHILDPID:\d+/.test(output()), "Owned descendant did not start");
 		const childPid = Number(output().match(/CHILDPID:(\d+)/)?.[1]);
 		assert.ok(childPid > 0 && alive(childPid));
+		// A job that left the shell's process tree is still owned through its session or terminal.
+		let orphanPid = 0;
+		if (!windows) {
+			await terminals.write(id, `sh -c '"${process.execPath.replaceAll("'", "'\\''")}" "${fixture.replaceAll("'", "'\\''")}" & echo ORPHAN:$!'\r`);
+			await waitFor(() => /ORPHAN:\d+/.test(output()), "Orphaned job did not start");
+			orphanPid = Number(output().match(/ORPHAN:(\d+)/)?.[1]);
+			assert.ok(orphanPid > 0 && alive(orphanPid));
+		}
 		await terminals.close(id);
 		assert.equal(alive(pid), false);
 		assert.equal(alive(childPid), false, "Owned descendant survived terminal close");
+		if (orphanPid) assert.equal(alive(orphanPid), false, "Orphaned job survived terminal close");
 		assert.equal(terminals.list(cwd).length, 0);
 		assert.throws(() => terminals.snapshot(id));
 		const natural = await terminals.create(cwd);
+		assert.equal(natural.info.title, `${basename(cwd)}`, "Tabs are named after the workspace folder");
+		const numbered = await terminals.create(cwd);
+		assert.equal(numbered.info.title, `${basename(cwd)} 2`);
+		await terminals.close(numbered.info.id);
 		await terminals.write(natural.info.id, "exit 7\r");
 		await waitFor(() => terminals.snapshot(natural.info.id).info.status === "exited", "Natural shell exit was not reported");
 		assert.equal(terminals.snapshot(natural.info.id).info.exitCode, 7);
@@ -143,6 +156,8 @@ test("closing during terminal startup settles the pending creation", { skip: pro
 	const cwd = await mkdtemp(join(tmpdir(), "stepcode-terminal-cancel-"));
 	try {
 		const creating = terminals.create(cwd).then(() => "ready", () => "closed");
+		// Registration follows an asynchronous native-support check; close before the helper is ready.
+		for (let n = 0; n < 2000 && terminals.list(cwd).length === 0; n++) await delay(1);
 		const id = terminals.list(cwd)[0].id;
 		await terminals.close(id);
 		assert.equal(await creating, "closed");
