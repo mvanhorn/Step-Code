@@ -87,7 +87,7 @@ export function GeneralPage() {
 					title={t("logout")}
 					description={t("settingsLogoutDesc")}
 					control={
-						<button type="button" className="settings-btn danger" id="logoutButton" onClick={() => void logout()}>
+						<button type="button" className="settings-btn danger" id="logoutButton" onClick={logout}>
 							<Icon name="logout" size="xs" />
 							{t("logout")}
 						</button>

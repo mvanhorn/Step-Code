@@ -170,6 +170,8 @@ export interface UiState {
 	readonly authExpired: boolean;
 	/** `#loggedOutOverlay` visible. */
 	readonly loggedOut: boolean;
+	/** `#logoutDialog`: confirming Log out; `pending` while `/auth/logout` runs. */
+	readonly logoutConfirm: { readonly pending: boolean } | null;
 	/** `#loginGate` visible: Desktop has no Step credential yet, and the app waits behind it. */
 	readonly loginRequired: boolean;
 	/** Incremented to ask the composer to focus `#prompt` (legacy `$("#prompt").focus()`). */
@@ -378,6 +380,7 @@ export function createInitialState(): AppState {
 			tagPicker: null,
 			authExpired: false,
 			loggedOut: false,
+			logoutConfirm: null,
 			loginRequired: false,
 			promptFocusRequest: 0,
 			midView: null,

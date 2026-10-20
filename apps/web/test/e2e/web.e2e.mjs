@@ -546,10 +546,39 @@ test(
 		document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
 		await until(() => !$("#accountMenu"), "account menu to close");
 		const expandedAfter = $("#userAccountButton").getAttribute("aria-expanded");
+		// Log out asks in the app's own dialog; Escape cancels it and keeps the session.
+		const nativeConfirm = window.confirm;
+		let nativeAsked = false;
+		window.confirm = () => { nativeAsked = true; return false; };
+		$("#userAccountButton").click();
+		await until(() => $("#accountLogoutButton"), "account menu again");
+		$("#accountLogoutButton").click();
+		await until(() => !$("#logoutDialog").hidden, "log-out dialog");
+		const dialog = {
+			menuClosed: !$("#accountMenu"),
+			focused: document.activeElement?.id,
+			buttons: [...$("#logoutDialog").querySelectorAll("footer button")].map((button) => button.textContent),
+			nativeAsked,
+		};
+		document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+		await until(() => $("#logoutDialog").hidden, "log-out dialog to close");
+		window.confirm = nativeConfirm;
+		// Enter on a dialog button is that button's own; Enter on Cancel cancels.
+		$("#settingsButton").click();
+		await until(() => $("#logoutButton"), "settings log-out button");
+		$("#logoutButton").click();
+		await until(() => !$("#logoutDialog").hidden, "log-out dialog from settings");
+		$("#logoutCancel").focus();
+		$("#logoutCancel").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+		$("#logoutCancel").click();
+		await until(() => $("#logoutDialog").hidden, "log-out dialog to cancel");
+		$("#settingsBack").click();
+		await until(() => $("#settingsView").hidden, "settings view to close again");
+		const stillIn = $("#loggedOutOverlay").hidden && (await fetch("/api/v1/login")).ok;
 		// Back to the settings view for the steps below.
 		$("#settingsButton").click();
 		await until(() => !$("#settingsView").hidden, "settings view to reopen");
-		return { ...opened, expandedAfter };
+		return { ...opened, expandedAfter, dialog, stillIn };
 	`)
     assert.deepEqual(menu, {
       expanded: "true",
@@ -558,6 +587,8 @@ test(
       upgrade: "https://platform.stepfun.com/step-plan",
       above: true,
       expandedAfter: "false",
+      dialog: { menuClosed: true, focused: "logoutConfirm", buttons: ["取消esc", "退出登录↵"], nativeAsked: false },
+      stillIn: true,
     })
 
     // Language applies from the general page and is remembered.

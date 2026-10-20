@@ -5,7 +5,15 @@ import { FileTreePanel, PreviewPanel, PreviewShowButton } from "./features/files
 import { LoginGate } from "./features/login";
 import { CronView, MarketView } from "./features/market";
 import { SettingsView } from "./features/settings";
-import { AuthBanner, ErrorToast, LoggedOutOverlay, ShellEffects, SidebarShowButton, UserArea } from "./features/shell";
+import {
+	AuthBanner,
+	ErrorToast,
+	LoggedOutOverlay,
+	LogoutDialog,
+	ShellEffects,
+	SidebarShowButton,
+	UserArea,
+} from "./features/shell";
 import { SearchModal, SidebarNav, SidebarResizer } from "./features/sidebar";
 import { RemoveWorkspaceModal, WorkspaceBrowserModal, WorkspaceControl } from "./features/workspace";
 import { I18nProvider } from "./i18n";
@@ -28,7 +36,7 @@ import { IconSprite } from "./ui";
  *     aside#previewPanel files
  *   #settingsView      settings: full-window settings page (menu + page) over the workspace
  *   #feedbackModal, #searchModal, #workspaceBrowserModal, #removeWorkspaceModal, #selectionDialog,
- *   #imagePreview (composer: enlarged image attachment), #loggedOutOverlay
+ *   #imagePreview (composer: enlarged image attachment), #logoutDialog (shell), #loggedOutOverlay
  *   #loginGate         login: Desktop sign-in, above everything while no credential exists
  *   #workspaceMenu, #sessionMenu, #tagPicker: rendered by their sidebar trigger, in a portal on body, only while open
  */
@@ -87,6 +95,7 @@ export function App() {
 			<RemoveWorkspaceModal />
 			<SelectionDialog />
 			<ImagePreview />
+			<LogoutDialog />
 			<LoggedOutOverlay />
 			<LoginGate />
 			<ShellEffects />

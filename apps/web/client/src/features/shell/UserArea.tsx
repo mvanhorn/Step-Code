@@ -110,7 +110,7 @@ function AccountMenu({
 					danger
 					onClick={() => {
 						closeAccountMenu();
-						void logout();
+						logout();
 					}}
 				>
 					{t("logout")}
