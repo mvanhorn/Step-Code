@@ -79,7 +79,6 @@ export function GeneralPage() {
 						>
 							<Icon name="upgrade" size="xs" />
 							{t("upgrade")}
-							<Icon name="external" size="xs" />
 						</a>
 					}
 				/>
