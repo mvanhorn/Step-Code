@@ -4,9 +4,10 @@ import { type AttachedFile, FILE_MARKER, markAttachedFiles, splitAttachedFiles }
 import { formatBytes, formatTokens } from "../../lib/format";
 import { escapeHtml, renderMarkdown, skillInvocation } from "../../lib/markdown";
 import { copyText } from "../../state/session";
-import { setUi } from "../../state/store";
+import { setUi, useAppStore } from "../../state/store";
 import type { MessageTimelineItem } from "../../state/types";
 import { Icon, LEGACY_ICONS, MarkdownView } from "../../ui";
+import { openFileReference } from "../files/actions";
 import { forkAtEntry } from "./actions";
 import { openFeedback, type Sentiment } from "./feedback";
 import { useFadeIn, useSmoothText } from "./streaming";
@@ -26,13 +27,18 @@ function fileChipHtml(file: AttachedFile | undefined): string {
 export const MessageItem = memo(function MessageItem({
 	item,
 	files: pendingFiles,
+	fileCwd,
 }: {
 	readonly item: MessageTimelineItem;
 	/** The pending bubble's files: the host has not echoed the message (and its file blocks) yet. */
 	readonly files?: readonly AttachedFile[];
+	/** Read-only child transcripts resolve references against their own workspace. */
+	readonly fileCwd?: string;
 }) {
 	const t = useT();
 	const role = item.role === "user" ? "user" : "assistant";
+	const currentCwd = useAppStore((state) => state.current?.cwd ?? "");
+	const cwd = fileCwd ?? currentCwd;
 	const live = item.itemId.startsWith("message-live");
 	const codeLabel = t("code");
 	const copyLabel = t("copy");
@@ -49,13 +55,18 @@ export const MessageItem = memo(function MessageItem({
 	// Memoised: a streaming turn re-renders the timeline per frame, and parsing every earlier message each time made long sessions crawl.
 	const files = pendingFiles ?? attached.files;
 	const html = useMemo(() => {
-		if (!files.length) return renderMarkdown(content, { code: codeLabel, copy: copyLabel, table: tableLabel });
+		if (!files.length)
+			return renderMarkdown(
+				content,
+				{ code: codeLabel, copy: copyLabel, table: tableLabel },
+				{ localFiles: role === "assistant" && Boolean(cwd) },
+			);
 		return renderMarkdown(markAttachedFiles(content, files), {
 			code: codeLabel,
 			copy: copyLabel,
 			table: tableLabel,
 		}).replace(FILE_MARKER, (_match, index: string) => fileChipHtml(files[Number(index)]));
-	}, [content, files, codeLabel, copyLabel, tableLabel]);
+	}, [content, files, codeLabel, copyLabel, tableLabel, role, cwd]);
 	useFadeIn(bodyRef, html, live);
 	if (item.error) return <MessageError entryId={item.entryId} error={item.error} />;
 	// The live turn before its first text (reasoning, or waiting on the first token).
@@ -76,6 +87,7 @@ export const MessageItem = memo(function MessageItem({
 					className="message-body"
 					html={html}
 					onCopyCode={(code) => void copyText(code)}
+					onFileReference={(path) => void openFileReference(cwd, path)}
 				/>
 			) : null}
 		</article>

@@ -200,7 +200,7 @@ export function ChildAgentView({ embedded = false }: { readonly embedded?: boole
 					{items.length ? (
 						items.map((item) =>
 							item.kind === "message" ? (
-								<MessageItem key={item.itemId} item={item} />
+								<MessageItem key={item.itemId} item={item} fileCwd={transcript.value?.cwd} />
 							) : item.kind === "tool" ? (
 								<ToolRow key={item.itemId} item={item} readOnly />
 							) : item.kind === "thinking" ? (

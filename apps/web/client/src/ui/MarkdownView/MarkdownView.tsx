@@ -7,6 +7,8 @@ export interface MarkdownViewProps extends Omit<ComponentPropsWithRef<"div">, "c
 	readonly html: string;
 	/** A `.copy-code` button inside a `.code-block` was clicked; receives that block's code text. */
 	readonly onCopyCode?: (code: string) => void;
+	/** A local reference rendered with `localFiles` enabled, never a raw file URL. */
+	readonly onFileReference?: (path: string) => void;
 }
 
 /**
@@ -16,10 +18,18 @@ export interface MarkdownViewProps extends Omit<ComponentPropsWithRef<"div">, "c
  * The HTML is trusted only because renderMarkdown escapes all source text
  * before adding its own tags; never pass HTML from another source.
  */
-export function MarkdownView({ html, onCopyCode, className, onClick, ...rest }: MarkdownViewProps) {
+export function MarkdownView({ html, onCopyCode, onFileReference, className, onClick, ...rest }: MarkdownViewProps) {
 	const handleClick = (event: MouseEvent<HTMLDivElement>) => {
 		onClick?.(event);
 		const target = event.target;
+		if (onFileReference && target instanceof Element) {
+			const reference = target.closest<HTMLButtonElement>("button.md-file-reference[data-file-path]");
+			if (reference && event.currentTarget.contains(reference)) {
+				event.preventDefault();
+				onFileReference(reference.dataset.filePath ?? "");
+				return;
+			}
+		}
 		if (!onCopyCode || !(target instanceof Element)) return;
 		const button = target.closest(".copy-code");
 		if (!button || !event.currentTarget.contains(button)) return;

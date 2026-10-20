@@ -217,6 +217,25 @@ Task summaries live in the DFSC-style floating Summary board instead of the orig
 floating banner. Task completion comes from canonical task state, not completed
 `task_create` / `task_update` calls.
 
+Settled turns also expose a compact Outputs strip for supported document,
+image, website, spreadsheet, presentation, audio and video references.
+It combines explicit local Markdown links with successful structured
+write/edit paths. Code-styled basenames qualify only when they identify an
+unambiguous observed output; fenced examples, failed tools, reads and shell
+prose do not prove delivery. The strip initially shows three entries and can
+expand. These are references or observed writes, not proof that files still
+exist; opening a missing file shows the existing preview error.
+
+Assistant local links and delivery buttons open the same workspace-bound
+Files inspector. Repeating a delivery button closes its selected preview
+while preserving tabs and trigger focus; selecting another file switches the
+preview. Markdown opens rendered, and links inside it resolve relative to the
+document. Windows paths, encoded file URLs and line suffixes normalize before
+the existing file API is called. Paths outside the workspace are rejected;
+the Host remains responsible for realpath and symlink checks. There are no
+automatic historical content reads, native-app actions, or new Office/PDF
+renderers. HTML delivery recognition alone does not enable live HTML preview.
+
 Each finished turn (one user message up to the next, including a message with
 images only) that changed files gets a card under its last row: "Edited N
 files", the summed `+added -removed` lines, and the files (three, then "show N

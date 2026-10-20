@@ -11,6 +11,7 @@ import { renderMarkdown } from "../../lib/markdown";
 import { copyText } from "../../state/session";
 import { type PreviewTab, useAppStore } from "../../state/store";
 import { MarkdownView } from "../../ui";
+import { openFileReference } from "./actions";
 import { codeViewHtml, isMarkdownPath, PREVIEW_LINE_LIMIT } from "./highlight";
 
 /** The tab the preview shows, or undefined when there are no tabs. */
@@ -86,8 +87,13 @@ function PreviewContent({ tab }: { readonly tab: PreviewTab }) {
 		return (
 			<MarkdownView
 				className="preview-markdown message-body"
-				html={renderMarkdown(file.content, { code: t("code"), copy: t("copy"), table: t("markdownTable") })}
+				html={renderMarkdown(
+					file.content,
+					{ code: t("code"), copy: t("copy"), table: t("markdownTable") },
+					{ localFiles: true },
+				)}
 				onCopyCode={(code) => void copyText(code)}
+				onFileReference={(path) => void openFileReference(tab.cwd, path, tab.path)}
 			/>
 		);
 	return <CodeView content={file.content} path={file.path} />;

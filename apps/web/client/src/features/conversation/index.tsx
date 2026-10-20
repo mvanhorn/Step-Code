@@ -10,6 +10,7 @@ import "./stream.css";
 import "./feedback.css";
 import "./message-actions.css";
 import "./child-agent.css";
+import "./turn-artifacts.css";
 
 export { ChildAgentView } from "./ChildAgentView";
 export { ConversationStream } from "./ConversationStream";

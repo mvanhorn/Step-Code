@@ -7,11 +7,13 @@
  * `updateExpanded` keeps both in step.
  */
 
+import { t } from "../../i18n";
 import { api, errorMessage, workspaceApi } from "../../lib/api";
+import { workspaceFileReference } from "../../lib/file-references";
 import { ancestorPaths } from "../../lib/format";
 import { readStoredInt, STORAGE_KEYS, writeStorage } from "../../lib/storage";
 import { collectTurnChanges } from "../../lib/turn-changes";
-import { closeRightPanel, openRightPanel } from "../../state/right-panel";
+import { activeRightPanel, closeRightPanel, openRightPanel } from "../../state/right-panel";
 import { copyText, showError } from "../../state/session";
 import {
 	emptyTree,
@@ -238,19 +240,43 @@ export async function loadPreviewTab(cwd: string, path: string): Promise<void> {
 }
 
 /** Open a workspace file in a preview tab, reusing an open tab (legacy `openFile`, 1724-1744). */
-export async function openFile(cwd: string, path: string): Promise<void> {
+export async function openFile(cwd: string, path: string, rendered?: boolean): Promise<void> {
 	openRightPanel("files");
 	setPreview((preview) => {
 		let index = preview.tabs.findIndex((candidate) => sameTab(candidate, cwd, path));
 		let tabs = preview.tabs;
 		if (index < 0) {
-			tabs = [...tabs, { cwd, path, file: null, error: "", loading: false, rendered: false }];
+			tabs = [...tabs, { cwd, path, file: null, error: "", loading: false, rendered: rendered ?? false }];
 			index = tabs.length - 1;
+		} else if (rendered !== undefined) {
+			tabs = tabs.map((tab, position) => (position === index ? { ...tab, rendered } : tab));
 		}
 		return { ...preview, tabs, active: index, open: true, mode: "files" };
 	});
 	const preview = getState().preview;
 	if (!preview.tabs[preview.active]?.file) await loadPreviewTab(cwd, path);
+}
+
+/** Message references never navigate the browser or widen the host's workspace access. */
+export async function openFileReference(cwd: string, reference: string, sourcePath = ""): Promise<void> {
+	const path = workspaceFileReference(cwd, reference, sourcePath);
+	if (!path) {
+		showError(t("fileReferenceOutside"));
+		return;
+	}
+	await openFile(cwd, path, /\.mdx?$/i.test(path));
+}
+
+/** Delivery triggers toggle only their own visible file; retained tabs survive closing. */
+export async function toggleDeliveryFile(cwd: string, path: string): Promise<void> {
+	const state = getState();
+	const tab = state.preview.tabs[state.preview.active];
+	if (activeRightPanel(state) === "files" && tab && sameTab(tab, cwd, path)) {
+		// Keep focus on the conversation trigger instead of moving it to the rail toolbar.
+		openRightPanel(null);
+		return;
+	}
+	await openFile(cwd, path, /\.mdx?$/i.test(path));
 }
 
 /* ── Turn changes ────────────────────────────────────────────────────────── */

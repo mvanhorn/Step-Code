@@ -8,7 +8,9 @@ import { RetryRow } from "./RetryRow";
 import { ThinkingDisclosure } from "./ThinkingDisclosure";
 import { ThinkingIndicator } from "./ThinkingIndicator";
 import { ApprovalCard, ToolRow } from "./TimelineRows";
+import { TurnArtifacts } from "./TurnArtifacts";
 import { TurnChangesCard } from "./TurnChangesCard";
+import { turnArtifacts } from "./turn-artifacts";
 import { collectTurnFooters } from "./turn-footers";
 
 /** Shown while the timeline is empty (legacy index.html 835-842, `renderTimeline`). */
@@ -93,6 +95,10 @@ export function ConversationStream() {
 		() => new Map(collectTurnFooters(items, status, pendingTurn !== null).map((turn) => [turn.lastIndex, turn])),
 		[items, status, pendingTurn],
 	);
+	const artifactsAfter = useMemo(
+		() => new Map([...footerAfter].map(([index, footer]) => [index, turnArtifacts(items, footer, cwd)])),
+		[footerAfter, items, cwd],
+	);
 
 	// A new session or a sent message: follow the bottom again.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the session id and the pending messages are the triggers.
@@ -161,6 +167,13 @@ export function ConversationStream() {
 									) : (
 										<ApprovalCard approval={item.approval} />
 									)}
+									{footer ? (
+										<TurnArtifacts
+											key={`outputs-${sessionId}-${footer.turnId}`}
+											artifacts={artifactsAfter.get(index) ?? []}
+											cwd={cwd}
+										/>
+									) : null}
 									{card ? (
 										<TurnChangesCard turn={card} reverted={Boolean(revertedTurns?.includes(card.turnId))} />
 									) : null}

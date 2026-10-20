@@ -201,6 +201,14 @@ When to add or change one:
   MCP status is process-scoped, unlike the session's skill count. Do not label
   recorded messages as assembled model context or turn patches as Git net changes.
   Conversation navigation is excluded; terminal and browser bridges need separate Web adapters.
+- File delivery recognition is a frontend projection, not a persisted or
+  filesystem-verified registry. Settled turns collect local Markdown links
+  and supported structured successful write/edit outputs; inline basenames
+  require an unambiguous observed output. References use the existing
+  workspace file API and containment checks, never browser `file:` navigation.
+  Delivery buttons toggle only their own visible Files preview, retaining
+  tabs and trigger focus; other files or panels switch to the requested file.
+  Markdown opens rendered; preview links resolve relative to that document.
 - Workspace navigation metadata is separate from sessions: `web-workspaces.json` stores registered `workspaces`
   and explicit `removedWorkspaces`. Removed entries are returned with `hidden: true`; clients must not recreate
   their project groups from session cwd values. Re-adding restores the group; removal never deletes chats or files.

@@ -9,6 +9,8 @@
  * (see ui/MarkdownView, which also wires the `.copy-code` buttons).
  */
 
+import { localFileReference } from "./file-references";
+
 const HTML_ESCAPES: Readonly<Record<string, string>> = {
 	"&": "&amp;",
 	"<": "&lt;",
@@ -38,6 +40,17 @@ export interface MarkdownLabels {
 	readonly copy: string;
 	/** Accessible name of a horizontally scrollable Markdown table. */
 	readonly table: string;
+}
+
+export interface MarkdownFileReference {
+	readonly path: string;
+	readonly label: string;
+	readonly inlineCode: boolean;
+}
+
+export interface MarkdownOptions {
+	readonly localFiles?: boolean;
+	readonly onFileReference?: (reference: MarkdownFileReference) => void;
 }
 
 function renderInline(value: string): string {
@@ -124,8 +137,15 @@ function protectTables(source: string, blocks: string[], labels: MarkdownLabels)
 	return output.join("\n");
 }
 
-/** Only explicit web and email destinations may become clickable model output. */
-function renderLink(label: string, destination: string): string {
+/** Local references are buttons, never browser navigation to a file URL. */
+function renderLink(label: string, destination: string, options: MarkdownOptions): string {
+	const local = localFileReference(destination);
+	if (local) {
+		options.onFileReference?.({ path: destination, label, inlineCode: false });
+		if (options.localFiles)
+			return `<button type="button" class="md-file-reference" data-file-path="${escapeHtml(destination)}">${escapeHtml(label)}</button>`;
+		return escapeHtml(label);
+	}
 	try {
 		const url = new URL(destination);
 		if (["http:", "https:", "mailto:"].includes(url.protocol)) {
@@ -137,9 +157,10 @@ function renderLink(label: string, destination: string): string {
 	return escapeHtml(label);
 }
 
-export function renderMarkdown(value: unknown, labels: MarkdownLabels): string {
+export function renderMarkdown(value: unknown, labels: MarkdownLabels, options: MarkdownOptions = {}): string {
 	const blocks: string[] = [];
 	const inlines: string[] = [];
+	const definitions = new Map<string, string>();
 	const source = String(value)
 		.replace(/[\u0000\u0001]/g, "")
 		.replace(/\r\n?/g, "\n")
@@ -153,24 +174,42 @@ export function renderMarkdown(value: unknown, labels: MarkdownLabels): string {
 					) - 1;
 				return `\u0000${index}\u0000`;
 			},
+		)
+		.replace(
+			/^ {0,3}\[([^\]\n]+)\]:[ \t]*(<[^<>\n]+>|\S+)[ \t]*$/gm,
+			(_match, identifier: string, destination: string) => {
+				definitions.set(identifier.toLowerCase(), destination.replace(/^<(.*)>$/, "$1"));
+				return "";
+			},
 		);
-
 	// Protect inline code and links before formatting so URL punctuation and HTML
 	// attributes cannot be interpreted as Markdown. Fenced code is already protected.
 	const inlineSource = source.replace(
-		/`([^`]+)`|\[([^\]\n]+)\]\(\s*(<?(?:[^\s()<>]|\([^\s()]*\))+>?)\s*\)|https?:\/\/[^\s<>\u0000\u0001\u0002]+/g,
-		(match, code: string | undefined, label: string | undefined, destination: string | undefined) => {
+		/`([^`]+)`|\[([^\]\n]+)\]\([ \t]*(<[^<>\n]+>|(?:[^\s()<>]|\([^()\n]*\))+)[ \t]*\)|\[([^\]\n]+)\]\[([^\]\n]*)\]|https?:\/\/[^\s<>\u0000\u0001\u0002]+/g,
+		(
+			match,
+			code: string | undefined,
+			label: string | undefined,
+			destination: string | undefined,
+			referenceLabel: string | undefined,
+			identifier: string | undefined,
+		) => {
 			let html: string;
 			let suffix = "";
 			if (code !== undefined) {
+				const local = localFileReference(code);
+				if (local) options.onFileReference?.({ path: code, label: code, inlineCode: true });
 				html = `<code>${escapeHtml(code)}</code>`;
 			} else if (label !== undefined && destination !== undefined) {
-				html = renderLink(label, destination.replace(/^<(.*)>$/, "$1"));
+				html = renderLink(label, destination.replace(/^<(.*)>$/, "$1"), options);
+			} else if (referenceLabel !== undefined && identifier !== undefined) {
+				const destination = definitions.get((identifier || referenceLabel).toLowerCase());
+				html = destination ? renderLink(referenceLabel, destination, options) : escapeHtml(match);
 			} else {
 				let url = match.replace(/[.,!?;:，。！？；：、]+$/, "");
 				while (url.endsWith(")") && url.split(")").length > url.split("(").length) url = url.slice(0, -1);
 				suffix = match.slice(url.length);
-				html = renderLink(url, url);
+				html = renderLink(url, url, options);
 			}
 			return `\u0001${inlines.push(html) - 1}\u0001${suffix}`;
 		},
@@ -190,6 +229,22 @@ export function renderMarkdown(value: unknown, labels: MarkdownLabels): string {
 	return html
 		.replace(/\u0000(\d+)\u0000/g, (_match, index: string) => blocks[Number(index)] ?? "")
 		.replace(/\u0001(\d+)\u0001/g, (_match, index: string) => inlines[Number(index)] ?? "");
+}
+
+/** Share the renderer's grammar, exclusions and escaping with delivery recognition. */
+export function markdownFileReferences(text: string): MarkdownFileReference[] {
+	if (text.length > 200_000) return [];
+	const references: MarkdownFileReference[] = [];
+	renderMarkdown(
+		text,
+		{ code: "", copy: "", table: "" },
+		{
+			onFileReference: (reference) => {
+				if (references.length < 128) references.push(reference);
+			},
+		},
+	);
+	return references;
 }
 
 /** A user message that invoked a skill: the skill's name and what the user asked with it. */
