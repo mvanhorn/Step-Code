@@ -7,7 +7,7 @@ import type { ThinkingTimelineItem } from "../../state/types";
 import { Icon, MarkdownView } from "../../ui";
 import { useFadeIn, useSmoothText } from "./streaming";
 
-/** Standard presentation: folded by default; only an actual live block animates. */
+/** Folded by default inside the Simple process group; only an actual live block animates. */
 export const ThinkingDisclosure = memo(function ThinkingDisclosure({
 	item,
 	active = false,
@@ -48,8 +48,8 @@ export const ThinkingDisclosure = memo(function ThinkingDisclosure({
 					<span className="tool-pending" data-label={label} aria-hidden="true" />
 				</span>
 				<ThinkingElapsed timing={item.timing} active={running} />
-				{!expanded && preview ? <span className="thinking-preview">{preview}</span> : null}
 				<Icon name="disclosure" size="xs" className="thinking-chevron" />
+				{!expanded && preview ? <span className="thinking-preview">{preview}</span> : null}
 			</button>
 			<div
 				id={id}
@@ -71,12 +71,14 @@ export const ThinkingDisclosure = memo(function ThinkingDisclosure({
 });
 
 /** Only the live label ticks; settled history has no timer or invented endpoint. */
-function ThinkingElapsed({
+export function ThinkingElapsed({
 	timing,
 	active,
+	labelKey = "thinkingElapsed",
 }: {
 	readonly timing: ThinkingTimelineItem["timing"];
 	readonly active: boolean;
+	readonly labelKey?: "thinkingElapsed" | "processThinkingElapsed";
 }) {
 	const t = useT();
 	const [now, setNow] = useState(Date.now);
@@ -88,5 +90,5 @@ function ThinkingElapsed({
 		return () => clearInterval(timer);
 	}, [running]);
 	if (!timing || (!running && timing.endedAt === undefined)) return null;
-	return <span className="thinking-elapsed">{t("thinkingElapsed", { duration: thinkingElapsed(timing, now) })}</span>;
+	return <span className="thinking-elapsed">{t(labelKey, { duration: thinkingElapsed(timing, now) })}</span>;
 }

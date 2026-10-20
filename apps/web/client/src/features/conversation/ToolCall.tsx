@@ -65,6 +65,7 @@ export const ToolRow = memo(function ToolRow({
 	const t = useT();
 	const cwd = useAppStore((state) => state.current?.cwd ?? "");
 	const [open, setOpen] = useState(false);
+	const [visited, setVisited] = useState(false);
 	const detailsId = useId();
 	const label = toolLabel(item, t);
 	const output = item.outputDetail || item.outputSummary;
@@ -87,8 +88,11 @@ export const ToolRow = memo(function ToolRow({
 					className="tool-toggle"
 					aria-label={`${label} ${item.args?.command ?? shown}`.trim()}
 					aria-expanded={open}
-					aria-controls={open ? detailsId : undefined}
-					onClick={() => setOpen((value) => !value)}
+					aria-controls={detailsId}
+					onClick={() => {
+						setVisited(true);
+						setOpen((value) => !value);
+					}}
 				></button>
 				<span className="tool-heading">
 					<span className="tool-glyph" aria-hidden="true">
@@ -100,7 +104,7 @@ export const ToolRow = memo(function ToolRow({
 					</span>
 					<Icon className="tool-twisty" name="disclosure" size="xs" />
 				</span>
-				<span className="tool-detail">
+				<span className="tool-detail" hidden={!open}>
 					<span className="tool-dot" aria-hidden="true">
 						·
 					</span>
@@ -113,27 +117,33 @@ export const ToolRow = memo(function ToolRow({
 			{!readOnly && item.toolName === "subagent" && item.state === "failed" && item.subagentTasks?.length ? (
 				<SubagentLane item={item} />
 			) : null}
-			{open ? (
-				<div className="tool-cx" id={detailsId}>
-					<details className="tool-cx-input">
-						<summary>
-							<Icon name="chevronRight" size="2xs" />
-							{t("toolInput")}
-							<code>{item.toolName}</code>
-						</summary>
-						<pre className="tool-cx-pre wrap">{item.inputDetail || item.inputSummary || t("toolNoInput")}</pre>
-					</details>
-					{card ? (
-						<ChangeCard item={item} path={shown} openable={openable} />
-					) : (
-						<ToolCard item={item} path={shown} openable={openable} copyValue={copyValue} />
-					)}
-					<div className={cx("tool-cx-status", item.state)}>
-						{item.state === "completed" ? <Icon name="check" size="2xs" /> : null}
-						{t(`toolStatus.${item.state}`)}
-					</div>
+			<div id={detailsId} className={cx("tool-disclosure", open && "expanded")} aria-hidden={!open} inert={!open}>
+				<div className="tool-disclosure-body">
+					{visited ? (
+						<div className="tool-cx">
+							<details className="tool-cx-input">
+								<summary>
+									<Icon name="chevronRight" size="2xs" />
+									{t("toolInput")}
+									<code>{item.toolName}</code>
+								</summary>
+								<pre className="tool-cx-pre wrap">
+									{item.inputDetail || item.inputSummary || t("toolNoInput")}
+								</pre>
+							</details>
+							{card ? (
+								<ChangeCard item={item} path={shown} openable={openable} />
+							) : (
+								<ToolCard item={item} path={shown} openable={openable} copyValue={copyValue} />
+							)}
+							<div className={cx("tool-cx-status", item.state)}>
+								{item.state === "completed" ? <Icon name="check" size="2xs" /> : null}
+								{t(`toolStatus.${item.state}`)}
+							</div>
+						</div>
+					) : null}
 				</div>
-			) : null}
+			</div>
 		</div>
 	);
 });

@@ -190,19 +190,22 @@
 .thinking[data-expanded="true"] .thinking-chevron {
 	transform: rotate(0deg);
 }
-.thinking-disclosure {
+.thinking-disclosure,
+.tool-disclosure {
 	display: grid;
 	grid-template-rows: 0fr;
 	opacity: 0;
 	visibility: hidden;
 	transition: grid-template-rows 240ms cubic-bezier(.215, .61, .355, 1), opacity 200ms ease, visibility 240ms;
 }
-.thinking-disclosure.expanded {
+.thinking-disclosure.expanded,
+.tool-disclosure.expanded {
 	grid-template-rows: 1fr;
 	opacity: 1;
 	visibility: visible;
 }
-.thinking-body {
+.thinking-body,
+.tool-disclosure-body {
 	min-height: 0;
 	overflow: hidden;
 }
@@ -213,6 +216,7 @@
 }
 @media (prefers-reduced-motion: reduce) {
 	.thinking-disclosure,
+	.tool-disclosure,
 	.thinking-chevron,
 	.thinking .stream-fade {
 		transition: none;
@@ -263,8 +267,18 @@
 .tool-call {
 	display: flex;
 	flex-direction: column;
-	gap: 6px;
+	gap: 0;
 	min-width: 0;
+}
+.tool-call > .tool-children,
+.tool-call > .subagent-lanes {
+	margin-top: 6px;
+}
+.retry-call {
+	gap: 6px;
+}
+.tool-disclosure-body > .tool-cx {
+	margin-top: 6px;
 }
 /* Consecutive calls read as one block, as in the terminal: 28px per row. */
 .tool-call + .tool-call {
@@ -318,7 +332,7 @@
 	outline: 2px solid var(--focus-border);
 	outline-offset: 1px;
 }
-/* DFSC Standard keeps the kind icon and trailing disclosure visible independently. */
+/* The kind icon stays separate from the trailing disclosure in every process row. */
 .tool-glyph {
 	position: relative;
 	display: grid;
@@ -672,6 +686,37 @@
 	overflow: hidden;
 	color: var(--ink-3);
 }
+
+/* DFSC Simple folds consecutive thoughts and ordinary tools into one process range. */
+.process-tool-group {
+	min-width: 0;
+	margin: 4px 0;
+}
+.tool-group-trigger {
+	width: 100%;
+	min-height: 34px;
+	flex-wrap: nowrap;
+	padding: 3px 0;
+	border: 0;
+	background: transparent;
+	color: var(--ink-2);
+	cursor: pointer;
+}
+.tool-group-trigger:hover {
+	color: var(--ink);
+}
+.tool-group-trigger > .tool-verb {
+	color: inherit;
+	font-weight: 400;
+}
+.tool-group-chevron {
+	flex: none;
+	transform: rotate(-90deg);
+	transition: transform 240ms cubic-bezier(.215, .61, .355, 1);
+}
+.tool-group-trigger[aria-expanded="true"] > .tool-group-chevron {
+	transform: rotate(0deg);
+}
 .thinking-chevron,
 .tool-twisty,
 .tool-group-chevron {
@@ -687,6 +732,54 @@
 	.tool-twisty,
 	.tool-group-chevron {
 		opacity: 1;
+	}
+}
+.process-group-preview {
+	flex: 1 4 0;
+	min-width: 0;
+	padding-left: 9px;
+	overflow: hidden;
+	border-left: 1px solid var(--line);
+	color: var(--ink-2);
+	font-size: 12px;
+	font-weight: 400;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.tool-group-disclosure {
+	display: grid;
+	grid-template-rows: 0fr;
+	opacity: 0;
+	visibility: hidden;
+	transition: grid-template-rows 240ms cubic-bezier(.215, .61, .355, 1), opacity 200ms ease, visibility 240ms;
+}
+.tool-group-disclosure.expanded {
+	grid-template-rows: 1fr;
+	opacity: 1;
+	visibility: visible;
+}
+.tool-group-body {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	min-width: 0;
+	min-height: 0;
+	overflow: hidden;
+	padding-left: 18px;
+}
+.compact-process .tool-row:not(.tool-group-trigger) {
+	min-height: 30px;
+}
+.compact-process .tool-cx {
+	margin-left: 0;
+}
+.compact-process .tool-verb {
+	color: inherit;
+}
+@media (prefers-reduced-motion: reduce) {
+	.tool-group-disclosure,
+	.tool-group-chevron {
+		transition: none;
 	}
 }
 .approval {

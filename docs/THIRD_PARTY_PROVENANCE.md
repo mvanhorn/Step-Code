@@ -5,6 +5,7 @@ an external model vendor or imports an external package.
 
 | Material | Decision | Provenance / license | Review owner |
 | --- | --- | --- | --- |
+| Simple transcript process groups in `apps/web/client/src/features/conversation/` | Retained | Desktop for Step Code (MIT), adapted from its implemented `process-groups.ts`, `tool-groups.ts`, process disclosure and CSS. Uses Web timeline projections, existing tool details and icons rather than Desktop IPC or preset settings. Copyright and license retained in `THIRD_PARTY_NOTICES.md`. | Step Harness maintainers |
 | `apps/web` interactive-terminal adapter | Retained | `node-pty` 1.1.0, `@xterm/xterm` 6.0.0 and `@xterm/addon-fit` 0.11.0 (MIT), registry-pinned. DFSC TerminalPanel is the interaction reference; native Electron IPC and Windows-only lifecycle assumptions are not copied. Uses installed system shells, no terminal application download. | Step Harness maintainers |
 | Terminal clipboard/clear symbols in `apps/web/client/src/ui/IconSprite/IconSprite.tsx` | Retained | Lucide 1.48.0 `clipboard-paste` and `eraser` (ISC), matching DFSC and adapted to the shared sprite. | Step Harness maintainers |
 | Composer performance symbols (`timer`, `database`) in `apps/web/client/src/ui/IconSprite/IconSprite.tsx` | Retained | Lucide 1.48.0 (ISC), verified against the local DFSC installation and adapted to the shared sprite. Compact performance layout follows the contributor's DFSC reference; no Electron dependencies are copied. | Step Harness maintainers |

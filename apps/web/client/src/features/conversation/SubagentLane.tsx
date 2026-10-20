@@ -40,10 +40,10 @@ export const SubagentLane = memo(function SubagentLane({ item }: { readonly item
 					<Icon name="bot" size="xs" />
 					<SubagentStatusIcon status={task.status} />
 					<span className="lane-type">{task.agent || t("subagent")}</span>
+					<Icon className="lane-chevron" name="disclosure" size="xs" />
 					<span className="lane-summary-text">
 						{task.task.replace(/\s+/gu, " ").trim() || t("subagentNoTask")}
 					</span>
-					<Icon className="lane-chevron" name="disclosure" size="xs" />
 				</button>
 			))}
 		</div>

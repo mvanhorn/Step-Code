@@ -181,6 +181,11 @@ When to add or change one:
   the session manager's `stepcode-web.thinking-timing` custom entries outside model context. Snapshots and agent
   envelopes project validated `thinkingTimings` by original content index. Never infer durations for unobserved
   history or start clocks from browser receipt times.
+- The main transcript uses fixed DFSC Simple process groups, not a complexity
+  setting. Group consecutive thinking and ordinary tools only; keep failed tools,
+  approvals, retries and dedicated lifecycle calls separate. Preserve original
+  timeline indices for turn footers, file deliveries and search reveal. Group
+  completion counts tool results, never canonical Tasks or child-agent success.
 - Subagent rows project structured per-task results and use the existing read-only child transcript API.
   Planned arguments mean queued, not running; missing legacy statuses stay unknown. Background custom messages
   expose only validated agentId/event/status fields through `src/subagent-notification.ts`. Do not parse

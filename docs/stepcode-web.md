@@ -572,7 +572,25 @@ Non-redacted thinking supplied by the provider remains expandable in history;
 sessions without thinking blocks do not acquire invented records. Opaque
 thinking signatures and redacted blocks are never rendered.
 
-Thinking uses the standard folded disclosure with a Brain icon. Only the
+The main transcript uses DFSC Simple as a fixed presentation default, without
+a complexity setting. Consecutive thinking and ordinary tools share one folded
+process row. While active, its label and short preview follow the current
+pending tool or thinking block; settled groups summarize completed tool kinds.
+Thinking-only history stays a thinking record, not a fabricated tool result.
+Expanding preserves every original thinking/tool row, input/output and file
+or diff action. Ordinary collapsed tool rows keep their icon and label while
+arguments remain inside the disclosure. A single observed thought's duration
+also remains visible on the folded process row; individual durations remain
+available in expanded multi-thought groups.
+
+Prose, images, failures, approvals, retry rows and dedicated Subagent/workflow,
+plan and clarification calls end a process group. Calls awaiting approval and
+unresolved historical calls are never summarized as completed or running.
+User-turn boundaries, file-delivery strips, change cards and settled footers
+remain outside process folds. Search can reveal recorded thinking inside a
+folded group. This grouping changes no session entries or model context.
+
+Thinking retains its folded disclosure with a Brain icon. Only the
 currently streaming thinking block has the tool-style running label, shimmer
 and a short content preview. Text/tool output, message completion or a settled
 session stops the running state and folds an open live thought. A settled
