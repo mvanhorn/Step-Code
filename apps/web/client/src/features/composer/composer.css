@@ -997,6 +997,14 @@
 .plus-sub-row:hover {
 	background: var(--hover);
 }
+/* 行首类型标记：与暂存芯片同色的浅紫（扳手=技能、拼图=插件）。 */
+.plus-sub-kind {
+	flex: none;
+	color: var(--pick-accent, #8b5cf6);
+}
+.plus-sub-row .plus-sub-kind + .plus-sub-body {
+	/* 与无图标行对齐时图标占位的宽距保持一致 */ 
+}
 .plus-sub-row--faded {
 	opacity: 0.55;
 }

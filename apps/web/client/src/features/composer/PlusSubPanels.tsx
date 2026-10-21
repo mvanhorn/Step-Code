@@ -12,7 +12,7 @@ import { api, errorMessage } from "../../lib/api";
 import { sessionTitle } from "../../state/session";
 import { useAppStore } from "../../state/store";
 import type { SettingsSkill } from "../../state/types";
-import { SearchInput } from "../../ui";
+import { Icon, SearchInput } from "../../ui";
 import { openSettings } from "../settings/actions";
 
 /** `GET /api/v1/settings/plugins` catalog (openapi.yaml "Plugin catalog"). */
@@ -122,22 +122,26 @@ function SubPanelFrame({
 	);
 }
 
-/** One list row: name, one-line description; no icons per product decision. */
+/** One list row: an optional light-purple kind icon, name, one-line description. */
 function SubRow({
 	name,
 	hint,
 	description,
+	icon,
 	onClick,
 	faded = false,
 }: {
 	readonly name: string;
 	readonly hint?: string;
 	readonly description?: string;
+	/** Kind marker matching the staged chip: the wrench marks a skill, the puzzle a plugin. */
+	readonly icon?: "wrench" | "puzzle";
 	readonly onClick: () => void;
 	readonly faded?: boolean;
 }) {
 	return (
 		<button type="button" className={faded ? "plus-sub-row plus-sub-row--faded" : "plus-sub-row"} onClick={onClick}>
+			{icon ? <Icon className="plus-sub-kind" name={icon} size="xs" /> : null}
 			<span className="plus-sub-body">
 				<span className="plus-sub-name">
 					{name}
@@ -154,7 +158,7 @@ interface PickerItem {
 	readonly key: string;
 	/** Lowercased against the search query; undefined entries never match. */
 	readonly matchText: readonly (string | undefined)[];
-	readonly row: Pick<SubRowProps, "name" | "hint" | "description" | "faded" | "onClick">;
+	readonly row: Pick<SubRowProps, "name" | "hint" | "description" | "icon" | "faded" | "onClick">;
 }
 
 type SubRowProps = Parameters<typeof SubRow>[0];
@@ -227,6 +231,7 @@ export function PluginsPanel({ onPick }: { readonly onPick: (name: string, insta
 				matchText: [row.name, row.description],
 				row: {
 					name: row.name,
+					icon: "puzzle",
 					hint: row.kind === "available" ? `${row.hint ?? ""} · ${t("plugInstallHint")}` : row.hint,
 					description: row.description,
 					onClick: () => onPick(row.name, row.kind === "installed"),
@@ -250,6 +255,7 @@ export function SkillsPanel({ onPick }: { readonly onPick: (name: string) => voi
 				matchText: [skill.name, skill.description],
 				row: {
 					name: skill.name,
+					icon: "wrench",
 					hint: skill.source === "plugin" ? skill.pluginName : undefined,
 					description: skill.description,
 					faded: !skill.enabled,
