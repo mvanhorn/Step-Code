@@ -14,14 +14,38 @@ import {
 	AuthStorage,
 	type DiscoveredModel,
 	discoverModels,
+	importStepgoModels,
 	ModelDiscoveryError,
 	normalizeProviderBaseUrl,
 	readModelsJsonProviders,
 	readStoredCredential,
 	resolveStepConfigRoot,
+	type StepgoModelImportResult,
 	updateModelsJsonProvider,
 } from "@step-harness/coding-agent";
 import { SettingsError } from "./settings.ts";
+
+/**
+ * First-start import of the providers and key a local stepgo launcher (`sc`)
+ * injects, so the models page is filled without typing anything. It writes the
+ * same `models.json` / `auth.json` this module manages, into the paths this
+ * host reads, and runs once: afterwards the providers are ordinary custom
+ * providers the user maintains here. Never throws; one line is logged when
+ * something was imported or went wrong, and never a key.
+ */
+export async function importLocalStepgoModels(
+	log: (line: string) => void = (line) => console.log(line),
+): Promise<StepgoModelImportResult> {
+	const result = await importStepgoModels({ modelsPath: modelsJsonPath(), authPath: modelsAuthPath() });
+	if (result.status === "imported") {
+		const parts = [`imported ${result.providers.length} provider(s) from stepgo`];
+		if (result.providers.length > 0) parts.push(result.providers.join(", "));
+		if (result.existing.length > 0) parts.push(`kept existing: ${result.existing.join(", ")}`);
+		log(`[models] ${parts.join("; ")}`);
+		for (const warning of result.warnings) log(`[models] stepgo import: ${warning}`);
+	}
+	return result;
+}
 
 /**
  * A provider declared in `models.json`, as the models page lists it.

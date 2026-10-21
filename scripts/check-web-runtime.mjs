@@ -20,6 +20,8 @@ const child = spawn(process.execPath, ["apps/web/dist/server.js"], {
 		STEP_CODING_AGENT_DIR: agentDir,
 		// A check must never open a window, even when the caller exported the flag.
 		STEPCODE_WEB_OPEN: "0",
+		// HOME is the caller's: never copy a local stepgo key into the temporary config root.
+		STEPCODE_STEPGO_IMPORT: "0",
 	},
 	stdio: ["ignore", "pipe", "pipe"],
 });

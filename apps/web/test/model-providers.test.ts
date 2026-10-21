@@ -8,13 +8,14 @@
 
 import assert from "node:assert/strict";
 import { createServer, type Server } from "node:http";
-import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
 	deleteModelProvider,
 	discoverProviderModels,
+	importLocalStepgoModels,
 	listModelProviders,
 	parseModelProvider,
 	saveModelProvider,
@@ -22,7 +23,16 @@ import {
 } from "../src/model-providers.ts";
 import { SettingsError } from "../src/settings.ts";
 
-const ENV_KEYS = ["HOME", "STEP_CODING_AGENT_DIR", "STEPCODE_STORAGE_ROOT_DIR", "STEPCODE_CONFIG_DIR", "STEPCODE_AUTH_PATH"] as const;
+const ENV_KEYS = [
+	"HOME",
+	"STEP_CODING_AGENT_DIR",
+	"STEPCODE_STORAGE_ROOT_DIR",
+	"STEPCODE_CONFIG_DIR",
+	"STEPCODE_AUTH_PATH",
+	"STEPGO_HOME",
+	"STEPCODE_HOME",
+	"STEPCODE_STEPGO_IMPORT",
+] as const;
 const savedEnv = new Map(ENV_KEYS.map((key) => [key, process.env[key]]));
 let home = "";
 
@@ -398,4 +408,47 @@ test("discovery refuses an over-large reply instead of truncating it", async () 
 	} finally {
 		await endpoint.close();
 	}
+});
+
+test("a local stepgo launcher is imported once and then listed like any custom provider", async () => {
+	const managedDir = join(home, ".stepgo", "config", "agent", "managed");
+	await mkdir(managedDir, { recursive: true });
+	await writeFile(
+		join(home, ".stepgo", "config", "config.json"),
+		JSON.stringify({ model: "config", apiKey: "ak-fixture-stepgo", baseUrl: "https://gw.example" }),
+	);
+	await writeFile(
+		join(managedDir, "config.json"),
+		JSON.stringify({
+			providers: {
+				"stepgo-chat": {
+					api: "openai-completions",
+					baseUrl: "https://gw.example/v1",
+					models: [{ id: "m1", model: "m1", tokens: { maxContext: 200000, maxOutput: 8192 }, input: ["text"] }],
+				},
+			},
+		}),
+	);
+	const lines: string[] = [];
+
+	const result = await importLocalStepgoModels((line) => lines.push(line));
+
+	assert.equal(result.status, "imported");
+	assert.ok(lines.every((line) => !line.includes("ak-fixture-stepgo")), "the key is never logged");
+	const row = (await listModelProviders()).find((provider) => provider.id === "stepgo-chat");
+	assert.deepEqual(row, {
+		id: "stepgo-chat",
+		name: "stepgo-chat",
+		baseUrl: "https://gw.example/v1",
+		api: "openai-completions",
+		models: [{ id: "m1", contextWindow: 200000, maxTokens: 8192, input: ["text"] }],
+		credential: "stored",
+	});
+	assert.deepEqual((await authOnDisk())["stepgo-chat"], { type: "api_key", key: "ak-fixture-stepgo" });
+	assert.ok(!JSON.stringify(await onDisk()).includes("ak-fixture-stepgo"));
+
+	// Once imported the user owns it: a delete sticks across restarts.
+	await deleteModelProvider("stepgo-chat");
+	assert.equal((await importLocalStepgoModels(() => {})).status, "done");
+	assert.equal((await listModelProviders()).find((provider) => provider.id === "stepgo-chat"), undefined);
 });

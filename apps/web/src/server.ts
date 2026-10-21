@@ -35,6 +35,7 @@ import { buildLoginReport, type LoginReport, loginMethods, WebLoginController } 
 import {
 	deleteModelProvider,
 	discoverProviderModels,
+	importLocalStepgoModels,
 	listModelProviders,
 	saveModelProvider,
 } from "./model-providers.ts";
@@ -925,14 +926,23 @@ const server = createServer(async (request, response) => {
 	}
 });
 
-server.listen(port, bindHost, () => {
-	console.log(
-		formatStartupBanner({ port: launchPort, token: auth.getLaunchToken(), version: resolveStepCodeVersion().value }),
-	);
-	// Opt-in: the dev commands ask for it; desktop and the tests must not open a window.
-	if (!shouldOpenBrowser(process.env, existsSync)) return;
-	openBrowser(launchUrl(launchPort, auth.getLaunchToken()));
-	recordBrowserOpened(process.env);
+// Import a local stepgo launcher's models before the first request, so the
+// models page and the first session already see them. It runs once per
+// installation and never rejects; listening must not wait on anything else.
+void importLocalStepgoModels().finally(() => {
+	server.listen(port, bindHost, () => {
+		console.log(
+			formatStartupBanner({
+				port: launchPort,
+				token: auth.getLaunchToken(),
+				version: resolveStepCodeVersion().value,
+			}),
+		);
+		// Opt-in: the dev commands ask for it; desktop and the tests must not open a window.
+		if (!shouldOpenBrowser(process.env, existsSync)) return;
+		openBrowser(launchUrl(launchPort, auth.getLaunchToken()));
+		recordBrowserOpened(process.env);
+	});
 });
 
 // Installing signal handlers replaces Node's default exit, so shutdown must end

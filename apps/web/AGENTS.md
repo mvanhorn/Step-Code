@@ -263,6 +263,9 @@ When to add or change one:
   Vite dev server, default 5173).
   `STEPCODE_WEB_BROWSER_PATH` optionally names an installed Chrome/Edge/Chromium executable.
   The browser adapter detects common locations otherwise and reports missing engines without installing one.
+  `STEPCODE_STEPGO_IMPORT=0` disables the one-time import of a local stepgo launcher's providers and key into
+  `models.json` / `auth.json` that runs before the host listens (see `docs/step-configuration.md`); hosts started by
+  tests must set it, because they inherit the developer's HOME.
   Document new ones here and in `apps/desktop/README.md` if the desktop passes them through.
 - Opening a browser on start is **opt-in**, because Desktop shows the client in its own window and the tests must stay
   headless. `STEPCODE_WEB_OPEN=1|true|on` makes the host open the launch URL right after printing the banner; unset or

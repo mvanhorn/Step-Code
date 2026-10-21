@@ -395,6 +395,8 @@ before(async () => {
       // Headless run: never open a browser, even when the developer's shell
       // exports the flag for `pnpm web`.
       STEPCODE_WEB_OPEN: "0",
+      // HOME is the developer's: never import a local stepgo launcher's models and key into the fixture.
+      STEPCODE_STEPGO_IMPORT: "0",
       PATH: `${bin}${delimiter}${process.env.PATH ?? ""}`,
       PICKER_RESULT_FILE: pickerResult,
       PICKER_ARGS_FILE: pickerArgs,
