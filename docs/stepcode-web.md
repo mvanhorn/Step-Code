@@ -440,10 +440,10 @@ Summary replaces the original floating task/subagent banner, rather than
 coexisting with it. Summary is an independent content-height surface, not the
 full-height inspector used by other rail entries. The compact board is 320px
 wide with a 20px top inset, a 12px rail-side gap and a close-only header.
-It scrolls internally only when its content exceeds the viewport. With at least
-1120px of workspace width after the sidebar and tool rail, the layout reserves
-reading space as necessary; otherwise the board overlays without narrowing the
-conversation. It shows plan tasks with completion counts and completed-task
+It scrolls internally only when its content exceeds the viewport, and it always
+floats out of flow: it never reserves a grid column, so opening or closing it
+does not narrow or reflow the conversation at any workspace width. It shows plan
+tasks with completion counts and completed-task
 folding, a task progress track, agent records below the tasks, MCP and Skills.
 The header retains the Summary title and close control, with compact task
 completion and agent-record counts. Its activity dot pulses only for explicit

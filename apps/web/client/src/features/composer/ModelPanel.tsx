@@ -44,7 +44,8 @@ export function ModelPanel(props: ModelPanelProps) {
 	return (
 		<>
 			{all ? <ModelSearch key={searchEpoch} query={query} onQuery={onQuery} /> : null}
-			<div>
+			{/* Only the rows scroll, so the search above and the controls below stay in view. */}
+			<div className="model-popover-list">
 				<ModelRows
 					candidates={candidates}
 					pinned={pinned}
@@ -54,6 +55,18 @@ export function ModelPanel(props: ModelPanelProps) {
 					onSelect={onSelectModel}
 				/>
 			</div>
+			{all ? (
+				<MoreButton onClick={() => onView("compact")}>
+					<Icon name="chevronLeft" size="sm" />
+					<span>{t("backToModels")}</span>
+				</MoreButton>
+			) : models.length > COMPACT_MODEL_COUNT ? (
+				<MoreButton onClick={() => onView("all")}>
+					<Icon name="layers" size="sm" />
+					<span>{t("moreModels")}</span>
+					<Icon name="chevronRight" size="sm" />
+				</MoreButton>
+			) : null}
 			<div className="control-popover-section">
 				<span className="control-segmented-label">{t("thinkingEffort")}</span>
 				{levels.length ? (
@@ -75,27 +88,12 @@ export function ModelPanel(props: ModelPanelProps) {
 					</div>
 				)}
 			</div>
-			{all ? (
-				<MoreButton onClick={() => onView("compact")}>
-					<Icon name="chevronLeft" size="sm" />
-					<span>{t("backToModels")}</span>
-				</MoreButton>
-			) : (
-				<>
-					<PopoverNote>{t("modelSwitchHint")}</PopoverNote>
-					{models.length > COMPACT_MODEL_COUNT ? (
-						<MoreButton onClick={() => onView("all")}>
-							<Icon name="layers" size="sm" />
-							<span>{t("moreModels")}</span>
-							<Icon name="chevronRight" size="sm" />
-						</MoreButton>
-					) : null}
-				</>
-			)}
+			{all ? null : <PopoverNote>{t("modelSwitchHint")}</PopoverNote>}
 		</>
 	);
 }
 
+/** The "more models" / "back" row, right under the model list so it never scrolls out of reach. */
 function MoreButton({ onClick, children }: { readonly onClick: () => void; readonly children: ReactNode }) {
 	return (
 		<button type="button" className="control-popover-more" onClick={onClick}>

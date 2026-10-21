@@ -379,7 +379,8 @@ export function createInitialState(): AppState {
 		theme: initialTheme(),
 		locale: initialLocale(),
 		ui: {
-			rightPanel: typeof window !== "undefined" && window.innerWidth > 1200 ? "summary" : null,
+			// Every inspector, Summary included, starts closed; the rail or session activity opens one.
+			rightPanel: null,
 			rightPanelExpanded: false,
 			rightPanelMenu: false,
 			terminalOpen: false,

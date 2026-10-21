@@ -6,7 +6,7 @@ import { modelKey } from "../../state/session";
 import type { DraftModels, ModelInfo, SessionSnapshot } from "../../state/types";
 
 /** How many models the compact view shows before deferring to "more models". */
-export const COMPACT_MODEL_COUNT = 4;
+export const COMPACT_MODEL_COUNT = 3;
 
 /** What the model panel is painted from: the open session, or a draft's prediction (`draftModelSource`). */
 export type ModelSource = Pick<SessionSnapshot, "models" | "model" | "thinkingLevel" | "availableThinkingLevels">;

@@ -318,7 +318,7 @@
 	color: var(--ink);
 	box-shadow: 0 1px 3px var(--shadow);
 }
-/* Hint and the "more models" / "back" rows that close the panel. */
+/* Hint below the effort block, and the "more models" / "back" row right under the model list. */
 .control-popover-note {
 	padding: 6px 9px 2px;
 	color: var(--ink-3);
@@ -330,11 +330,10 @@
 	align-items: center;
 	gap: 8px;
 	width: 100%;
-	margin-top: 4px;
+	margin-top: 2px;
 	padding: 0 9px;
 	height: var(--control-h-sm);
-	border-top: 1px solid var(--line);
-	border-radius: 0 0 var(--radius-row) var(--radius-row);
+	border-radius: var(--radius-row);
 	color: var(--ink-2);
 	font-size: 12px;
 }
@@ -348,6 +347,28 @@
 }
 .control-popover-more > :last-child {
 	margin-left: auto;
+}
+/*
+ * The full model list scrolls only its rows: the search field stays at the top
+ * and "more models"/"back", the effort block and the footer stay put, however
+ * long the catalog is. The default view has too few rows to ever scroll, so it
+ * lets the panel size itself instead of showing a scrollbar for no reason.
+ */
+#modelPopover.control-popover:has(.control-popover-search) {
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+}
+#modelPopover.control-popover:has(.control-popover-search) > * {
+	flex: none;
+}
+#modelPopover.control-popover:has(.control-popover-search) > .model-popover-list {
+	flex: 0 1 auto;
+	min-height: 0;
+	overflow-y: auto;
+}
+#modelPopover.control-popover:not(:has(.control-popover-search)) {
+	max-height: min(560px, calc(100vh - 120px));
 }
 /* The effort block that shares the model panel. */
 .control-popover-section {
