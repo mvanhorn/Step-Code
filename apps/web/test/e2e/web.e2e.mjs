@@ -516,8 +516,7 @@ test(
 			remoteDisabled: $("#remoteControlButton").getAttribute("aria-disabled"),
 			popover: !!$("#userPopover"),
 			page: $("#settingsView [data-page]").dataset.page,
-			account: $("#settingsAccountLabel").textContent,
-			upgrade: $("#stepPlanLink").getAttribute("href"),
+			account: !!$("#settingsAccountLabel"),
 			legacy: !!$("#loginNote") || !!$("#loginCommand") || !!$(".user-popover-account"),
 		};
 	`)
@@ -526,9 +525,39 @@ test(
     assert.equal(footer.remoteDisabled, "true")
     assert.equal(footer.popover, false, "the popover is gone")
     assert.equal(footer.page, "general")
-    assert.equal(footer.account, "Step Plan · 中国大陆")
-    assert.equal(footer.upgrade, "https://platform.stepfun.com/step-plan")
+    assert.equal(footer.account, false, "account settings no longer live on General")
     assert.equal(footer.legacy, false)
+
+    const account = await browser.run(`
+		$("[data-settings-page='account']").click();
+		await until(() => $("#settingsAccountLabel"), "account page");
+		await until(() => $$(".settings-account-channel").length === 4, "four sign-in methods");
+		const result = {
+			page: $("#settingsView [data-page]").dataset.page,
+			label: $("#settingsAccountLabel").textContent,
+			mark: !!$(".settings-account-logo use[href='#i-stepPlatform']"),
+			channels: $$(".settings-account-channel").map((row) => row.dataset.loginProfile),
+			logout: !!$("#logoutButton"),
+			upgrade: $("#stepPlanLink").getAttribute("href"),
+			firstPage: $(".settings-nav-item").dataset.settingsPage,
+			logoutInIdentity: !!$(".settings-account-identity #logoutButton use[href='#i-accountLogout']"),
+			loginIcon: !!$("#settingsAccountLogin use[href='#i-accountExternal']"),
+			twoColumns: (() => {
+				const rows = $$(".settings-account-channel").map((row) => row.getBoundingClientRect());
+				return rows[0].y === rows[1].y && rows[2].y > rows[0].y && rows[2].y === rows[3].y;
+			})(),
+		};
+		$("[data-settings-page='general']").click();
+		await until(() => $("[data-language-choice='en-US']"), "general page");
+		return result;
+	`);
+    assert.deepEqual(account, {
+      page: "account", label: "Step Plan · 中国大陆", mark: true,
+      channels: ["step_plan", "step_plan_oversea", "platform_cn", "platform_oversea"],
+      logout: true,
+      upgrade: "https://platform.stepfun.com/step-plan",
+      firstPage: "account", logoutInIdentity: true, loginIcon: true, twoColumns: true,
+    });
 
     // The account button opens the account menu above it, not the settings view.
     const menu = await browser.run(`
@@ -565,6 +594,8 @@ test(
 		window.confirm = nativeConfirm;
 		// Enter on a dialog button is that button's own; Enter on Cancel cancels.
 		$("#settingsButton").click();
+		await until(() => !$("#settingsView").hidden, "settings view for account");
+		$("[data-settings-page='account']").click();
 		await until(() => $("#logoutButton"), "settings log-out button");
 		$("#logoutButton").click();
 		await until(() => !$("#logoutDialog").hidden, "log-out dialog from settings");
@@ -902,7 +933,8 @@ test(
 		const view = $("#previewBody .code-view");
 		return {
 			panel: !$("#previewPanel").hidden,
-			shifted: $(".app").classList.contains("preview-open"),
+			shifted: $(".app").classList.contains("right-panel-open"),
+			railPressed: $("[data-right-panel='files']").getAttribute("aria-pressed"),
 			tabs: tabs(),
 			path: $("#previewPath").textContent,
 			code: codeText(),
@@ -917,6 +949,7 @@ test(
 	`)
     assert.equal(opened.panel, true)
     assert.equal(opened.shifted, true)
+    assert.equal(opened.railPressed, "true")
     assert.deepEqual(opened.tabs, ["main.ts"])
     assert.ok(opened.path.startsWith(`${workspace}/src/main.ts`), opened.path)
     assert.equal(
@@ -1030,15 +1063,16 @@ test(
     await browser.chord("KeyB", "b", SHIFT_META)
     const hidden = await browser.run(`
 		await until(() => $("#previewPanel").hidden, "panel to hide");
-		return { shifted: $(".app").classList.contains("preview-open"), reopen: !$("#previewShow").hidden };
+		const rail = $("[data-right-panel='files']");
+		return { shifted: $(".app").classList.contains("right-panel-open"), reopen: Boolean(rail) && !rail.disabled, pressed: rail?.getAttribute("aria-pressed") };
 	`)
-    assert.deepEqual(hidden, { shifted: false, reopen: true })
+    assert.deepEqual(hidden, { shifted: false, reopen: true, pressed: "false" })
     const shown = await browser.run(`
-		$("#previewShow").click();
+		$("[data-right-panel='files']").click();
 		await until(() => !$("#previewPanel").hidden, "panel to return");
-		return tabs().length;
+		return { tabs: tabs().length, shifted: $(".app").classList.contains("right-panel-open") };
 	`)
-    assert.equal(shown, 4)
+    assert.deepEqual(shown, { tabs: 4, shifted: true })
   },
 )
 
@@ -1796,7 +1830,9 @@ test(
 
 test("workspaces with chats can be removed through the dialog, retained after reload and restored", { skip }, async () => {
   const before = await browser.run(`
-    const session = $(".session-row.active").dataset.sessionId;
+    // Pick a conversation instead of assuming the page opened one: the removal must keep it.
+    (await until(() => $("#projectGroups .session-row, #recentTasks .session-row"), "a conversation")).click();
+    const session = await until(() => $(".session-row.active")?.dataset.sessionId, "open conversation");
     const project = $("#projectGroups .project-group");
     const button = project.querySelector(".workspace-menu-button");
     button.focus(); button.click();
@@ -1964,6 +2000,11 @@ test("the conversation locator rail jumps to a query and follows the viewport", 
     const row = await until(() => $('.session-row[data-session-id="${sessionId}"]'), "session row");
     row.click();
     await until(() => $("#stream .message.user"), "messages to draw");
+    // With the sidebar shown at 1440px, the docked Summary (open by default on wide windows)
+    // narrows the middle column below the rail's minimum, so the ticks would cover the messages.
+    // Closing it brings the rail back; earlier tests may already have changed either panel.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    if (!$(".stream-nav") && $(".app").classList.contains("summary-docked")) $("[data-right-panel='summary']").click();
     const rail = await until(() => $(".stream-nav"), "locator rail");
     const stream = $("#stream");
     // Opening a session pins the bottom; back to the top the first tick is the active one.
@@ -2078,56 +2119,4 @@ test("a subagent or workflow call opens its child agents' transcripts read-only 
     return [other.status, notChild.status];
   `)
   assert.deepEqual(refused, [404, 404])
-})
-
-test("the token usage panel opens centred above its trigger without growing the composer", { skip }, async () => {
-  const now = new Date().toISOString()
-  const sessionId = "e2e-usage-session"
-  const usage = { input: 10, output: 2000, cacheRead: 0, cacheWrite: 0, totalTokens: 2010, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }
-  const lines = [
-    { type: "session", version: 3, id: sessionId, timestamp: now, cwd: workspace },
-    { type: "message", id: "u1", parentId: null, timestamp: now, message: { role: "user", content: "count the tokens", timestamp: Date.now() } },
-    {
-      type: "message", id: "a1", parentId: "u1", timestamp: now,
-      message: { role: "assistant", content: [{ type: "text", text: "Counted." }], api: "openai-completions", provider: "e2e", model: "e2e", usage, stopReason: "stop", timestamp: Date.now() },
-    },
-  ]
-  const dir = join(base, "agent", "sessions", "--e2e-usage--")
-  await mkdir(dir, { recursive: true })
-  await writeFile(join(dir, `${now.replace(/[:.]/g, "-")}_${sessionId}.jsonl`), lines.map((line) => JSON.stringify(line)).join("\n") + "\n")
-
-  await browser.goto(`${origin}/`)
-  const seen = await browser.run(`
-    (await until(() => $('.session-row[data-session-id="${sessionId}"]'), "usage session row")).click();
-    const trigger = await until(() => !$("#usageTrigger").hidden && $("#usageTrigger"), "usage trigger");
-    const composer = $(".composer-card") ?? $("#composer");
-    const before = composer.getBoundingClientRect().height;
-    const closedPanel = Boolean($("#usagePopover"));
-    trigger.click();
-    const panel = await until(() => $("#usagePopover"), "usage panel");
-    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    const box = panel.getBoundingClientRect();
-    const anchor = trigger.getBoundingClientRect();
-    const opened = {
-      closedPanel,
-      expanded: trigger.getAttribute("aria-expanded"),
-      outsideComposer: !composer.contains(panel),
-      above: box.bottom <= anchor.top,
-      centred: Math.abs(box.left + box.width / 2 - (anchor.left + anchor.width / 2)) < 2,
-      composerGrew: composer.getBoundingClientRect().height !== before,
-      total: panel.querySelector(".usage-total b").textContent,
-    };
-    document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
-    await until(() => !$("#usagePopover"), "usage panel to close");
-    return opened;
-  `)
-  assert.deepEqual(seen, {
-    closedPanel: false,
-    expanded: "true",
-    outsideComposer: true,
-    above: true,
-    centred: true,
-    composerGrew: false,
-    total: "2.0K",
-  })
 })

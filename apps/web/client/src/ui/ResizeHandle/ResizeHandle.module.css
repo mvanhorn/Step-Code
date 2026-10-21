@@ -8,3 +8,11 @@
 	cursor: col-resize;
 	touch-action: none;
 }
+.root.horizontal {
+	top: auto;
+	right: 0;
+	left: 0;
+	width: auto;
+	height: 9px;
+	cursor: row-resize;
+}

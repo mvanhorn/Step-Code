@@ -3,11 +3,22 @@ import { useLocale, useT } from "../../i18n";
 import { collectTurnChanges } from "../../lib/turn-changes";
 import { setUi, useAppStore } from "../../state/store";
 import type { SteeringMessage, TimelineItem } from "../../state/types";
-import { MessageItem } from "./MessageItem";
+import { MessageActions, MessageItem } from "./MessageItem";
+import { ProcessGroup } from "./ProcessGroup";
+import {
+	groupProcessRows,
+	type IndexedTimelineRow,
+	type ProcessGroup as ProcessGroupRow,
+	reuseUnchangedRows,
+} from "./process-groups";
 import { RetryRow } from "./RetryRow";
+import { ThinkingDisclosure } from "./ThinkingDisclosure";
 import { ThinkingIndicator } from "./ThinkingIndicator";
 import { ApprovalCard, ToolRow } from "./TimelineRows";
+import { TurnArtifacts } from "./TurnArtifacts";
 import { TurnChangesCard } from "./TurnChangesCard";
+import { turnArtifacts } from "./turn-artifacts";
+import { collectTurnFooters } from "./turn-footers";
 
 /** Shown while the timeline is empty (legacy index.html 835-842, `renderTimeline`). */
 function EmptyConversation() {
@@ -21,22 +32,6 @@ function EmptyConversation() {
 			<p>{t("emptyConversation")}</p>
 		</div>
 	);
-}
-
-/**
- * React key of a timeline row. Item ids are unique in practice, but a live
- * `tool_execution_start` can repeat a tool already in the snapshot, so a
- * repeated id gets its position appended instead of colliding.
- */
-function itemKeys(items: readonly TimelineItem[]): string[] {
-	const seen = new Set<string>();
-	return items.map((item, index) => {
-		if (!seen.has(item.itemId)) {
-			seen.add(item.itemId);
-			return item.itemId;
-		}
-		return `${item.itemId}#${index}`;
-	});
 }
 
 /**
@@ -85,8 +80,16 @@ export function ConversationStream() {
 	const streamRef = useRef<HTMLDivElement>(null);
 	const innerRef = useRef<HTMLDivElement>(null);
 	const stick = useRef(true);
-	const keys = itemKeys(items);
+	const previousRows = useRef<readonly (IndexedTimelineRow | ProcessGroupRow)[]>([]);
 	const turns = useMemo(() => collectTurnChanges(items, cwd), [items, cwd]);
+	const footerAfter = useMemo(
+		() => new Map(collectTurnFooters(items, status, pendingTurn !== null).map((turn) => [turn.lastIndex, turn])),
+		[items, status, pendingTurn],
+	);
+	const artifactsAfter = useMemo(
+		() => new Map([...footerAfter].map(([index, footer]) => [index, turnArtifacts(items, footer, cwd)])),
+		[footerAfter, items, cwd],
+	);
 
 	// A new session or a sent message: follow the bottom again.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the session id and the pending messages are the triggers.
@@ -133,28 +136,54 @@ export function ConversationStream() {
 			.filter((turn) => !turn.latest || pendingTurn !== null || !busy)
 			.map((turn) => [turn.lastIndex, turn] as const),
 	);
+	const breaks = [...cardAfter.keys(), ...footerAfter.keys()].sort((a, b) => a - b).join(",");
+	// `breaks` is the value-stable form of the two maps, so the grouping reruns only when they really change.
+	const presentation = useMemo(() => {
+		const next = reuseUnchangedRows(
+			previousRows.current,
+			groupProcessRows(items, running, new Set(breaks ? breaks.split(",").map(Number) : [])),
+		);
+		previousRows.current = next;
+		return next;
+	}, [items, running, breaks]);
 	return (
 		<div className="stream" id="stream" ref={streamRef} onScroll={onScroll}>
 			<div className="stream-inner" id="streamInner" ref={innerRef}>
 				{items.length || pendingTurn || steering.length ? (
 					<>
-						{items.map((item, index) => {
-							const card = cardAfter.get(index);
+						{presentation.map((row) => {
+							const card = cardAfter.get(row.lastIndex);
+							const footer = footerAfter.get(row.lastIndex);
 							// Always a fragment, so a card appearing under a row does not remount the row.
 							return (
-								<Fragment key={keys[index]}>
-									{item.kind === "message" ? (
-										<MessageItem item={item} />
-									) : item.kind === "tool" ? (
-										<ToolRow item={item} />
-									) : item.kind === "retry" ? (
-										<RetryRow item={item} />
+								<Fragment key={`${sessionId}:${row.key}`}>
+									{"kind" in row ? (
+										<ProcessGroup
+											group={row}
+											revealEntryId={reveal?.sessionId === sessionId ? reveal.entryId : undefined}
+										/>
+									) : row.item.kind === "message" ? (
+										<MessageItem item={row.item} />
+									) : row.item.kind === "tool" ? (
+										<ToolRow item={row.item} />
+									) : row.item.kind === "thinking" ? (
+										<ThinkingDisclosure item={row.item} active={running} />
+									) : row.item.kind === "retry" ? (
+										<RetryRow item={row.item} />
 									) : (
-										<ApprovalCard approval={item.approval} />
+										<ApprovalCard approval={row.item.approval} />
 									)}
+									{footer ? (
+										<TurnArtifacts
+											key={`outputs-${sessionId}-${footer.turnId}`}
+											artifacts={artifactsAfter.get(row.lastIndex) ?? []}
+											cwd={cwd}
+										/>
+									) : null}
 									{card ? (
 										<TurnChangesCard turn={card} reverted={Boolean(revertedTurns?.includes(card.turnId))} />
 									) : null}
+									{footer ? <MessageActions key={footer.turnId} messages={footer.messages} /> : null}
 								</Fragment>
 							);
 						})}

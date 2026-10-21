@@ -42,9 +42,22 @@ CLI does:
 `GET /api/v1/login` (and the `login` field of `/api/v1/bootstrap`) reports where
 the credential comes from: `environment` or `auth.json`, with the provider,
 login profile, validity, and the `step login` command that changes it. The
-credential itself is never part of the response, and the settings dialog shows
-this section read-only — there is no key field, because a field here could not
-sign anything in.
+credential itself is never part of the response. A separate Account settings
+page shows the channel, region and credential verdict. Optional `userId` is a
+bounded stored OAuth UID matching the kernel's valid checked account; profile
+labels and environment keys never stand in for an identity. General settings
+retain language only. Account uses the DFSC Step platform mark and four
+channel choices, without balance or allowance placeholders.
+
+The Account page reuses the existing browser/API-key sign-in routes, including
+authorization waiting, reopening, cancellation and error feedback. Closing the
+page cancels its browser authorization and prevents late client updates. API-key
+submissions cannot be undone after the Host saves them. An environment credential
+is read-only here because it takes precedence over a saved credential; change it
+in the launch environment and restart instead. Switching is disabled while the
+page knows of running/waiting sessions. Existing Host credential reload behavior
+is unchanged. Account retains the upgrade link and cookie-only logout: logout
+does not remove Step credentials or terminate the Host's Agent sessions.
 
 Presence and reachability are reported separately: `getStepLoginStatus` treats an
 unreachable provider as "not logged in", but the credential is still on disk and
@@ -56,7 +69,8 @@ the next request may succeed, so `configured` reflects the stored credential and
 When the bootstrap report says `configured: false` (no `auth.json`, an empty
 one, or no `step` entry, and no `STEP_API_KEY`), bootstrap stops before it opens
 any session and shows `#loginGate`, a dialog with no close control; Escape and
-global shortcuts are ignored while it is open. Web and Desktop both show it.
+global shortcuts are ignored while it is open. This startup gate is currently
+enabled only for Desktop; plain Web can sign in from Account settings.
 
 A session fixes its model catalog and provider endpoint when it is built, so
 one opened before the credential existed (another tab, or a page loaded before
@@ -211,13 +225,30 @@ panel is closed by default and takes its width from the main column, so the
 shell remains two-column when nothing is being previewed. Shift+Cmd+B toggles
 it; Alt+Cmd+P opens the tree for the current workspace.
 
-Two readouts are derived from the session timeline rather than stored: the task
-banner at the top right of the main column (task and subagent progress, from the
-`task_*` and `subagent` tool calls) and the token indicator left of the model
-picker (input/output totals, summed from the usage each assistant turn reports).
-Both stay out of the way when there is nothing to report — the banner hides until
-the session has run a task or a subagent, and the token control hides until a
-turn reports usage — so neither shows a placeholder figure.
+The token indicator left of the model picker derives input/output totals from
+the usage each assistant turn reports and hides until a turn reports usage.
+Task summaries live in the DFSC-style floating Summary board instead of the original
+floating banner. Task completion comes from canonical task state, not completed
+`task_create` / `task_update` calls.
+
+Settled turns also expose a compact Outputs strip for supported document,
+image, website, spreadsheet, presentation, audio and video references.
+It combines explicit local Markdown links with successful structured
+write/edit paths. Code-styled basenames qualify only when they identify an
+unambiguous observed output; fenced examples, failed tools, reads and shell
+prose do not prove delivery. The strip initially shows three entries and can
+expand. These are references or observed writes, not proof that files still
+exist; opening a missing file shows the existing preview error.
+
+Assistant local links and delivery buttons open the same workspace-bound
+Files inspector. Repeating a delivery button closes its selected preview
+while preserving tabs and trigger focus; selecting another file switches the
+preview. Markdown opens rendered, and links inside it resolve relative to the
+document. Windows paths, encoded file URLs and line suffixes normalize before
+the existing file API is called. Paths outside the workspace are rejected;
+the Host remains responsible for realpath and symlink checks. There are no
+automatic historical content reads, native-app actions, or new Office/PDF
+renderers. HTML delivery recognition alone does not enable live HTML preview.
 
 Each finished turn (one user message up to the next, including a message with
 images only) that changed files gets a card under its last row: "Edited N
@@ -292,10 +323,9 @@ and answers from a file; the real spawn, argv and parsing are still covered.
 The production build emits `apps/web/dist/server.js`, the browser assets, and
 `apps/web/dist/openapi.yaml`.
 
-The browser UI follows PRD v2.0 revision 281 §3 and uses Kimi Code Web as its
-information-architecture baseline: a light two-column shell, cwd-grouped
-conversations in the sidebar, a conversation stream, and a centered composer
-control group. There is no main-area header, fixed right rail, or Goal HUD.
+The browser UI retains its cwd-grouped conversations and centered composer.
+The local DFSC presentation migration adds a right tool rail and a mutually
+exclusive inspector area; it does not add a main-area header or Goal HUD.
 
 The first release connects sessions, message/tool streaming, approvals, status,
 cwd file browsing, the three CLI permission presets, model selection, known-workspace
@@ -320,3 +350,344 @@ do not show a workspace switcher.
 Attachments, agent-mode selection, and cron management UI remain outside the
 10/15 first release. Cron capabilities remain available through conversation
 tools.
+
+## Subagent presentation
+
+The Web client uses the DFSC Standard task rows: a persistent Bot icon, a
+separate status icon, an agent label, task summary and trailing disclosure.
+Structured `details.results` own the six task states; missing legacy statuses
+remain unknown. Planned single, parallel and chain calls show queued tasks,
+not fabricated running tasks. A rejected dispatch stays an ordinary failed
+tool with its original input/output; per-task errors remain inspectable.
+
+Selecting a task opens the existing read-only child transcript API in the
+shared right inspector. Narrow screens use an overlay; expand, close and the existing Escape chain
+retain the parent session. The inspector follows the selected tool/task index
+as results arrive, shows model/turn metadata when recorded, and has no prompt,
+execution or permission controls. Pending child records poll sequentially
+without overlapping requests; late replies cannot replace another selection.
+
+Background dispatch results are snapshots, not completion records.
+Custom `agent-notification` entries expose only a validated
+`details: { agentId, event, status }` projection. Known event/status pairs
+update registered lanes without parsing message text. Settled chain steps
+are preserved; a lane's terminal state cannot prove that a queued step ran.
+This does not change orchestration, permissions, JSONL persistence or model
+context. A host restart is needed for the added notification projection;
+client-only task rows and inspector changes need only a page refresh.
+
+## Right inspector
+
+The rail exposes Summary, Context, Changes, File preview, Subagents and Browser, plus the
+Terminal toggle right after Context. The toggle is not a rail panel: it opens the dock below
+the conversation, so it stays available beside any inspector. Summary is excluded from the
+Escape chain while a turn is running or waiting, so Escape stops the turn as it does with no
+inspector open.
+Summary replaces the original floating task/subagent banner, rather than
+coexisting with it. Summary is an independent content-height surface, not the
+full-height inspector used by other rail entries. The compact board is 320px
+wide with a 20px top inset, a 12px rail-side gap and a close-only header.
+It scrolls internally only when its content exceeds the viewport. With at least
+1120px of workspace width after the sidebar and tool rail, the layout reserves
+reading space as necessary; otherwise the board overlays without narrowing the
+conversation. It shows plan tasks with completion counts and completed-task
+folding, a task progress track, agent records below the tasks, MCP and Skills.
+The header retains the Summary title and close control, with compact task
+completion and agent-record counts. Its activity dot pulses only for explicit
+in-progress tasks or running agent records. Missing task data or unknown agent
+statuses show an unknown indicator rather than implying completion; otherwise
+the indicator is idle. It does not represent the parent model's streaming state.
+The task track uses canonical completed/total tasks, never completed tool calls
+or agent counts. Width changes use a 300ms cubic ease-out and become immediate
+under reduced-motion; empty plans have no invented percentage.
+A current-task headline and collapsed capsule are excluded.
+Conversation navigation is intentionally excluded.
+
+Session restoration is one page load's worth of work: after the credential and the launch
+folder are known, the page lists workspaces and sessions and then opens the newest
+conversation in the launch folder, or starts a draft there. A conversation the user opens, or a
+draft they start, while those lists are still loading wins: the late list must not replace the
+choice, so an early "new chat" click is never overwritten by the restored session.
+
+Agent records reuse validated timeline subagent states, including queued,
+running, completed, failed, stopped, skipped and unknown. Counts refer to task
+or dispatch records, not distinct runtime agents. Structured per-task records
+take precedence over legacy child links to avoid double-counting one dispatch.
+Missing legacy status stays unknown regardless of parent tool outcome.
+Selecting a record opens the existing read-only task, child or workflow
+inspector while retaining the parent conversation. No execution controls or
+new session authority are introduced; background updates use the same
+structured projection as the transcript.
+
+Task or subagent activity in the latest user turn automatically opens Summary
+when no inspector is active, including when restoring that turn from history.
+The trigger is consumed once per selected session/turn: same-turn updates do
+not undo manual dismissal, and activity never displaces another inspector.
+Tool outcomes only trigger presentation; they do not determine task completion.
+
+Summary uses DFSC's local light/dark neutral palette, rose running tint, green
+completion and amber MCP failure status. Task and MCP disclosures animate their
+height; task chevrons appear on hover, focus or expansion. A live task completion
+contracts and regrows its fixed icon slot over 660ms, then draws the check mark;
+the row stays visible for 1100ms before folding. Initial completed history does
+not replay this transition. Reduced-motion disables spinner, disclosure and
+status animations. MCP switch-shaped indicators are decorative and read-only.
+These tokens and effects are scoped to Summary, not the transcript or app theme.
+
+Files retain multiple tabs, image/Markdown previews, copy, wrap and refresh. Tool-triggered file, turn-change
+and child-agent opens select the same right panel rather than competing overlays.
+Closing a panel retains its selection; switching panels restores the standard
+layout. Non-Summary inspectors retain draggable persisted widths,
+standard/wide presets and an expanded view. Screens at 1200px or below start
+closed and use an overlay for these inspectors.
+Escape restores an expanded view first, then closes the panel without
+interrupting the parent turn. Existing higher-priority dialogs still dismiss first.
+
+`GET /api/v1/sessions/{id}/inspector` provides whitelisted active-plan task fields,
+the session's available skill count, process-scoped MCP names/statuses and the
+kernel's session statistics. Tasks come from the latest canonical `step-tasks`
+snapshot on the active branch; a successful task tool is not evidence that a task
+completed. Statistics use `AgentSession.getSessionStats()` without reassembling
+model context. Totals include compacted history. Context usage is the kernel's
+estimate; recorded-message inspection is not a claim to show the assembled request.
+Provider transport fields, image payloads and opaque thinking signatures are
+excluded from the recorded JSON view. Missing statistics display unknown values.
+Polling is sequential, aborted on selection changes, and stale replies cannot
+replace the new session's panel.
+
+Per-turn tool changes remain accessible in the transcript and Changes inspector,
+not as a substitute for Summary's repository overview. Repository comparison
+remains pending. Interactive terminals use the separate adapter below. No Desktop runtime
+or package is changed.
+
+## Embedded browser
+
+The Browser inspector uses a host-owned Chromium process controlled through
+`playwright-core`. This is streamed webpage rendering and input forwarding,
+not DFSC's native Electron WebContentsView. The dependency includes no browser
+binary. Install compatible Chrome, Edge or Chromium, or set
+`STEPCODE_WEB_BROWSER_PATH` to its executable. Detection covers common Windows,
+macOS and Linux locations; only Windows Chrome has been exercised locally.
+The engine starts on the first explicit tab creation, not on inspector open.
+
+Tabs and cookies belong to an isolated, temporary browser context, never a
+personal browser profile. They survive inspector hiding and Web page reloads
+while the Host lives. Closing a tab destroys that page. Normal Host shutdown
+closes its owned browser; restarting the Host starts with no browser tabs or
+site cookies. This does not terminate unrelated browsers or external servers.
+Crash recovery and durable site-profile persistence are not implemented.
+
+`/api/v1/browser/*` uses the existing HttpOnly cookie and Origin checks. One
+page at a time owns a 15-second input lease; polling every five seconds renews
+it. The page's sessionStorage client id allows refresh to rotate the token,
+and a late old-page release cannot remove its replacement. A competing page
+gets 409 rather than silently moving another page's tabs or viewport. Closing
+or hiding the inspector releases input/stream ownership, not tabs. A lost
+connection exposes Reconnect; its lease expires if the page cannot release it.
+Initial reads, command replies, heartbeat reads and SSE snapshots share one
+revision gate per connection. Duplicate/older revisions and replies arriving
+after connection close cannot replace current state.
+
+HTTP(S) navigation, back/forward, reload/stop, twelve tabs, popup tabs and
+50-200% reflow zoom are connected. Navigation errors remain visible on the tab.
+A popup becomes a tab only right after a click or key press in its opener (one
+per gesture); popups a page opens on its own are closed. Tab selection changes
+the remote frame source. The surface resizes with the
+inspector, including its expanded view. Chromium renders the site, so
+X-Frame-Options and site CSP are not removed or bypassed. Permissions are denied,
+service workers blocked, and StepCode Host/client ports blocked across HTTP(S)
+and WebSocket requests, including subresources and hostname aliases. No raw
+debugging endpoint or arbitrary evaluation route is exposed.
+
+A private, authenticated loopback proxy owned by this browser checks actual
+HTTP destinations and HTTPS tunnel ports, including every redirect hop,
+popup startup and worker requests. Chromium's implicit loopback bypass is
+disabled. Proxy credentials are ephemeral and stripped before forwarding;
+the proxy refuses connections to its own port and closes with the browser,
+including startup failure. It forwards directly to the destination; chaining
+an operating-system or corporate upstream proxy is not implemented.
+
+Frames are JPEG over authenticated SSE. Each frame reports the page viewport
+and the captured surface separately: headless windows are at least 500px wide,
+so in a narrower panel the client scales the surface until the page area fills
+it. The host ACKs Chromium frames locally,
+caps delivery at 15 fps and keeps at most one newest scheduled frame. A blocked
+response drops frames and keeps only the newest metadata; the client keeps
+one decoding image plus one pending latest frame. Input is serialized and
+bounded (48 client / 64 host operations); pointer moves are coalesced. Hidden
+inspectors disconnect the stream instead of decoding background frames.
+
+Mouse clicks/dragging, wheel, editing/navigation keys, text paste and committed
+Chinese composition text are forwarded. Copy selection reads selected text in
+the main document or focused non-password input and writes it to the outer
+browser clipboard only on an explicit action. Cross-origin iframe selection,
+rich clipboard, native context menus, file upload/download, audio transport,
+web permissions and a remote accessibility tree are not implemented. File
+chooser attempts and downloads are cancelled with visible notices; JS dialogs
+are dismissed with a notice. Video may appear as sampled frames, not smooth
+media playback. Automated Chinese composition commits are covered; physical
+IME candidate-window ergonomics still need manual acceptance.
+
+The inspector's external-open control is an explicit separate action, not the
+browser implementation. Browser storage and navigation have no connection to
+Agent model context, tool execution or the user's provider credentials.
+
+## Composer performance
+
+A compact DFSC-style row below the composer shows run elapsed time, average
+output throughput, cumulative session input/output tokens and cache hit rate.
+The existing usage menu remains available. Tokens come from the SDK statistics
+on the existing inspector endpoint, not rendered message rows; input includes
+cache reads/writes and totals include compacted history and tool-only responses.
+Cache hit is cacheRead / (input + cacheRead + cacheWrite), and remains unknown
+when no cache usage was reported. Missing or failed statistics are not zero.
+
+Timing is temporary browser-local observation, separate from persisted thinking
+timing. Elapsed time starts at an observed agent start and freezes at settlement,
+including approval and retry waits. Throughput uses reported output tokens over
+completed, observed assistant response intervals, including thinking but excluding
+tool execution and retry backoff. It is response throughput, not the provider's
+decoder speed or an estimate from text length. Switching sessions, disconnecting
+the stream or reloading clears timing; historical timing is never synthesized.
+Statistics reads are sequential, aborted on selection changes, and polled only
+while the selected session is active. Hints explain each measurement's scope.
+The row wraps complete metrics on narrow screens and uses the existing themes.
+No new HTTP/SSE fields, dependencies, persistence or Desktop-specific code are added.
+
+## Interactive terminals
+
+The terminal is a resizable dock below the conversation, toggled from the right
+rail or with Ctrl+`, and stays available beside any inspector. Its header shows
+the shell and one tab per terminal, named after the workspace folder (`name`,
+`name 2`, ...). Opening an empty dock starts one shell; ending the last tab hides
+the dock. The dock height is remembered; whether it is open is not. It uses
+`@xterm/xterm` with `@xterm/addon-fit`; the Host
+owns isolated Node helper processes using `node-pty`. This is a real interactive
+shell, not a model tool log or a pipe-based command runner. Creating a terminal
+is explicit. Windows chooses installed PowerShell 7 or Windows PowerShell;
+macOS/Linux choose the user's `$SHELL` when it is bash, zsh or sh, otherwise an
+available one. A shell starts in the workspace folder as a login, interactive
+shell, like a desktop terminal: it runs the user's startup files
+(`~/.zprofile` and `~/.zshrc`, `~/.bash_profile`, `~/.profile`), so PATH,
+aliases, history and the prompt (for example a theme showing the Git branch)
+match the user's own terminal. PowerShell likewise loads the user's `$PROFILE`
+and keeps PSReadLine history; only the console encoding is set to UTF-8 after it.
+Without a prompt module (posh-git, oh-my-posh, starship) PowerShell shows its
+default `PS <path>>` prompt, without a branch.
+Inherited startup-injection variables (`BASH_ENV`, `ENV`, Node loader options)
+are not passed on: the environment keeps an OS-variable allowlist plus the SSH
+agent socket, not the Host's API keys or Node loader configuration. The user's
+startup files may export their own credentials, as in any terminal.
+This is not a sandbox: entered commands run with the Host user's filesystem
+and network privileges and can read credentials available to that OS user.
+
+`/api/v1/terminals/*` is behind the existing HttpOnly cookie and Origin checks.
+Creation accepts a known workspace and bounded dimensions, not a caller-chosen
+executable or startup command. There are at most eight tabs per workspace and
+24 per Host, including exited/failed tabs. Tabs belong to workspaces, not Agent
+sessions. Changing conversation within the same workspace retains the tabs.
+Multiple authenticated pages may view/control the same shell; dimensions and
+input are shared. There is no per-page terminal ownership lease.
+
+Hiding the dock disconnects its output stream, not the shell.
+Switching terminal tabs does the same. Refresh lists existing terminals and
+replays retained output without creating a second process. Closing a terminal
+tab terminates its owned process tree before removing it. Normal Host shutdown
+attempts cleanup of all owned terminals and reports failures with a nonzero
+exit status; unrelated externally launched services are untouched. Host restart
+does not restore terminals. Crash recovery and processes deliberately detached
+from terminal ownership are not guaranteed to be cleaned up.
+
+Natural shell exit keeps helper ownership until Host cleanup settles. On
+Windows, cleanup also enumerates descendants of the exited shell, bounds them
+by creation time and verifies process identity against an open handle before
+termination, so a stale PID does not authorize killing a replacement process.
+Close and shutdown await the same cleanup; failures keep a retryable failed
+tab. Startup cancellation waits for the shell identity or startup failure
+before terminating the helper, avoiding a shell spawned after tree enumeration.
+On macOS/Linux the helper runs in its own process group and cleanup kills the
+shell's session, process group and controlling-tty members (plus their
+descendants), including background jobs that outlive the shell.
+This does not provide Job Object containment: descendants whose intermediate
+parents have already disappeared, deliberate detachment and abrupt Host
+failure remain outside the guarantee.
+
+SSE snapshots carry sequenced output and lifecycle metadata. The Host retains
+at most 512 KiB / 2048 chunks per terminal; a replay gap produces a visible
+truncation notice. Replaying a truncated ANSI tail is not a full terminal-screen
+snapshot and may produce an incomplete screen layout. The adapter writes no
+output files; the shell keeps its own history as the user's startup files
+configure it. The helper pauses output at 256 KiB of unacknowledged
+IPC and resumes below 64 KiB; Host acknowledgement is independent of UI presence.
+Network backpressure reads from the bounded ring rather than accumulating a
+subscriber queue. Input is bounded to 64 KiB per request, 32 outstanding Host
+commands and 64 client commands. Timed-out input is not automatically repeated.
+
+The client fits the PTY to the panel, supports ANSI rendering, selection,
+explicit clipboard copy/paste, Ctrl+C and normal terminal input including IME.
+OSC 52 clipboard writes and link activation are disabled. Clear affects the
+local display only and does not stop the shell or erase the Host replay buffer.
+Clipboard access still requires browser permission. Native PTY startup has been
+verified on Windows and macOS; Linux requires its own acceptance.
+Dependencies are pinned and installed without lifecycle scripts. The list route
+reports `support` before any shell starts, so the dock can explain a missing
+native build instead of offering a broken button. A missing or incompatible
+native binary fails the terminal without taking down the Web Host; it does not
+trigger an automatic download, compilation or toolchain install. The one repair
+the Host makes is restoring the exec bit of node-pty's published macOS
+`spawn-helper`, which the package tarball ships without and which installs
+that skip lifecycle scripts never fix.
+
+## Thinking presentation
+
+The browser projects structured `thinking`, `text` and `toolCall` blocks in
+source order, both from saved entries and live `message_update` events.
+Non-redacted thinking supplied by the provider remains expandable in history;
+sessions without thinking blocks do not acquire invented records. Opaque
+thinking signatures and redacted blocks are never rendered.
+
+The main transcript uses DFSC Simple as a fixed presentation default, without
+a complexity setting. A single thinking or ordinary tool record shows only its
+own disclosure, without a second group heading or group indentation. Two or more
+consecutive records share one folded process row. Member components retain their
+identity as the group grows or shrinks; a manually opened singleton remains visible
+when another member arrives. While active, the group label and short preview
+follow the current pending tool or thinking block; settled groups summarize completed tool kinds.
+Thinking-only history stays a thinking record, not a fabricated tool result.
+Expanding preserves every original thinking/tool row, input/output and file
+or diff action. Ordinary collapsed tool rows keep their icon and label while
+arguments remain inside the disclosure. A single observed thought's duration
+also remains visible on the folded process row; individual durations remain
+available in expanded multi-thought groups.
+
+Prose, images, failures, approvals, retry rows and dedicated Subagent/workflow,
+plan and clarification calls end a process group. Calls awaiting approval and
+unresolved historical calls are never summarized as completed or running.
+User-turn boundaries, file-delivery strips, change cards and settled footers
+remain outside process folds. Search can reveal recorded thinking inside a
+folded group. This grouping changes no session entries or model context.
+
+Thinking retains its folded disclosure with a Brain icon. Only the
+currently streaming thinking block has the tool-style running label, shimmer
+and a short content preview. Text/tool output, message completion or a settled
+session stops the running state and folds an open live thought. A settled
+thought can be reopened manually. Reduced-motion skips folding/shimmer effects.
+The host observes each block's structured thinking start/delta/end events.
+The label shows DFSC-style elapsed seconds, ticks once per second only while
+that block is active, and freezes before prose or tool arguments start.
+Each assistant message's completed observations are saved through
+`SessionManager.appendCustomEntry` as `stepcode-web.thinking-timing` metadata
+(version 1, message timestamp identity and per-content-index intervals).
+These custom entries do not enter model context or change provider messages.
+Validated `thinkingTimings` are projected onto saved assistant entries and
+live agent SSE envelopes; browser refresh and host restart restore completed
+observations. No elapsed time is inferred from message timestamps, tokens or
+browser receipt times. Legacy sessions and unobserved child-agent histories
+show no duration. Abrupt host termination cannot reconstruct an unrecorded
+interval. Metadata write failures are reported without preventing the
+canonical assistant message from being persisted.
+
+Thinking is not a tool and does not enter task/tool counts or response-copy
+text. The response footer remains once per settled user turn and is revealed
+only on hover or keyboard focus. Thinking timing is host-owned presentation
+metadata; agent context, provider behavior and tool permissions remain unchanged.

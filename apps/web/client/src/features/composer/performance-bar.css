@@ -1,0 +1,26 @@
+.performance-bar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: center;
+	gap: 3px 12px;
+	min-height: 26px;
+	margin-top: 5px;
+	color: var(--ink-2);
+	font-size: 11px;
+	line-height: 20px;
+	font-variant-numeric: tabular-nums;
+}
+.performance-metric {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	gap: 5px;
+	min-height: 22px;
+	white-space: nowrap;
+}
+@media (max-width: 480px) {
+	.performance-bar {
+		column-gap: 10px;
+	}
+}

@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { parse } from "smol-toml";
 import {
 	addMarketplace,
 	createSkill,
@@ -155,12 +156,14 @@ test("skills are created, switched off, imported and deleted in the user skill f
 		{ source: skill?.source, enabled: skill?.enabled, toggleable: skill?.toggleable, deletable: skill?.deletable },
 		{ source: "user", enabled: true, toggleable: true, deletable: true },
 	);
-	assert.ok((skill?.location ?? "").includes("/skills/release-notes/SKILL.md") || (skill?.location ?? "").startsWith("~/"));
+	const location = (skill?.location ?? "").replaceAll("\\", "/");
+	assert.ok(location.includes("/skills/release-notes/SKILL.md") || location.startsWith("~/"));
 
 	await setSkillEnabled(skill?.id ?? "", false);
 	skill = (await listSkills()).find((entry) => entry.name === "release-notes");
 	assert.equal(skill?.enabled, false);
-	assert.match(await readFile(join(home, ".stepcode", "config.toml"), "utf8"), /-skills\/release-notes\/SKILL\.md/u);
+	const config = parse(await readFile(join(home, ".stepcode", "config.toml"), "utf8"));
+	assert.deepEqual(config.skills, [`-${join("skills", "release-notes", "SKILL.md")}`]);
 
 	const source = join(home, "downloads", "lint-fix");
 	await mkdir(source, { recursive: true });

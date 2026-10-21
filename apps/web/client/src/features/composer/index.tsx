@@ -25,6 +25,7 @@ import {
 } from "./actions";
 import { ClarificationPanel } from "./ClarificationPanel";
 import { ModelMenu } from "./ModelMenu";
+import { PerformanceBar } from "./PerformanceBar";
 import { PlusMenu } from "./PlusMenu";
 import { PolicyMenu } from "./PolicyMenu";
 import { PromptInput } from "./PromptInput";
@@ -352,6 +353,7 @@ export function Composer({ workspaceControl }: ComposerProps) {
 					</div>
 				</div>
 			</div>
+			<PerformanceBar />
 		</form>
 	);
 }

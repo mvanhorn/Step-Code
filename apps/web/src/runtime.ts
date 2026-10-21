@@ -62,6 +62,7 @@ import { ApprovalBroker, type ApprovalRequest } from "./approval.ts";
 import { type WebAttachment, withTextAttachments } from "./attachments.ts";
 import { ClarificationBroker, type ClarificationEvent } from "./clarification.ts";
 import { feedbackCategoryFor } from "./feedback.ts";
+import { projectInspectorTasks } from "./inspector.ts";
 import {
 	MessageQueue,
 	type QueuedFile,
@@ -74,6 +75,8 @@ import { RetryTracker } from "./retry-state.ts";
 import { SelectionBroker, type SelectionEvent, type SelectionRequest, selectionSelect } from "./selection.ts";
 import { type WebSkill, webSkills } from "./skills.ts";
 import { resolveSubagentCliPath } from "./subagent-cli.ts";
+import { projectSubagentNotification } from "./subagent-notification.ts";
+import { savedThinkingTimings, THINKING_TIMING_TYPE, ThinkingClock, type ThinkingTimings } from "./thinking-timing.ts";
 import {
 	revertedTurnIds,
 	type SkippedChange,
@@ -119,7 +122,7 @@ async function refreshStepModelCatalog(modelRuntime: ModelRuntime): Promise<void
 export type WebEvent =
 	| ClarificationEvent
 	| SelectionEvent
-	| { type: "agent"; event: AgentSessionEvent }
+	| { type: "agent"; event: AgentSessionEvent; thinkingTimings?: ThinkingTimings }
 	| { type: "approval_required"; approval: ApprovalRequest }
 	| { type: "status"; status: WebSessionStatus; unread: boolean }
 	| ({ type: "queue" } & WebQueueState)
@@ -392,6 +395,8 @@ function modelsMatch(left: { provider: string; id: string }, right: { provider: 
 export function projectEntry(entry: SessionEntry): Record<string, unknown> {
 	// Only assistant turns carry usage; other message kinds have none to report.
 	const usage = entry.type === "message" && entry.message.role === "assistant" ? entry.message.usage : undefined;
+	const notification =
+		entry.type === "custom_message" ? projectSubagentNotification(entry.customType, entry.details) : undefined;
 	return {
 		id: entry.id,
 		type: entry.type,
@@ -399,9 +404,22 @@ export function projectEntry(entry: SessionEntry): Record<string, unknown> {
 		...(entry.type === "message" ? { message: entry.message } : {}),
 		...(usage ? { usage } : {}),
 		...(entry.type === "custom_message" ? { content: entry.content, customType: entry.customType } : {}),
+		...(notification ? { details: notification } : {}),
 		...(entry.type === "compaction" ? { summary: entry.summary } : {}),
 		...(entry.type === "branch_summary" ? { summary: entry.summary } : {}),
 	};
+}
+
+/** Timing is host presentation metadata, not a field added to provider messages. */
+export function projectEntries(entries: readonly SessionEntry[]): Record<string, unknown>[] {
+	const timings = savedThinkingTimings(entries);
+	return entries.map((entry) => {
+		const thinkingTimings =
+			entry.type === "message" && entry.message.role === "assistant"
+				? timings.get(entry.message.timestamp)
+				: undefined;
+		return { ...projectEntry(entry), ...(thinkingTimings ? { thinkingTimings } : {}) };
+	});
 }
 
 export class WebSession {
@@ -672,7 +690,23 @@ export class WebSession {
 		this.session = session;
 		this.retry.clear();
 		void this.adoptFallbackModel(session);
+		const thinkingClock = new ThinkingClock();
 		this.unsubscribeSession = session.subscribe((event) => {
+			const thinkingTimings = thinkingClock.observe(event);
+			if (event.type === "message_end" || event.type === "agent_end" || event.type === "agent_settled") {
+				const observation = thinkingClock.completed();
+				if (observation) {
+					try {
+						session.sessionManager.appendCustomEntry(THINKING_TIMING_TYPE, observation);
+					} catch (error) {
+						// Diagnostic metadata must not prevent canonical message persistence.
+						this.emit({
+							type: "error",
+							message: `Could not save thinking elapsed time: ${error instanceof Error ? error.message : String(error)}`,
+						});
+					}
+				}
+			}
 			if (event.type === "agent_start") {
 				this.setStatus("running");
 				this.holdQueue = false;
@@ -691,7 +725,7 @@ export class WebSession {
 			this.retry.apply(event);
 			if (event.type === "auto_retry_start" && this.status !== "running") this.setStatus("running", false);
 			if (event.type === "queue_update") this.emit({ type: "queue", ...this.queueState() });
-			this.emit({ type: "agent", event });
+			this.emit({ type: "agent", event, ...(thinkingTimings ? { thinkingTimings } : {}) });
 			if (event.type === "agent_settled") {
 				const hold = this.holdQueue || this.lastRunFailed;
 				this.holdQueue = false;
@@ -1116,7 +1150,7 @@ export class WebSession {
 			sessionFile: manager.getSessionFile(),
 			archived: this.archived,
 			revertedTurns: revertedTurnIds(manager.getBranch()),
-			entries: manager.getBranch().map(projectEntry),
+			entries: projectEntries(manager.getBranch()),
 			pendingApprovals: this.broker.pendingRequests(),
 			pendingClarifications: this.clarifications.pendingRequests(),
 			pendingSelections: this.selections.pendingRequests(),
@@ -1137,6 +1171,18 @@ export class WebSession {
 
 	sessionFile(): string | undefined {
 		return this.session.sessionManager.getSessionFile();
+	}
+
+	inspector(): Record<string, unknown> {
+		const stats = this.session.getSessionStats();
+		return {
+			sessionId: this.id,
+			...projectInspectorTasks(this.session.sessionManager.getBranch()),
+			stats: { tokens: stats.tokens, cost: stats.cost, contextUsage: stats.contextUsage },
+			skillCount: this.skills().length,
+			mcpScope: "process",
+			mcp: mcpStatuses().map(({ name, status }) => ({ name, status })),
+		};
 	}
 
 	/** Skills of this session's resource loader (plugin skills included), unless skill commands are off. */

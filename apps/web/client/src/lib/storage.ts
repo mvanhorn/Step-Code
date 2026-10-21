@@ -10,6 +10,7 @@ export const STORAGE_KEYS = {
 	previewWrap: "stepcode.previewWrap",
 	previewWidth: "stepcode.previewWidth",
 	sidebarWidth: "stepcode.sidebarWidth",
+	terminalHeight: "stepcode.terminalHeight",
 	pinnedModels: "stepcode.pinnedModels",
 } as const;
 

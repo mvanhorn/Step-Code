@@ -5,12 +5,14 @@
  */
 
 import { useEffect } from "react";
+import { activeRightPanel, closeRightPanel } from "../../state/right-panel";
 import { activeCwd, interruptCurrent } from "../../state/session";
-import { getState, setUi } from "../../state/store";
+import { type AppState, getState, setUi } from "../../state/store";
 import { answerSelection, pendingSelection } from "../composer/actions";
 import { openTree, setPreviewOpen } from "../files/actions";
 import { closeTopmostSettingsLayer } from "../settings/actions";
 import { closeSearch, closeWorkspaceMenu, openSearch } from "../sidebar/actions";
+import { toggleTerminalDock } from "../terminal/actions";
 import { chooseWorkspaceFolder, closeWorkspaceRemoval } from "../workspace/actions";
 import { closeLogoutConfirm, confirmLogout, toggleSidebar, watchSystemTheme } from "./actions";
 
@@ -34,6 +36,7 @@ function handleEscape(): void {
 	else if (ui.workspaceRemoval) closeWorkspaceRemoval();
 	else if (ui.slashMenu) setUi({ slashMenu: null });
 	else if (ui.changesMenu) setUi({ changesMenu: null });
+	else if (ui.rightPanelMenu) setUi({ rightPanelMenu: false });
 	else if (ui.searchOpen) closeSearch();
 	else if (ui.workspaceBrowserOpen) setUi({ workspaceBrowserOpen: false });
 	else if (closeTopmostSettingsLayer()) return;
@@ -43,13 +46,30 @@ function handleEscape(): void {
 	else if (ui.sessionMenu) setUi({ sessionMenu: null });
 	else if (ui.fileTreeOpen) setUi({ fileTreeOpen: false });
 	else if (ui.midView) setUi({ midView: null });
-	else if (ui.childView) setUi({ childView: null });
+	else if (ui.rightPanelExpanded) setUi({ rightPanelExpanded: false });
+	// Summary opens by itself on wide windows and on task activity, so it must not absorb the
+	// Escape that stops a running turn; it still closes on Escape while the session is idle.
+	else if (activeRightPanel(state) && !(activeRightPanel(state) === "summary" && sessionBusy(state)))
+		closeRightPanel();
 	else void interruptCurrent();
+}
+
+function sessionBusy(state: AppState): boolean {
+	return state.current?.status === "running" || state.current?.status === "waiting";
 }
 
 function handleKeydown(event: KeyboardEvent): void {
 	// The sign-in gate cannot be dismissed, and nothing behind it may act.
 	if (getState().ui.loginRequired) return;
+	if (event.ctrlKey && !event.metaKey && !event.altKey && event.code === "Backquote") {
+		event.preventDefault();
+		toggleTerminalDock();
+		return;
+	}
+	// Keys typed into a shell belong to it: Escape (vi, less), Ctrl+B/K (readline, tmux) and the like.
+	// Only Cmd chords, which a terminal never receives on macOS, keep their app meaning there.
+	if (event.target instanceof Element && event.target.closest("#terminalDock .terminal-output") && !event.metaKey)
+		return;
 	const mod = event.metaKey || event.ctrlKey;
 	// Autofill and some IMEs dispatch keydown without a `key`.
 	const key = typeof event.key === "string" ? event.key.toLowerCase() : "";

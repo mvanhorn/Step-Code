@@ -45,7 +45,8 @@ test("reads a child transcript only through the parent that spawned it", async (
 		});
 		// A child in another folder (an isolated worktree) is found through the session list.
 		const farId = "subagent-0d6c0c7e-2b6f-4a55-9d0b-4b8f6d1a0002";
-		writeSession(agentDir, "/work/other", "far task", {
+		const farCwd = join(agentDir, "other-workspace");
+		writeSession(agentDir, farCwd, "far task", {
 			id: farId,
 			origin: CHILD_SESSION_ORIGIN,
 			parentSessionId: parentId,
@@ -58,7 +59,7 @@ test("reads a child transcript only through the parent that spawned it", async (
 			child?.entries.map((entry) => (entry.type === "message" ? entry.message.role : entry.type)),
 			["user", "assistant"],
 		);
-		assert.equal((await readChildTranscript(parentId, parent.getSessionFile(), farId, agentDir))?.cwd, "/work/other");
+		assert.equal((await readChildTranscript(parentId, parent.getSessionFile(), farId, agentDir))?.cwd, farCwd);
 
 		// Another parent, a plain user session, and malformed ids are all refused.
 		assert.equal(await readChildTranscript(other.getSessionId(), other.getSessionFile(), childId, agentDir), undefined);

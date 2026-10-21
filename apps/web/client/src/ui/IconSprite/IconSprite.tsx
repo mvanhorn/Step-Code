@@ -9,11 +9,11 @@ import styles from "./IconSprite.module.css";
  *
  * The artwork comes from the design team's icon library (icon-library.html):
  * a 24x24 canvas, no colour of its own, every stroke and fill `currentColor`.
- * 48 of the 76 names below are drawn from it.
+ * 48 names below are drawn from it.
  *
  * ICON_NAMES is a DOM contract, so the names never move with the artwork. The
- * 28 below have no counterpart in the library yet and still use the older
- * in-house drawing; swap each one over once the library gains it.
+ * Names below without a library counterpart retain their existing in-house,
+ * brand or Lucide artwork; swap each one over once the library gains it.
  */
 export const MISSING_FROM_LIBRARY = [
 	"sidebar",
@@ -44,6 +44,30 @@ export const MISSING_FROM_LIBRARY = [
 	"palette",
 	"wand",
 	"prompt",
+	"stepPlatform",
+	"keyRound",
+	"accountCheck",
+	"accountExternal",
+	"accountLogout",
+	"timer",
+	"database",
+	"clipboardPaste",
+	"eraser",
+	"summaryRing",
+	"layers3",
+	"plug",
+	"summaryCheck",
+	"maximize",
+	"minimize",
+	"scanLine",
+	"bot",
+	"circle",
+	"circleCheck",
+	"circleX",
+	"circleMinus",
+	"loaderCircle",
+	"triangleAlert",
+	"disclosure",
 ] as const;
 
 /*
@@ -79,6 +103,11 @@ export const MISSING_FROM_LIBRARY = [
  */
 
 export const ICON_NAMES = [
+	"stepPlatform",
+	"keyRound",
+	"accountCheck",
+	"accountExternal",
+	"accountLogout",
 	"sidebar",
 	"newChat",
 	"search",
@@ -121,6 +150,7 @@ export const ICON_NAMES = [
 	"paperclip",
 	"close-sm",
 	"brain",
+	"disclosure",
 	"cube",
 	"check",
 	"star",
@@ -154,7 +184,25 @@ export const ICON_NAMES = [
 	"squarePen",
 	"prompt",
 	"wrench",
+	"bot",
+	"circle",
+	"circleCheck",
+	"circleX",
+	"circleMinus",
+	"loaderCircle",
+	"triangleAlert",
 	"image",
+	"maximize",
+	"minimize",
+	"scanLine",
+	"plug",
+	"summaryCheck",
+	"summaryRing",
+	"layers3",
+	"timer",
+	"database",
+	"clipboardPaste",
+	"eraser",
 ] as const;
 
 export type IconName = (typeof ICON_NAMES)[number];
@@ -162,6 +210,261 @@ export type IconName = (typeof ICON_NAMES)[number];
 export function IconSprite() {
 	return (
 		<svg className={cx(styles.root, "icon-sprite")} aria-hidden="true" focusable="false">
+			{/* Feature-specific DFSC and Lucide (ISC) symbols. */}
+			<symbol
+				id="i-accountCheck"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="M20 6 9 17l-5-5" />
+			</symbol>
+			<symbol
+				id="i-accountExternal"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+			</symbol>
+			<symbol
+				id="i-accountLogout"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="m16 17 5-5-5-5M21 12H9M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+			</symbol>
+			<symbol id="i-stepPlatform" viewBox="0 0 24 24" fill="currentColor">
+				<rect x="9" y="2" width="6" height="6" />
+				<rect x="17" y="2" width="6" height="6" />
+				<rect x="9" y="10" width="6" height="6" />
+				<rect x="1" y="18" width="6" height="6" />
+				<rect x="9" y="18" width="6" height="6" />
+			</symbol>
+			<symbol
+				id="i-keyRound"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z" />
+				<circle cx="16.5" cy="7.5" r=".5" fill="currentColor" />
+			</symbol>
+			<symbol
+				id="i-timer"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="M10 2h4m-2 12 3-3" />
+				<circle cx="12" cy="14" r="8" />
+			</symbol>
+			<symbol
+				id="i-database"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<ellipse cx="12" cy="5" rx="9" ry="3" />
+				<path d="M3 5V19A9 3 0 0 0 21 19V5M3 12A9 3 0 0 0 21 12" />
+			</symbol>
+			<symbol
+				id="i-clipboardPaste"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="M11 14h10M16 4h2a2 2 0 0 1 2 2v1.344m-3 10.656 4-4-4-4M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 1.793-1.113" />
+				<rect x="8" y="2" width="8" height="4" rx="1" />
+			</symbol>
+			<symbol
+				id="i-eraser"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="M21 21H8a2 2 0 0 1-1.42-.587l-3.994-3.999a2 2 0 0 1 0-2.828l10-10a2 2 0 0 1 2.829 0l5.999 6a2 2 0 0 1 0 2.828L12.834 21m-7.752-9.91 8.828 8.828" />
+			</symbol>
+			<symbol id="i-summaryRing" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9">
+				<circle cx="12" cy="12" r="10" />
+			</symbol>
+			<symbol
+				id="i-layers3"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z" />
+				<path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17" />
+			</symbol>
+			<symbol
+				id="i-plug"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="M12 22v-5M15 8V2M17 8a1 1 0 0 1 1 1v4a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1zM9 8V2" />
+			</symbol>
+			<symbol
+				id="i-summaryCheck"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.9"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="m16 9-5.5 5.5L8 12" pathLength="1" />
+			</symbol>
+			<symbol
+				id="i-maximize"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.7"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="M15 3h6v6m0-6-7 7M3 21l7-7M9 21H3v-6" />
+			</symbol>
+			<symbol
+				id="i-minimize"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.7"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="m14 10 7-7M20 10h-6V4M3 21l7-7M4 14h6v6" />
+			</symbol>
+			<symbol
+				id="i-scanLine"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.7"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 12h10" />
+			</symbol>
+			<symbol
+				id="i-bot"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="M12 8V4H8" />
+				<rect width="16" height="12" x="4" y="8" rx="2" />
+				<path d="M2 14h2M20 14h2M15 13v2M9 13v2" />
+			</symbol>
+			<symbol id="i-circle" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+				<circle cx="12" cy="12" r="10" />
+			</symbol>
+			<symbol
+				id="i-circleCheck"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.9"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<circle cx="12" cy="12" r="10" />
+				<path d="m16 9-5.5 5.5L8 12" />
+			</symbol>
+			<symbol
+				id="i-circleX"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.9"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<circle cx="12" cy="12" r="10" />
+				<path d="m15 9-6 6m0-6 6 6" />
+			</symbol>
+			<symbol
+				id="i-circleMinus"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.9"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<circle cx="12" cy="12" r="10" />
+				<path d="M8 12h8" />
+			</symbol>
+			<symbol
+				id="i-loaderCircle"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.9"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="M21 12a9 9 0 1 1-6.219-8.56" />
+			</symbol>
+			<symbol
+				id="i-triangleAlert"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.9"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3M12 9v4M12 17h.01" />
+			</symbol>
+			<symbol
+				id="i-disclosure"
+				viewBox="0 0 14 14"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.5"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="M3.5 5.25 7 8.75 10.5 5.25" />
+			</symbol>
 			<symbol id="i-sidebar" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5">
 				<rect x="1.75" y="2.75" width="14.5" height="12.5" rx="2" />
 				<path d="M6.5 2.75v12.5" />

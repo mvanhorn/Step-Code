@@ -159,6 +159,82 @@
 	line-height: 1.75;
 }
 
+/* Thinking shares the tool label treatment, but is not a tool call. */
+.thinking {
+	min-width: 0;
+	color: var(--ink-2);
+	font-size: 13px;
+}
+.thinking .thinking-summary {
+	width: 100%;
+	flex-wrap: nowrap;
+	border: 0;
+	background: transparent;
+	cursor: pointer;
+}
+.thinking-summary > .icon,
+.thinking-summary > .tool-verb {
+	flex: none;
+}
+.thinking-summary:hover {
+	color: var(--ink);
+}
+.thinking-preview {
+	min-width: 0;
+	overflow: hidden;
+	color: var(--ink-3);
+	font-size: 12px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.thinking-elapsed {
+	flex: none;
+	color: var(--ink-3);
+	font-size: 11px;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+.thinking-chevron {
+	transform: rotate(-90deg);
+	transition: transform 240ms cubic-bezier(.215, .61, .355, 1);
+}
+.thinking[data-expanded="true"] .thinking-chevron {
+	transform: rotate(0deg);
+}
+.thinking-disclosure,
+.tool-disclosure {
+	display: grid;
+	grid-template-rows: 0fr;
+	opacity: 0;
+	visibility: hidden;
+	transition: grid-template-rows 240ms cubic-bezier(.215, .61, .355, 1), opacity 200ms ease, visibility 240ms;
+}
+.thinking-disclosure.expanded,
+.tool-disclosure.expanded {
+	grid-template-rows: 1fr;
+	opacity: 1;
+	visibility: visible;
+}
+.thinking-body,
+.tool-disclosure-body {
+	min-height: 0;
+	overflow: hidden;
+}
+.thinking-body > .message-body {
+	padding: 6px 0 6px 22px;
+	color: var(--ink-2);
+	font-size: 13px;
+}
+@media (prefers-reduced-motion: reduce) {
+	.thinking-disclosure,
+	.tool-disclosure,
+	.thinking-chevron,
+	.thinking .stream-fade {
+		transition: none;
+		animation: none;
+	}
+}
+
 /* Text the live reply just added fades in (features/conversation/streaming.ts sets a negative delay per chunk). */
 .stream-fade {
 	animation: stream-fade 420ms ease-out both;
@@ -202,8 +278,18 @@
 .tool-call {
 	display: flex;
 	flex-direction: column;
-	gap: 6px;
+	gap: 0;
 	min-width: 0;
+}
+.tool-call > .tool-children,
+.tool-call > .subagent-lanes {
+	margin-top: 6px;
+}
+.retry-call {
+	gap: 6px;
+}
+.tool-disclosure-body > .tool-cx {
+	margin-top: 6px;
 }
 /* Consecutive calls read as one block, as in the terminal: 28px per row. */
 .tool-call + .tool-call {
@@ -212,6 +298,7 @@
 .tool-row {
 	position: relative;
 	display: flex;
+	flex-wrap: wrap;
 	align-items: center;
 	gap: 6px;
 	max-width: 100%;
@@ -222,6 +309,25 @@
 	font-size: 13px;
 	line-height: 20px;
 	text-align: left;
+}
+/* Reserve a readable heading before giving the optional argument summary space. */
+.tool-heading {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	flex: none;
+	gap: 6px;
+	min-width: 0;
+	max-width: 100%;
+	pointer-events: none;
+}
+.tool-detail {
+	display: flex;
+	align-items: center;
+	flex: 1 1 80px;
+	gap: 6px;
+	min-width: 0;
+	pointer-events: none;
 }
 /* The toggle is an invisible layer under the row: it takes the clicks the subject does not. */
 .tool-toggle {
@@ -237,7 +343,7 @@
 	outline: 2px solid var(--focus-border);
 	outline-offset: 1px;
 }
-/* The kind icon and the twisty share one slot: hover (or an open card) swaps them. */
+/* The kind icon stays separate from the trailing disclosure in every process row. */
 .tool-glyph {
 	position: relative;
 	display: grid;
@@ -250,30 +356,35 @@
 }
 .tool-glyph > .icon {
 	grid-area: 1 / 1;
-	transition: opacity var(--fast) ease, transform var(--fast) ease;
 }
 .tool-twisty {
-	opacity: 0;
-}
-.tool-row:hover .tool-kind-icon,
-.tool-row:focus-within .tool-kind-icon,
-.tool-row.open .tool-kind-icon {
-	opacity: 0;
-}
-.tool-row:hover .tool-twisty,
-.tool-row:focus-within .tool-twisty,
-.tool-row.open .tool-twisty {
-	opacity: 1;
+	position: relative;
+	flex: none;
+	transform: rotate(-90deg);
+	transition: transform 240ms cubic-bezier(.215, .61, .355, 1);
+	pointer-events: none;
 }
 .tool-row.open .tool-twisty {
-	transform: rotate(90deg);
+	transform: rotate(0deg);
 }
 .tool-verb {
 	position: relative;
-	flex: none;
+	flex: 0 1 auto;
+	min-width: 0;
 	color: var(--ink);
 	font-weight: 500;
+	overflow-wrap: anywhere;
+	transform: skewX(0deg);
+	transform-origin: bottom left;
+	transition: transform 320ms cubic-bezier(.22, 1, .36, 1), color 320ms ease;
 	pointer-events: none;
+}
+.tool-row.pending .tool-verb {
+	transform: skewX(-8deg);
+}
+.tool-row.failed .tool-verb,
+.tool-row.failed .tool-glyph {
+	color: var(--danger);
 }
 .tool-dot {
 	position: relative;
@@ -281,28 +392,54 @@
 	color: var(--ink-3);
 	pointer-events: none;
 }
-/* A running call shimmers until its result lands. */
+/* The base label stays readable; only this decorative copy sweeps over it. */
 .tool-pending {
-	background: linear-gradient(90deg, var(--ink-3) 0%, var(--ink) 50%, var(--ink-3) 100%);
-	background-clip: text;
-	background-size: 220% 100%;
-	color: transparent;
-	animation: tool-shimmer 2.8s ease-in-out infinite;
+	position: absolute;
+	inset: 0;
+	opacity: 0;
+	transition: opacity 320ms ease;
+	pointer-events: none;
 }
-/* The sweep takes the first 60% (about 1.7s); the rest is a pause before the next one. */
+.tool-pending::before {
+	display: block;
+	content: attr(data-label);
+	background: linear-gradient(100deg, transparent 35%, var(--ink) 50%, transparent 65%);
+	background-clip: text;
+	background-size: 260% 100%;
+	color: transparent;
+	animation: tool-shimmer 1.9s linear infinite;
+	animation-play-state: paused;
+}
+.tool-row.pending .tool-pending {
+	opacity: .8;
+}
+.tool-row.pending .tool-pending::before {
+	animation-play-state: running;
+}
 @keyframes tool-shimmer {
-	0% {
-		background-position: 120% 0;
+	from {
+		background-position: 100% 0;
 	}
-	60%,
-	100% {
-		background-position: -120% 0;
+	to {
+		background-position: 0% 0;
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.tool-pending {
+	.tool-verb,
+	.tool-pending,
+	.tool-twisty,
+	.tool-call .tool-cx-input > summary > .icon {
+		transition: none;
+	}
+	.tool-row.pending .tool-verb {
+		transform: none;
+	}
+	.tool-row.pending .tool-pending {
+		opacity: 0;
+	}
+	.tool-pending::before,
+	.tool-call .tool-cx-state.pending {
 		animation: none;
-		background-position: 50% 0;
 	}
 }
 .tool-failed {
@@ -317,6 +454,7 @@
 }
 .tool-subject {
 	position: relative;
+	flex: 0 1 auto;
 	overflow: hidden;
 	min-width: 0;
 	color: var(--ink-3);
@@ -328,6 +466,7 @@
 	font-size: 12px;
 }
 .tool-subject-link {
+	pointer-events: auto;
 	padding: 0;
 	border: 0;
 	background: transparent;
@@ -353,10 +492,56 @@
 /* The expanded card. */
 /* No overflow clip: the header's action tooltips open above their icons. */
 .tool-cx {
+	min-width: 0;
 	margin: 0 0 4px 22px;
 	border: 1px solid var(--line);
 	border-radius: var(--radius-input);
 	background: var(--code-surface);
+}
+.tool-cx-input {
+	border-bottom: 1px solid var(--line);
+}
+.tool-cx-input > summary {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-height: 30px;
+	padding: 4px 10px;
+	list-style: none;
+	color: var(--ink-2);
+	font-size: 12px;
+	cursor: pointer;
+}
+.tool-cx-input > summary > code {
+	min-width: 0;
+	margin-left: auto;
+	overflow-wrap: anywhere;
+	color: var(--ink-3);
+}
+.tool-cx-input > summary > .icon {
+	flex: none;
+	transition: transform var(--fast) ease;
+}
+.tool-cx-input[open] > summary > .icon {
+	transform: rotate(90deg);
+}
+.tool-cx-section {
+	padding: 6px 12px 0;
+	color: var(--ink-2);
+	font-size: 11px;
+}
+.tool-cx-status {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 4px;
+	padding: 6px 12px;
+	border-top: 1px solid var(--line);
+	color: var(--ink-2);
+	font-size: 11px;
+}
+.tool-cx-status.failed {
+	color: var(--danger);
 }
 .tool-cx-head {
 	display: flex;
@@ -511,6 +696,108 @@
 	margin: 4px 0;
 	overflow: hidden;
 	color: var(--ink-3);
+}
+
+/* DFSC Simple folds consecutive thoughts and ordinary tools into one process range. */
+.process-tool-group {
+	min-width: 0;
+	margin: 4px 0;
+}
+.tool-group-trigger {
+	width: 100%;
+	min-height: 34px;
+	flex-wrap: nowrap;
+	padding: 3px 0;
+	border: 0;
+	background: transparent;
+	color: var(--ink-2);
+	cursor: pointer;
+}
+.tool-group-trigger:hover {
+	color: var(--ink);
+}
+.tool-group-trigger > .tool-verb {
+	color: inherit;
+	font-weight: 400;
+}
+.tool-group-chevron {
+	flex: none;
+	transform: rotate(-90deg);
+	transition: transform 240ms cubic-bezier(.215, .61, .355, 1);
+}
+.tool-group-trigger[aria-expanded="true"] > .tool-group-chevron {
+	transform: rotate(0deg);
+}
+.thinking-chevron,
+.tool-twisty,
+.tool-group-chevron {
+	opacity: 0;
+}
+.tool-row:is(:hover, :focus-visible, :has(:focus-visible)) .thinking-chevron,
+.tool-row:is(:hover, :focus-visible, :has(:focus-visible)) .tool-twisty,
+.tool-row:is(:hover, :focus-visible, :has(:focus-visible)) .tool-group-chevron {
+	opacity: 1;
+}
+@media (hover: none) {
+	.thinking-chevron,
+	.tool-twisty,
+	.tool-group-chevron {
+		opacity: 1;
+	}
+}
+.process-group-preview {
+	flex: 1 4 0;
+	min-width: 0;
+	padding-left: 9px;
+	overflow: hidden;
+	border-left: 1px solid var(--line);
+	color: var(--ink-2);
+	font-size: 12px;
+	font-weight: 400;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.tool-group-disclosure {
+	display: grid;
+	grid-template-rows: 0fr;
+	opacity: 0;
+	visibility: hidden;
+	transition: grid-template-rows 240ms cubic-bezier(.215, .61, .355, 1), opacity 200ms ease, visibility 240ms;
+}
+.tool-group-disclosure.expanded {
+	grid-template-rows: 1fr;
+	opacity: 1;
+	visibility: visible;
+}
+.tool-group-body {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	min-width: 0;
+	min-height: 0;
+	overflow: hidden;
+	padding-left: 18px;
+}
+.process-tool-group[data-single="true"] > .tool-group-disclosure {
+	transition: none;
+}
+.process-tool-group[data-single="true"] > .tool-group-disclosure > .tool-group-body {
+	padding-left: 0;
+}
+.compact-process .tool-row:not(.tool-group-trigger) {
+	min-height: 30px;
+}
+.compact-process .tool-cx {
+	margin-left: 0;
+}
+.compact-process .tool-verb {
+	color: inherit;
+}
+@media (prefers-reduced-motion: reduce) {
+	.tool-group-disclosure,
+	.tool-group-chevron {
+		transition: none;
+	}
 }
 .approval {
 	padding: 16px;

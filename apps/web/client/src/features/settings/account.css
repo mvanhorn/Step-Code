@@ -1,0 +1,284 @@
+.settings-content[data-page="account"] {
+	width: min(680px, 100%);
+	padding: 32px 32px 56px;
+}
+.settings-content[data-page="account"] .settings-page-header {
+	flex-direction: row;
+	align-items: center;
+	margin-bottom: 16px;
+}
+.settings-content[data-page="account"] .settings-page-title {
+	font-size: 15px;
+	font-weight: 600;
+	letter-spacing: 0;
+}
+.settings-content[data-page="account"] .settings-section-header {
+	margin: 25px 0 12px;
+}
+.settings-content[data-page="account"] .settings-section-heading h2 {
+	color: var(--ink-2);
+	font-size: 12px;
+	font-weight: 500;
+}
+.settings-account-identity {
+	display: flex;
+	align-items: center;
+	gap: 15px;
+	padding: 4px 0 20px;
+	border-bottom: 1px solid var(--line);
+}
+.settings-account-logo {
+	display: grid;
+	flex: none;
+	place-items: center;
+	width: 54px;
+	height: 54px;
+	border-radius: 8px;
+	background: var(--ink);
+	color: var(--canvas);
+}
+.settings-account-logo .icon {
+	width: 30px;
+	height: 30px;
+}
+.settings-account-identity-text {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	gap: 7px;
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+.settings-account-identity-text strong {
+	font-size: 14px;
+	font-weight: 550;
+}
+.settings-account-identity-text .settings-status {
+	gap: 6px;
+	font-size: 11px;
+}
+.settings-account-identity-text .settings-status i {
+	flex: none;
+	width: 6px;
+	height: 6px;
+	background: currentColor;
+	box-shadow: none;
+}
+.settings-account-logout.settings-btn {
+	font-size: 11px;
+}
+.settings-account-uid {
+	color: var(--ink-2);
+	font-size: 11px;
+	font-variant-numeric: tabular-nums;
+}
+.settings-account-form {
+	display: grid;
+	gap: 0;
+}
+.settings-account-channels {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 10px;
+	min-width: 0;
+	margin: 0;
+	padding: 0;
+	border: 0;
+}
+.settings-account-channel {
+	display: flex;
+	align-items: stretch;
+	flex-direction: column;
+	gap: 8px;
+	min-width: 0;
+	min-height: 116px;
+	padding: 15px;
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	background: transparent;
+	text-align: left;
+	overflow-wrap: anywhere;
+	transition: border-color 180ms, background-color 180ms;
+}
+.settings-account-channel:hover:not(:disabled) {
+	background: var(--hover);
+	border-color: var(--line-strong);
+}
+.settings-account-channel.active {
+	border-color: var(--accent);
+	background: color-mix(in oklch, var(--accent) 5%, var(--canvas));
+}
+.settings-account-channel:disabled {
+	cursor: not-allowed;
+	opacity: 0.6;
+}
+.settings-account-channel-top {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	min-width: 0;
+	color: var(--ink-2);
+	font-size: 11px;
+}
+.settings-account-channel-top > .icon {
+	flex: none;
+	width: 20px;
+	height: 20px;
+}
+.settings-account-channel-check {
+	display: grid;
+	flex: none;
+	place-items: center;
+	width: 15px;
+	height: 15px;
+	margin-left: auto;
+}
+.settings-account-channel-check .icon {
+	width: 15px;
+	height: 15px;
+	color: var(--accent);
+}
+.settings-account-channel strong {
+	font-size: 14px;
+	font-weight: 550;
+}
+.settings-account-channel small,
+.settings-account-note {
+	color: var(--ink-2);
+	font-size: 11px;
+	line-height: 1.6;
+}
+.settings-account-login-area {
+	display: grid;
+	gap: 18px;
+	margin-top: 18px;
+	animation: settings-account-login-enter 180ms cubic-bezier(.22, 1, .36, 1);
+}
+@keyframes settings-account-login-enter {
+	from {
+		opacity: 0;
+		transform: translateY(-4px);
+	}
+}
+.settings-account-links {
+	margin-top: 25px;
+}
+.settings-account-links .settings-link {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 11px;
+}
+.settings-content[data-page="account"] .settings-btn {
+	height: auto;
+	min-height: 34px;
+	gap: 8px;
+	padding: 6px 11px;
+	border-radius: 6px;
+	font-weight: 400;
+}
+.settings-account-actions .icon,
+.settings-account-logout .icon,
+.settings-account-links .icon {
+	width: 15px;
+	height: 15px;
+}
+.settings-account-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 10px;
+}
+.settings-account-notice {
+	color: var(--success);
+	font-size: 13px;
+}
+.settings-account-actions .settings-btn {
+	height: auto;
+	min-height: var(--control-h);
+	padding-block: 6px;
+	white-space: normal;
+}
+@media (max-width: 1100px) {
+	.settings-account-channels {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+}
+@media (max-width: 520px) {
+	.settings-view:has([data-page="account"]) {
+		grid-template-columns: minmax(0, 1fr);
+		grid-template-rows: auto minmax(0, 1fr);
+	}
+	.settings-view:has([data-page="account"]) .settings-nav {
+		flex-direction: row;
+		align-items: center;
+		gap: 8px;
+		padding: 10px 12px;
+		overflow-x: auto;
+		border-right: 0;
+		border-bottom: 1px solid var(--line);
+	}
+	.settings-view:has([data-page="account"]) .settings-nav-group {
+		display: contents;
+	}
+	.settings-view:has([data-page="account"]) .settings-nav-title,
+	.settings-view:has([data-page="account"]) .settings-nav-note {
+		display: none;
+	}
+	.settings-content[data-page="account"] {
+		padding: 24px 14px 40px;
+	}
+	.settings-account-channels {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+	.settings-account-identity {
+		display: grid;
+		grid-template-columns: 54px minmax(0, 1fr);
+		gap: 15px;
+	}
+	.settings-account-identity > .settings-btn {
+		grid-column: 2;
+		justify-self: start;
+	}
+	.settings-account-channel {
+		padding: 11px;
+	}
+	.settings-account-channel-top {
+		gap: 6px;
+	}
+	.settings-view:has([data-page="account"]) .settings-nav-item,
+	.settings-view:has([data-page="account"]) .settings-back {
+		flex: none;
+		justify-content: center;
+		width: 36px;
+		height: 36px;
+		padding: 0;
+	}
+	.settings-view:has([data-page="account"]) .settings-nav-item > .icon,
+	.settings-view:has([data-page="account"]) .settings-back > .icon {
+		flex: none;
+	}
+	.settings-view:has([data-page="account"]) .settings-nav-item > span,
+	.settings-view:has([data-page="account"]) .settings-back > span {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
+	}
+	.settings-content[data-page="account"] .settings-row {
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 12px;
+		padding: 16px;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.settings-account-channel {
+		transition: none;
+	}
+	.settings-account-login-area {
+		animation: none;
+	}
+}

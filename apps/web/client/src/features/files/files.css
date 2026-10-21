@@ -124,15 +124,6 @@
 	border-left: 1px solid var(--line);
 	background: var(--canvas);
 }
-.app.preview-open .main {
-	margin-right: var(--preview-width, 560px);
-}
-.preview-show {
-	position: absolute;
-	top: 14px;
-	right: 14px;
-	z-index: 5;
-}
 .preview-resizer {
 	position: absolute;
 	top: 0;
@@ -338,9 +329,6 @@
 /* Legacy styles.css 1420-1424. */
 /* Too narrow to share: the preview covers the conversation instead. */
 @media (max-width: 1000px) {
-	.app.preview-open .main {
-		margin-right: 0;
-	}
 	.preview-panel {
 		width: min(100vw, var(--preview-width, 560px));
 		max-width: 100vw;

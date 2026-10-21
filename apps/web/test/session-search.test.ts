@@ -23,9 +23,10 @@ async function until(check: () => Promise<boolean>, what: string): Promise<void>
 
 test("indexes session writes and answers content and short queries", async () => {
 	const agentDir = await realpath(await mkdtemp(join(tmpdir(), "stepcode-web-search-")));
+	const cwd = join(agentDir, "workspace");
 	const search = new WebSessionSearch(agentDir, (dir) => openSessionIndex({ agentDir: dir, debounceMs: 10 }));
 	try {
-		const manager = createStepSessionManager("/work/app", { agentDir });
+		const manager = createStepSessionManager(cwd, { agentDir });
 		manager.setFilePersistedListener((event) => search.notifyPersisted(event));
 		manager.appendMessage({ role: "user", content: "rename the migration helper 迁移脚本", timestamp: Date.now() });
 		manager.appendMessage({
@@ -50,14 +51,14 @@ test("indexes session writes and answers content and short queries", async () =>
 		const result = await search.search({ q: "migration" });
 		const hit = result.hits.find((candidate) => candidate.entryId !== null);
 		assert.equal(hit?.sessionId, manager.getSessionId());
-		assert.equal(hit?.cwd, "/work/app");
+		assert.equal(hit?.cwd, cwd);
 		assert.equal(hit?.role, "user");
 		assert.match(hit?.snippet ?? "", /\u0002migration\u0003/);
 		assert.equal(result.state, "ready");
 		assert.deepEqual(result.coverage, { indexed: 1, total: 1 });
 
 		// Two characters: below the trigram minimum, answered by the bounded LIKE path.
-		assert.equal((await search.search({ q: "迁移", cwd: "/work/app" })).hits.length > 0, true);
+		assert.equal((await search.search({ q: "迁移", cwd })).hits.length > 0, true);
 
 		const status = await search.status();
 		assert.equal(status.state, "ready");

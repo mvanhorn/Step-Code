@@ -7,6 +7,55 @@
 
 import type { TagColor } from "../i18n/messages";
 
+/** Host-owned interactive shells; independent of Agent tool execution. */
+export interface TerminalInfo {
+	readonly id: string;
+	readonly cwd: string;
+	readonly title: string;
+	readonly shell: string;
+	readonly status: "starting" | "running" | "exited" | "failed";
+	readonly cols: number;
+	readonly rows: number;
+	readonly pid?: number;
+	readonly exitCode?: number;
+	readonly error?: string;
+}
+export type TerminalSupport = { readonly available: true } | { readonly available: false; readonly reason: string };
+export interface TerminalSnapshot {
+	readonly info: TerminalInfo;
+	readonly seq: number;
+	readonly truncated: boolean;
+	readonly chunks: readonly { readonly seq: number; readonly data: string }[];
+}
+
+/** Host-wide embedded-browser projection, independent of model sessions. */
+export interface EmbeddedBrowserTab {
+	readonly id: string;
+	readonly title: string;
+	readonly url: string;
+	readonly loading: boolean;
+	readonly canGoBack: boolean;
+	readonly canGoForward: boolean;
+	readonly zoom: number;
+	readonly error?: string;
+	readonly notice?: "download" | "upload" | "dialog" | "popup" | "navigation";
+}
+export interface EmbeddedBrowserSnapshot {
+	readonly revision: number;
+	readonly activeId: string | null;
+	readonly tabs: readonly EmbeddedBrowserTab[];
+}
+export interface EmbeddedBrowserFrame {
+	readonly tabId: string;
+	/** The page's CSS viewport; pointer coordinates use this space. */
+	readonly width: number;
+	readonly height: number;
+	/** The whole captured image; the page is its top-left `width` x `height`. Older hosts omit it. */
+	readonly surfaceWidth?: number;
+	readonly surfaceHeight?: number;
+	readonly data: string;
+}
+
 export type SessionStatus = "idle" | "running" | "waiting" | "completed" | "failed";
 
 export interface ModelRef {
@@ -56,6 +105,8 @@ export interface Usage {
 export interface ContentPart {
 	readonly type: string;
 	readonly text?: string;
+	readonly thinking?: string;
+	readonly redacted?: boolean;
 	readonly id?: string;
 	readonly name?: string;
 	readonly arguments?: unknown;
@@ -78,6 +129,9 @@ export interface SessionEntry {
 	readonly timestamp?: string;
 	readonly message?: AgentMessage;
 	readonly usage?: Usage;
+	readonly thinkingTimings?: ThinkingTimings;
+	/** Lifecycle-only metadata on custom_message / agent-notification entries. */
+	readonly details?: unknown;
 	readonly [key: string]: unknown;
 }
 
@@ -142,6 +196,36 @@ export interface SessionSnapshot extends SessionSummary {
 	readonly steeringMessages?: readonly SteeringMessage[];
 	/** The kernel retrying a failed model request right now (runtime.ts `RetryTracker`). */
 	readonly retry?: SessionRetry;
+}
+
+/** GET /api/v1/sessions/{id}/inspector; read-only runtime projections. */
+export interface SessionInspector {
+	readonly sessionId: string;
+	readonly plan?: { readonly id: string; readonly title: string };
+	readonly tasks: readonly {
+		readonly id: string;
+		readonly subject: string;
+		readonly description: string;
+		readonly status: "pending" | "in_progress" | "completed";
+	}[];
+	readonly skillCount: number;
+	readonly mcpScope: "process";
+	readonly mcp: readonly { readonly name: string; readonly status: string }[];
+	readonly stats: {
+		readonly tokens: {
+			readonly input: number;
+			readonly output: number;
+			readonly cacheRead: number;
+			readonly cacheWrite: number;
+			readonly total: number;
+		};
+		readonly cost: number;
+		readonly contextUsage?: {
+			readonly tokens: number | null;
+			readonly contextWindow: number;
+			readonly percent: number | null;
+		};
+	};
 }
 
 /** Snapshot `retry` (src/retry-state.ts `WebRetryState`). */
@@ -237,6 +321,23 @@ export interface MessageTimelineItem {
 
 export type ToolState = "pending" | "completed" | "failed";
 
+export interface ThinkingTiming {
+	readonly startedAt: number;
+	readonly endedAt?: number;
+}
+
+export type ThinkingTimings = Readonly<Record<string, ThinkingTiming>>;
+
+export interface ThinkingTimelineItem {
+	readonly itemId: string;
+	readonly kind: "thinking";
+	readonly entryId?: string;
+	readonly content: string;
+	/** True only while this structured thinking block is being streamed. */
+	readonly running: boolean;
+	readonly timing?: ThinkingTiming;
+}
+
 export interface ToolTimelineItem {
 	readonly itemId: string;
 	readonly kind: "tool";
@@ -253,6 +354,8 @@ export interface ToolTimelineItem {
 	readonly change?: FileChange;
 	/** Subagents this call started, from the result `details.results[].sessionId`. */
 	readonly children?: readonly ChildAgentLink[];
+	/** Validated presentation of the subagent tool's structured per-task records. */
+	readonly subagentTasks?: readonly SubagentTask[];
 	/** A workflow call's run id; its agents come from `GET /sessions/{id}/children?workflowRun=`. */
 	readonly workflowRun?: string;
 }
@@ -261,6 +364,19 @@ export interface ToolTimelineItem {
 export interface ChildAgentLink {
 	readonly sessionId: string;
 	readonly label: string;
+}
+
+export type SubagentStatus = "queued" | "running" | "completed" | "failed" | "aborted" | "skipped" | "unknown";
+
+export interface SubagentTask {
+	readonly agent: string;
+	readonly task: string;
+	readonly status: SubagentStatus;
+	readonly sessionId?: string;
+	readonly backgroundAgentId?: string;
+	readonly model?: string;
+	readonly turns?: number;
+	readonly error?: string;
 }
 
 /** GET /api/v1/sessions/{id}/children/{childId} (child-sessions.ts `ChildTranscript`). */
@@ -330,7 +446,12 @@ export interface RetryTimelineItem {
 	readonly live?: SessionRetry;
 }
 
-export type TimelineItem = MessageTimelineItem | ToolTimelineItem | ApprovalTimelineItem | RetryTimelineItem;
+export type TimelineItem =
+	| MessageTimelineItem
+	| ThinkingTimelineItem
+	| ToolTimelineItem
+	| ApprovalTimelineItem
+	| RetryTimelineItem;
 
 export interface WebWorkspace {
 	readonly path: string;
@@ -345,6 +466,7 @@ export interface LoginReport {
 	readonly source: "environment" | "auth.json" | "none";
 	readonly provider?: string;
 	readonly profile?: string;
+	readonly userId?: string;
 	readonly path?: string;
 	readonly configured: boolean;
 	readonly validity?: string;

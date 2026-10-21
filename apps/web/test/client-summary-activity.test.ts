@@ -1,0 +1,50 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { summaryActivityTurn } from "../client/src/state/right-panel.ts";
+import { createInitialState, type AppState } from "../client/src/state/store.ts";
+import type { TimelineItem } from "../client/src/state/types.ts";
+
+function snapshot(timelineItems: readonly TimelineItem[]): AppState {
+	return { ...createInitialState(), current: { id: "session", cwd: "/fixture", status: "idle" }, timelineItems };
+}
+
+test("summary reveals task and subagent activity, regardless of tool outcome", () => {
+	for (const toolName of ["task_create", "task_update", "subagent", "agent_send"]) {
+		for (const state of ["pending", "completed", "failed"] as const) {
+			assert.equal(summaryActivityTurn(snapshot([
+				{ kind: "message", itemId: "u1", role: "user", content: "Work" },
+				{ kind: "tool", itemId: "t1", toolName, state, inputSummary: "", outputSummary: "" },
+			])), "u1");
+		}
+	}
+});
+
+test("old activity does not trigger on a new user turn, ordinary tools or thinking", () => {
+	assert.equal(summaryActivityTurn(snapshot([
+		{ kind: "tool", itemId: "old", toolName: "task_create", state: "completed", inputSummary: "", outputSummary: "" },
+		{ kind: "message", itemId: "u2", role: "user", content: "Read a file" },
+		{ kind: "thinking", itemId: "thought", content: "task_create", running: true },
+		{ kind: "tool", itemId: "t2", toolName: "read", state: "completed", inputSummary: "agent_send", outputSummary: "" },
+	])), null);
+	assert.equal(summaryActivityTurn(createInitialState()), null);
+});
+
+test("structured subagent tasks and history without a user entry remain eligible", () => {
+	assert.equal(summaryActivityTurn(snapshot([
+		{ kind: "tool", itemId: "t1", toolName: "workflow", state: "pending", inputSummary: "", outputSummary: "",
+			subagentTasks: [{ agent: "explore", task: "Inspect", status: "queued" }] },
+	])), "history");
+});
+
+test("same-turn activity updates retain one stable reveal key", () => {
+	const data = snapshot([
+		{ kind: "message", itemId: "u1", role: "user", content: "Work" },
+		{ kind: "tool", itemId: "t1", toolName: "task_create", state: "pending", inputSummary: "", outputSummary: "" },
+	]);
+	assert.equal(summaryActivityTurn(data), summaryActivityTurn({
+		...data,
+		timelineItems: [...data.timelineItems,
+			{ kind: "tool", itemId: "t2", toolName: "agent_send", state: "completed", inputSummary: "", outputSummary: "" },
+		],
+	}));
+});
