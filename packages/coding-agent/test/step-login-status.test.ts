@@ -47,7 +47,7 @@ describe("Step login status", () => {
 				env: { STEPCODE_LOGIN_STATE_PATH: join(dir, "step-login.json") },
 			}),
 		).toEqual({
-			loggedIn: false,
+			credentialConfigured: false,
 			loginMethod: null,
 			validity: "missing",
 			session: { state: "missing" },
@@ -70,7 +70,7 @@ describe("Step login status", () => {
 			fetch: async () => response(200),
 		});
 		expect(status).toMatchObject({
-			loggedIn: true,
+			credentialConfigured: true,
 			loginMethod: "step_plan",
 			account: "user-123",
 			validity: "valid",
@@ -116,7 +116,7 @@ describe("Step login status", () => {
 			},
 		});
 		expect(status).toEqual({
-			loggedIn: true,
+			credentialConfigured: true,
 			loginMethod: "step_plan_oversea",
 			profile: "step_plan_oversea",
 			account: "user-456",
@@ -146,7 +146,7 @@ describe("Step login status", () => {
 				return response(200);
 			},
 		});
-		expect(status).toMatchObject({ loggedIn: true, loginMethod: "api_key", validity: "valid" });
+		expect(status).toMatchObject({ credentialConfigured: true, loginMethod: "api_key", validity: "valid" });
 		expect(requestedUrl).toBe("https://api.stepfun.ai/v1/models");
 	});
 
@@ -189,5 +189,23 @@ describe("Step login status", () => {
 				session: expected,
 			});
 		}
+	});
+
+	test("reads the account session beside the inspected credential", async () => {
+		const dir = await mkdtemp(join(tmpdir(), "step-status-"));
+		dirs.push(dir);
+		const authPath = join(dir, "auth.json");
+		await AuthStorage.create(authPath).modify("step", async () => ({
+			type: "oauth",
+			access: "secret-token",
+			refresh: "step-static-credential",
+			expires: Number.MAX_SAFE_INTEGER,
+			profile: "step_plan",
+		}));
+		// Written beside this credential; the call below passes no
+		// STEPCODE_LOGIN_STATE_PATH and must not read the real home directory.
+		await saveStepLoginState(session(), { STEPCODE_AUTH_PATH: authPath });
+		const status = await getStepLoginStatus({ authPath, env: {}, fetch: async () => response(200) });
+		expect(status.session).toMatchObject({ state: "ready" });
 	});
 });

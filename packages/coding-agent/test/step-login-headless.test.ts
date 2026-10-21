@@ -37,7 +37,7 @@ describe("headless Step login (desktop)", () => {
 				return new Response("{}", { status: 200 });
 			},
 		});
-		expect(result).toEqual({ validity: "valid" });
+		expect(result).toEqual({ validity: "valid", session: "cleared" });
 		expect(requests).toEqual([{ url: "https://api.stepfun.ai/v1/models", authorization: "Bearer sk-oversea" }]);
 		expect(readStepLoginCredential(authPath)).toMatchObject({ type: "oauth", access: "sk-oversea" });
 		expect(readStepLoginProfile(authPath)).toBe("platform_oversea");
@@ -114,6 +114,51 @@ describe("headless Step login (desktop)", () => {
 		expect(readStepLoginProfile(authPath)).toBe("step_plan_oversea");
 	});
 
+	it("reports an account session that could not be written without failing the sign-in", async () => {
+		const authPath = await authFile();
+		const blockedStatePath = join(authPath, "step-login.json");
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (url: string) => {
+				if (url.endsWith("/init"))
+					return new Response(
+						JSON.stringify({
+							status: 0,
+							flow_id: "d".repeat(32),
+							poll_interval_sec: 1,
+							expires_at: Date.now() / 1000 + 600,
+						}),
+					);
+				return new Response(
+					JSON.stringify({
+						status: 0,
+						state: "ready",
+						credential: {
+							api_key: "plan-key",
+							login: {
+								access_token: "new-access",
+								refresh_token: "new-refresh",
+								device_id: "device-2",
+								app_id: "10300",
+								expires_in: 1800,
+							},
+						},
+					}),
+				);
+			}),
+		);
+		const result = await loginStepInBrowser({
+			authPath,
+			env: { STEPCODE_LOGIN_STATE_PATH: blockedStatePath },
+			profile: "step_plan",
+			signal: new AbortController().signal,
+			onAuthUrl: () => {},
+		});
+		expect(result.session).toBe("failed");
+		expect(result.warning).toMatch(/account session could not be updated/);
+		expect(readStepLoginCredential(authPath)).toMatchObject({ type: "oauth", access: "plan-key" });
+	});
+
 	it("stores the account session beside auth.json and an API key sign-in drops it", async () => {
 		const authPath = await authFile();
 		const sessionEnv = { STEPCODE_AUTH_PATH: authPath };
@@ -160,13 +205,14 @@ describe("headless Step login (desktop)", () => {
 				);
 			}),
 		);
-		await loginStepInBrowser({
+		const browserLogin = await loginStepInBrowser({
 			authPath,
 			env: {},
 			profile: "step_plan",
 			signal: new AbortController().signal,
 			onAuthUrl: () => {},
 		});
+		expect(browserLogin).toEqual({ session: "saved" });
 		expect(readStepLoginState(sessionEnv)).toMatchObject({
 			profile: "step_plan",
 			accessToken: "new-access",
@@ -174,13 +220,14 @@ describe("headless Step login (desktop)", () => {
 			deviceId: "device-2",
 		});
 
-		await loginStepWithApiKey({
+		const apiKeyLogin = await loginStepWithApiKey({
 			authPath,
 			env: {},
 			profile: "platform_cn",
 			apiKey: "sk-cn",
 			fetch: async () => new Response("{}", { status: 200 }),
 		});
+		expect(apiKeyLogin).toEqual({ validity: "valid", session: "cleared" });
 		expect(readStepLoginState(sessionEnv)).toBeUndefined();
 	});
 });

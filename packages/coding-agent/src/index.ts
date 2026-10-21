@@ -677,8 +677,11 @@ export {
 	readStepLoginProfile,
 	runStepLogin,
 	type StepHeadlessLoginOptions,
+	type StepHeadlessLoginResult,
 	type StepLoginHost,
 	type StepLoginOutcome,
+	type StepLoginSessionOutcome,
+	type StepLoginSessionResult,
 	syncStepLoginProfileEndpoint,
 } from "./step/login-flow.ts";
 export {
@@ -697,6 +700,7 @@ export {
 	type StepApiKeyValidation,
 	type StepCredentialValidity,
 	type StepLoginMethod,
+	type StepLoginSessionStatus,
 	type StepLoginStatus,
 	validateStepApiKey,
 } from "./step/login-status.ts";

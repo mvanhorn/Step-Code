@@ -7,7 +7,13 @@ export type StepLoginMethod = "step_plan" | "step_plan_oversea" | "api_key" | nu
 export type StepCredentialValidity = "missing" | "valid" | "invalid" | "unavailable";
 
 export interface StepLoginStatus {
-	readonly loggedIn: boolean;
+	/**
+	 * A Step model credential exists (a `step` entry in `auth.json`, or
+	 * `STEP_API_KEY`). This says nothing about the account session and nothing
+	 * about whether the provider accepts the credential: those are `session` and
+	 * `validity`.
+	 */
+	readonly credentialConfigured: boolean;
 	readonly loginMethod: StepLoginMethod;
 	/** Stored login profile, when the credential came from a known one. */
 	readonly profile?: StepLoginProfileId;
@@ -39,7 +45,14 @@ export interface StepLoginStatusOptions {
 }
 
 export async function getStepLoginStatus(options: StepLoginStatusOptions): Promise<StepLoginStatus> {
-	const env = options.env ?? process.env;
+	// The account session sits beside the credential file being inspected, not
+	// beside whatever the process's auth path happens to be. Without this a host
+	// that passes an isolated `authPath` reads another directory's
+	// `step-login.json`, so the key and the identity disagree.
+	const env: Record<string, string | undefined> = {
+		...(options.env ?? process.env),
+		STEPCODE_AUTH_PATH: options.authPath,
+	};
 	const stored = readStoredCredential("step", options.authPath) as
 		| { type?: string; access?: unknown; refresh?: unknown; uid?: unknown; profile?: unknown }
 		| undefined;
@@ -51,7 +64,12 @@ export async function getStepLoginStatus(options: StepLoginStatusOptions): Promi
 	const loginMethod: StepLoginMethod =
 		envKey || storedApiKey ? "api_key" : access ? planLoginMethod(storedProfileId) : null;
 	if (!access || !loginMethod) {
-		return { loggedIn: false, loginMethod: null, validity: "missing", session: describeStepLoginSession(env) };
+		return {
+			credentialConfigured: false,
+			loginMethod: null,
+			validity: "missing",
+			session: describeStepLoginSession(env),
+		};
 	}
 
 	const accountValue = envKey ? undefined : (stored?.uid ?? stored?.profile);
@@ -62,7 +80,7 @@ export async function getStepLoginStatus(options: StepLoginStatusOptions): Promi
 		? resolveStepLoginProfiles(env).find((candidate) => candidate.id === storedProfileId)
 		: undefined;
 	const identity = {
-		loggedIn: true,
+		credentialConfigured: true,
 		loginMethod,
 		...(profile ? { profile: profile.id } : {}),
 		...(account ? { account } : {}),

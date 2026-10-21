@@ -179,8 +179,11 @@ export async function logoutStepCredentials(
 	// The account session is cleared last, and its failure never stops the API key
 	// from being removed. Whether anything is left on disk is reported, because a
 	// sign-out that claims success while a long-lived refresh token survives is
-	// worse than one that says otherwise.
-	const removedLoginState = await clearStepLoginState(env).catch(() => false);
+	// worse than one that says otherwise. Follow the credential path being
+	// removed, not the process's default: a host with an isolated `authPath` must
+	// sign out of the session stored beside it.
+	const loginEnv = { ...env, STEPCODE_AUTH_PATH: nativePath };
+	const removedLoginState = await clearStepLoginState(loginEnv).catch(() => false);
 
 	return {
 		removedNative,

@@ -273,6 +273,21 @@ export interface StepHeadlessLoginOptions {
 }
 
 /**
+ * What happened to the account session (`step-login.json`) during a headless
+ * sign-in. The model credential is already written by this point; a session
+ * problem never fails the sign-in, it becomes a warning.
+ */
+export type StepLoginSessionOutcome = "saved" | "cleared" | "failed";
+
+export interface StepLoginSessionResult {
+	readonly session: StepLoginSessionOutcome;
+	readonly warning?: string;
+}
+
+/** A successful sign-in carries the session outcome; a rejected key carries only the verdict. */
+export type StepHeadlessLoginResult = StepApiKeyValidation & Partial<StepLoginSessionResult>;
+
+/**
  * Sign in with a platform API key without a terminal (StepCode Desktop).
  *
  * The key is checked against the profile's endpoint first and written only when
@@ -286,7 +301,7 @@ export async function loginStepWithApiKey(
 		readonly fetch?: typeof fetch;
 		readonly signal?: AbortSignal;
 	},
-): Promise<StepApiKeyValidation> {
+): Promise<StepHeadlessLoginResult> {
 	const profile = requireStepLoginProfile(input.profile, "apiKey", input.env);
 	const apiKey = input.apiKey.trim();
 	if (!apiKey) throw new Error("API key cannot be empty");
@@ -306,8 +321,8 @@ export async function loginStepWithApiKey(
 	syncStepLoginProfileEndpoint(input.authPath, input.env ?? process.env);
 	// An API key carries no account session. A previous account's session must
 	// not outlive it, or a host would show an identity that no longer matches.
-	await replaceHeadlessLoginState(input, undefined);
-	return result;
+	const session = await replaceHeadlessLoginState(input, undefined);
+	return { ...result, ...session };
 }
 
 /**
@@ -315,20 +330,43 @@ export async function loginStepWithApiKey(
  *
  * The session sits beside `input.authPath`, so a host that isolates its
  * credential file isolates the session too. Best-effort: the API key is already
- * written, and a session problem must never fail the sign-in; account features
- * then report "missing" and ask for a new sign-in.
+ * written, and a session problem must never fail the sign-in; the caller gets a
+ * warning instead and account features report "missing".
  */
 async function replaceHeadlessLoginState(
 	input: StepHeadlessLoginOptions,
 	login: StepCliLoginState | undefined,
 	profile?: StepLoginProfileId,
-): Promise<void> {
+): Promise<StepLoginSessionResult> {
 	const env = { ...(input.env ?? process.env), STEPCODE_AUTH_PATH: input.authPath };
 	try {
-		await clearStepLoginState(env);
-		if (login && profile) await saveStepLoginState(buildStepLoginState(login, profile), env);
-	} catch {
-		// Ignored on purpose; see above.
+		const cleared = await clearStepLoginState(env);
+		if (login && profile) {
+			const written = await saveStepLoginState(buildStepLoginState(login, profile), env);
+			return written
+				? { session: "saved" }
+				: {
+						session: "failed",
+						warning:
+							"Signed in, but the account session could not be written. Account features will ask you to sign in again.",
+					};
+		}
+		// A new session replaces whatever was there, so a failed clear only
+		// matters when this sign-in intentionally leaves no session behind.
+		return cleared
+			? { session: "cleared" }
+			: {
+					session: "failed",
+					warning:
+						"Signed in, but the previous account session could not be removed; account features may show the previous account.",
+				};
+	} catch (error) {
+		return {
+			session: "failed",
+			warning: `Signed in, but the account session could not be updated: ${
+				error instanceof Error ? error.message : String(error)
+			}`,
+		};
 	}
 }
 
@@ -345,7 +383,7 @@ export async function loginStepInBrowser(
 		readonly signal: AbortSignal;
 		readonly onAuthUrl: (url: string) => void;
 	},
-): Promise<void> {
+): Promise<StepLoginSessionResult> {
 	const profile = requireStepLoginProfile(input.profile, "browser", input.env);
 	const credential = await requestStepBrowserCredential(profile, input);
 	input.signal.throwIfAborted();
@@ -358,7 +396,7 @@ export async function loginStepInBrowser(
 		obtainedAt: (input.now ?? (() => new Date()))().toISOString(),
 	});
 	syncStepLoginProfileEndpoint(input.authPath, input.env ?? process.env);
-	await replaceHeadlessLoginState(input, readLoginState(credential.login), profile.id);
+	return replaceHeadlessLoginState(input, readLoginState(credential.login), profile.id);
 }
 
 export async function runStepLogin(options: RunStepLoginOptions = {}): Promise<StepLoginOutcome> {
