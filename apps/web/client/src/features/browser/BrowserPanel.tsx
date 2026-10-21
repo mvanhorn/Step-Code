@@ -2,9 +2,10 @@ import { type KeyboardEvent, type PointerEvent, useEffect, useRef, useState } fr
 import { useT } from "../../i18n";
 import { errorMessage } from "../../lib/api";
 import { writeClipboard } from "../../lib/clipboard";
+import { isMacPlatform } from "../../lib/format";
 import type { EmbeddedBrowserFrame, EmbeddedBrowserSnapshot } from "../../state/types";
 import { Button, Icon, IconButton, type IconName, Tooltip } from "../../ui";
-import { BrowserConnection } from "./actions";
+import { BrowserConnection, browserKeyRoute } from "./actions";
 
 const EMPTY: EmbeddedBrowserSnapshot = { revision: 0, activeId: null, tabs: [] };
 
@@ -168,23 +169,21 @@ export function BrowserPanel({ open }: { open: boolean }) {
 	const key = (event: KeyboardEvent<HTMLTextAreaElement>) => {
 		event.stopPropagation();
 		if (event.nativeEvent.isComposing || composing.current || event.key === "Process") return;
-		const mod = event.ctrlKey || event.metaKey;
-		if (mod && event.key.toLowerCase() === "c") {
-			event.preventDefault();
-			copy();
-			return;
-		}
-		// Native paste/input supplies committed text, without touching the host browser clipboard.
-		if (mod && event.key.toLowerCase() === "v") return;
-		if (!mod && !event.altKey && event.key.length === 1) return;
+		const route = browserKeyRoute(
+			{
+				key: event.key,
+				altKey: event.altKey,
+				ctrlKey: event.ctrlKey,
+				metaKey: event.metaKey,
+				shiftKey: event.shiftKey,
+				altGraph: event.getModifierState("AltGraph"),
+			},
+			isMacPlatform(),
+		);
+		if (route.kind === "native") return;
 		event.preventDefault();
-		if (["Control", "Meta", "Alt", "Shift", "Dead"].includes(event.key)) return;
-		sendInput({
-			kind: "key",
-			key: event.key,
-			modifiers:
-				(event.altKey ? 1 : 0) | (event.ctrlKey ? 2 : 0) | (event.metaKey ? 4 : 0) | (event.shiftKey ? 8 : 0),
-		});
+		if (route.kind === "copy") copy();
+		else if (route.kind === "key") sendInput(route);
 	};
 	const control = (icon: IconName, label: string, onClick: () => void, disabled = false) => (
 		<Tooltip content={t(label)}>
@@ -198,6 +197,8 @@ export function BrowserPanel({ open }: { open: boolean }) {
 			aria-label={t("browserTitle")}
 			onKeyDownCapture={(event) => {
 				if (!(event.ctrlKey || event.metaKey) || event.nativeEvent.isComposing) return;
+				// AltGr (Ctrl+Alt on Windows) prints characters; it is never a panel shortcut.
+				if (event.altKey || event.getModifierState("AltGraph")) return;
 				const shortcut = event.key.toLowerCase();
 				if (!["l", "t", "w", "r"].includes(shortcut)) return;
 				event.preventDefault();
@@ -311,6 +312,12 @@ export function BrowserPanel({ open }: { open: boolean }) {
 				{frame && frame.tabId === activeId && active?.url !== "about:blank" ? (
 					<img
 						className="browser-frame"
+						// Scale the captured surface so only its page area fills the panel; the unused strip
+						// of a window wider than the viewport falls outside and is clipped.
+						style={{
+							width: `${((frame.surfaceWidth ?? frame.width) / frame.width) * 100}%`,
+							height: `${((frame.surfaceHeight ?? frame.height) / frame.height) * 100}%`,
+						}}
 						src={`data:image/jpeg;base64,${frame.data}`}
 						alt={active?.title || t("browserPage")}
 						draggable={false}

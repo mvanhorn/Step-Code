@@ -47,8 +47,12 @@ export interface EmbeddedBrowserSnapshot {
 }
 export interface EmbeddedBrowserFrame {
 	readonly tabId: string;
+	/** The page's CSS viewport; pointer coordinates use this space. */
 	readonly width: number;
 	readonly height: number;
+	/** The whole captured image; the page is its top-left `width` x `height`. Older hosts omit it. */
+	readonly surfaceWidth?: number;
+	readonly surfaceHeight?: number;
 	readonly data: string;
 }
 

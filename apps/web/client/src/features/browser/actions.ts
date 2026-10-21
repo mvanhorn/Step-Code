@@ -3,6 +3,42 @@ import type { EmbeddedBrowserFrame, EmbeddedBrowserSnapshot } from "../../state/
 
 const ROOT = "/api/v1/browser";
 
+/** The parts of a keydown that decide where the key goes. */
+export interface BrowserKeyEvent {
+	readonly key: string;
+	readonly altKey: boolean;
+	readonly ctrlKey: boolean;
+	readonly metaKey: boolean;
+	readonly shiftKey: boolean;
+	/** AltGr on Windows/Linux layouts (`getModifierState("AltGraph")`). */
+	readonly altGraph: boolean;
+}
+
+/**
+ * Where a keydown in the page's input goes: `copy` (the page selection), `native` (let the textarea
+ * receive it, so its `input` event forwards the committed text), `ignore`, or a key press for the
+ * host. A printed character is text even when AltGr or macOS Option produced it (`@` on a German
+ * layout, `π` from Option+P); only Ctrl or Cmd turn a character into a shortcut. Windows reports
+ * AltGr as Ctrl+Alt, so that pair is text too.
+ */
+export function browserKeyRoute(
+	event: BrowserKeyEvent,
+	mac: boolean,
+): { kind: "copy" | "native" | "ignore" } | { kind: "key"; key: string; modifiers: number } {
+	const altGr = event.altGraph || (!mac && event.ctrlKey && event.altKey);
+	const mod = !altGr && (event.ctrlKey || event.metaKey);
+	if (mod && event.key.toLowerCase() === "c") return { kind: "copy" };
+	// Native paste/input supplies committed text, without touching the host browser clipboard.
+	if (mod && event.key.toLowerCase() === "v") return { kind: "native" };
+	if (!mod && event.key.length === 1 && (altGr || mac || !event.altKey)) return { kind: "native" };
+	if (["Control", "Meta", "Alt", "AltGraph", "Shift", "Dead"].includes(event.key)) return { kind: "ignore" };
+	return {
+		kind: "key",
+		key: event.key,
+		modifiers: (event.altKey ? 1 : 0) | (event.ctrlKey ? 2 : 0) | (event.metaKey ? 4 : 0) | (event.shiftKey ? 8 : 0),
+	};
+}
+
 /** Owns only this page's connection; tabs and browser lifetime belong to the host. */
 export class BrowserConnection {
 	private token = "";

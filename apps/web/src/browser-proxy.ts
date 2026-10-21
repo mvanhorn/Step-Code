@@ -58,6 +58,9 @@ export async function browserProxy(hostPorts: readonly number[]): Promise<{
 	});
 	server.on("connection", track);
 	server.on("connect", (request, client, head) => {
+		// Node drops the server's socket error listener for CONNECT and upgrades; a reset after a
+		// refusal below would otherwise be an unhandled 'error' that takes the Host down.
+		client.on("error", () => client.destroy());
 		if (request.headers["proxy-authorization"] !== authorization) {
 			client.end(
 				'HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="StepCode browser"\r\nConnection: close\r\n\r\n',
@@ -88,6 +91,7 @@ export async function browserProxy(hostPorts: readonly number[]): Promise<{
 	});
 	// WebSocket handshakes use an HTTP upgrade rather than CONNECT for ws://.
 	server.on("upgrade", (request, client, head) => {
+		client.on("error", () => client.destroy());
 		if (request.headers["proxy-authorization"] !== authorization) {
 			client.end(
 				'HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="StepCode browser"\r\nConnection: close\r\n\r\n',
@@ -125,7 +129,8 @@ export async function browserProxy(hostPorts: readonly number[]): Promise<{
 			client.destroy();
 		});
 		upstream.on("error", () => client.destroy());
-		client.on("error", () => upstream.destroy());
+		// A page that gives up before the upstream answers must not leave the handshake open.
+		client.on("close", () => upstream.destroy());
 		upstream.end();
 	});
 	await new Promise<void>((resolve, reject) => {

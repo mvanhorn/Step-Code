@@ -169,7 +169,9 @@ paths:
     get:
       description: |
         Authenticated SSE with snapshot, frame and closed events. Each frame has
-        tabId, width, height (remote CSS viewport coordinates) and base64 JPEG data.
+        tabId, width, height (remote CSS viewport coordinates), surfaceWidth and
+        surfaceHeight (the captured image in the same units; the page is its
+        top-left width x height, the rest is unused window area) and base64 JPEG data.
         Chromium frames are ACKed locally; transport is capped at 15 fps with one
         pending latest frame. Network backpressure drops frames and retains only
         the newest snapshot. Frame payloads are bounded to 2.8 million base64

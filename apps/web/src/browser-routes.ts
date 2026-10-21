@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { WebBrowser } from "./browser.ts";
+import { BROWSER_CREATE_TIMEOUT_MS, type WebBrowser } from "./browser.ts";
 import { BrowserRequestError, readBrowserInput } from "./browser-policy.ts";
 
 function reply(response: ServerResponse, status: number, value: unknown): void {
@@ -91,7 +91,11 @@ export async function browserRoute(
 		}
 		const input = method === "DELETE" ? {} : await browserBody(request);
 		if (parts.length === 1 && parts[0] === "tabs" && method === "POST") {
-			return reply(response, 201, await browser.command(token, () => browser.create(input.url)));
+			return reply(
+				response,
+				201,
+				await browser.command(token, () => browser.create(input.url), BROWSER_CREATE_TIMEOUT_MS),
+			);
 		}
 		if (parts.length === 1 && parts[0] === "viewport" && method === "POST") {
 			await browser.command(token, () => browser.resize(input.width, input.height));

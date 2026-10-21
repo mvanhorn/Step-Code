@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { createServer, request as requestHttp } from "node:http";
+import { connect } from "node:net";
 import { test } from "node:test";
 import { browserProxy } from "../src/browser-proxy.ts";
 
@@ -65,5 +66,42 @@ test("browser proxy authenticates, strips its secret, blocks HTTP and CONNECT po
 			new Promise<void>((resolve) => forbidden.close(() => resolve())),
 			new Promise<void>((resolve) => target.close(() => resolve())),
 		]);
+	}
+});
+
+test("browser proxy survives clients that reset while a CONNECT or upgrade is refused", async () => {
+	const proxy = await browserProxy([]);
+	const address = new URL(proxy.server);
+	const crashes: unknown[] = [];
+	const onCrash = (error: unknown) => crashes.push(error);
+	process.on("uncaughtException", onCrash);
+	try {
+		for (let round = 0; round < 20; round++) {
+			for (const head of [
+				"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n",
+				"GET ws://example.com/ HTTP/1.1\r\nHost: example.com\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n",
+			]) {
+				const socket = connect(Number(address.port), address.hostname);
+				socket.on("error", () => {});
+				await once(socket, "connect");
+				socket.write(head);
+				socket.resetAndDestroy();
+			}
+		}
+		await new Promise((resolve) => setTimeout(resolve, 200));
+		assert.deepEqual(crashes, []);
+		// Still serving: an unauthenticated request is refused, not dropped.
+		const status = await new Promise<number>((resolve, reject) => {
+			const request = requestHttp({ hostname: address.hostname, port: address.port, path: "http://example.com/" }, (response) => {
+				response.resume();
+				resolve(response.statusCode ?? 0);
+			});
+			request.on("error", reject);
+			request.end();
+		});
+		assert.equal(status, 407);
+	} finally {
+		process.off("uncaughtException", onCrash);
+		await proxy.close();
 	}
 });

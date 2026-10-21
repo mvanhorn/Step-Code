@@ -21,8 +21,16 @@ export interface BrowserSnapshot {
 }
 export interface BrowserFrame {
 	tabId: string;
+	/** The page's CSS viewport: pointer coordinates are in this space. */
 	width: number;
 	height: number;
+	/**
+	 * The captured surface, which can be larger than the viewport: headless windows are at least
+	 * 500px wide, so a narrower viewport leaves an unused strip on the right. The page occupies
+	 * the top-left `width` x `height` of it.
+	 */
+	surfaceWidth: number;
+	surfaceHeight: number;
 	data: string;
 }
 type BrowserEvent =
@@ -35,6 +43,35 @@ interface OwnedTab {
 	view: BrowserTab;
 	navigation: number;
 	buttons: Set<"left" | "right" | "middle">;
+	/** When the user last clicked or pressed a key in this tab; one popup may follow it. */
+	gestureAt: number;
+	popupAllowed: boolean;
+}
+
+/**
+ * Playwright disables Chromium's popup blocker, so a page could open tabs (and take the stream)
+ * on its own. A popup is kept only right after a user gesture in its opener, at most one each.
+ */
+const POPUP_GESTURE_MS = 1500;
+
+function gesture(tab: OwnedTab): void {
+	tab.gestureAt = Date.now();
+	tab.popupAllowed = true;
+}
+
+/** How long one queued browser command may hold the queue. */
+export const BROWSER_COMMAND_TIMEOUT_MS = 10_000;
+/** Creating the first tab also launches Chromium (up to 15s) before it opens a page. */
+export const BROWSER_CREATE_TIMEOUT_MS = 30_000;
+
+function withDeadline<T>(work: Promise<T>, timeoutMs: number): Promise<T> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const deadline = new Promise<never>((_resolve, reject) => {
+		timer = setTimeout(() => reject(new BrowserRequestError("The browser did not respond in time", 504)), timeoutMs);
+	});
+	// A late rejection of the abandoned work must not surface as an unhandled rejection.
+	work.catch(() => {});
+	return Promise.race([work, deadline]).finally(() => clearTimeout(timer));
 }
 
 /** Host-wide tabs, one leased controller, one bounded frame consumer. No personal profile. */
@@ -144,7 +181,13 @@ export class WebBrowser {
 		this.streamQueue = this.streamQueue
 			.then(async () => {
 				for (const [id, tab] of this.tabs) {
-					await tab.cdp.send("Page.stopScreencast");
+					try {
+						await tab.cdp.send("Page.stopScreencast");
+					} catch (error) {
+						// A background tab closing mid-loop must not keep the active tab from streaming.
+						if (id === this.activeId) throw error;
+						continue;
+					}
 					if (!this.disposed && this.consumer && id === this.activeId) {
 						await tab.cdp.send("Page.startScreencast", {
 							format: "jpeg",
@@ -177,6 +220,11 @@ export class WebBrowser {
 					headless: true,
 					chromiumSandbox: true,
 					timeout: 15_000,
+					// The Host owns process signals: its shutdown closes this browser, the proxy and the
+					// terminals in order. Playwright's own handlers would kill Chromium underneath it.
+					handleSIGINT: false,
+					handleSIGTERM: false,
+					handleSIGHUP: false,
 					proxy: { server, bypass, username, password },
 				});
 				this.browser = browser;
@@ -212,7 +260,10 @@ export class WebBrowser {
 						.opener()
 						.then(async (opener) => {
 							if (!opener) return;
-							if (this.tabs.size >= 12 || this.disposed) {
+							const owner = [...this.tabs.values()].find((tab) => tab.page === opener);
+							const allowed = owner?.popupAllowed === true && Date.now() - owner.gestureAt <= POPUP_GESTURE_MS;
+							if (owner && allowed) owner.popupAllowed = false;
+							if (!allowed || this.tabs.size >= 12 || this.disposed) {
 								await page.close();
 								return;
 							}
@@ -269,13 +320,40 @@ export class WebBrowser {
 			cdp,
 			navigation: 0,
 			buttons: new Set(),
+			gestureAt: 0,
+			popupAllowed: false,
 			view: { id, title: "", url: page.url(), loading: false, canGoBack: false, canGoForward: false, zoom: 1 },
 		};
 		this.tabs.set(id, tab);
 		this.activeId = id;
+		// Registered before the first await below: a page that closes while it is being wired up
+		// must still leave the tab list instead of lingering as a dead tab.
+		page.on("close", () => {
+			this.tabs.delete(id);
+			if (this.activeId === id) this.activeId = [...this.tabs.keys()].at(-1) ?? null;
+			this.publish();
+			this.scheduleStream();
+		});
+		try {
+			await this.wire(tab);
+		} catch (error) {
+			// Roll the registration back; closing the page fires the listener above.
+			await page.close().catch(() => {
+				// Already closed with its browser; the listener has run or the tab list was cleared.
+			});
+			throw error;
+		}
+		return tab;
+	}
+
+	/** Frame streaming, page events and the first layout for a tab already in the tab list. */
+	private async wire(tab: OwnedTab): Promise<void> {
+		const { page, cdp } = tab;
+		const id = tab.view.id;
 		let lastFrameAt = 0;
 		let pendingFrame: BrowserFrame | undefined;
 		let frameTimer: ReturnType<typeof setTimeout> | undefined;
+		page.once("close", () => clearTimeout(frameTimer));
 		const flushFrame = () => {
 			frameTimer = undefined;
 			if (!this.disposed && this.consumer && this.activeId === id && pendingFrame) {
@@ -291,10 +369,15 @@ export class WebBrowser {
 			});
 			if (!this.disposed && this.consumer && this.activeId === id && event.data.length <= 2_800_000) {
 				// Cap transport/decode work at 15 fps, including continuously animated websites.
+				const surfaceWidth = event.metadata.deviceWidth;
+				const surfaceHeight = event.metadata.deviceHeight;
+				const viewport = page.viewportSize();
 				pendingFrame = {
 					tabId: id,
-					width: event.metadata.deviceWidth,
-					height: event.metadata.deviceHeight,
+					width: Math.min(surfaceWidth, viewport?.width ?? surfaceWidth),
+					height: Math.min(surfaceHeight, viewport?.height ?? surfaceHeight),
+					surfaceWidth,
+					surfaceHeight,
 					data: event.data,
 				};
 				if (Date.now() - lastFrameAt >= 66) {
@@ -307,7 +390,11 @@ export class WebBrowser {
 			void this.refresh(tab);
 		};
 		page.on("framenavigated", (frame) => {
-			if (frame === page.mainFrame()) refresh();
+			if (frame !== page.mainFrame()) return;
+			refresh();
+			// A cross-site navigation can swap the renderer under a running screencast, which then
+			// stays silent (no frame, or only a blank one). Restart it on the committed document.
+			if (this.activeId === id) this.scheduleStream();
 		});
 		page.on("domcontentloaded", refresh);
 		page.on("load", () => {
@@ -363,20 +450,12 @@ export class WebBrowser {
 			tab.view.notice = "dialog";
 			this.publish();
 		});
-		page.on("close", () => {
-			clearTimeout(frameTimer);
-			this.tabs.delete(id);
-			if (this.activeId === id) this.activeId = [...this.tabs.keys()].at(-1) ?? null;
-			this.publish();
-			this.scheduleStream();
-		});
 		await cdp.send("Page.enable");
 		await page.bringToFront();
 		await this.resizeTab(tab);
 		await this.refresh(tab);
 		this.publish();
 		this.scheduleStream();
-		return tab;
 	}
 
 	private async refresh(tab: OwnedTab): Promise<void> {
@@ -389,28 +468,48 @@ export class WebBrowser {
 			tab.view.canGoForward = history.currentIndex < history.entries.length - 1;
 			this.publish();
 		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			// During a renderer swap the CDP session is briefly detached; the new document's own
+			// navigation and load events refresh the tab again, so this is not a page error.
+			if (message.includes("Not attached to an active page")) return;
 			if (!tab.page.isClosed() && !this.disposed) {
-				tab.view.error = error instanceof Error ? error.message : String(error);
+				tab.view.error = message;
 				this.publish();
 			}
 		}
 	}
 
 	private async resizeTab(tab: OwnedTab): Promise<void> {
-		await tab.page.setViewportSize({
+		const size = {
 			width: Math.max(64, Math.round(this.viewport.width / tab.view.zoom)),
 			height: Math.max(64, Math.round(this.viewport.height / tab.view.zoom)),
-		});
+		};
+		await tab.page.setViewportSize(size);
+		// Headless Chromium resizes the tab's window to the viewport but keeps room for browser UI
+		// inside it, and the screencast captures that smaller surface: the page bottom (~87px) was
+		// cut off. Sizing the window contents to the viewport makes frames show the whole page.
+		try {
+			const { windowId } = await tab.cdp.send("Browser.getWindowForTarget");
+			await tab.cdp.send("Browser.setContentsSize", { windowId, ...size });
+		} catch {
+			// Chromium before Browser.setContentsSize: frames keep the old, bottom-cropped size.
+		}
 	}
 
-	/** Ordered mutations with a hard queue bound, checked again at execution time. */
-	command<T>(token: string, operation: () => Promise<T>): Promise<T> {
+	/**
+	 * Ordered mutations with a hard queue bound, checked again at execution time.
+	 * Each one has a deadline: a page that never answers (a hung renderer, a modal
+	 * the CDP call waits on) fails that request with 504 and lets the queue move on,
+	 * so a later close or tab switch is not stuck behind it. The timed-out call may
+	 * still settle later; its result is discarded.
+	 */
+	command<T>(token: string, operation: () => Promise<T>, timeoutMs = BROWSER_COMMAND_TIMEOUT_MS): Promise<T> {
 		this.touch(token);
 		if (this.pending >= 64) throw new BrowserRequestError("Browser input queue is full", 429);
 		this.pending++;
 		const next = this.commandQueue.then(() => {
 			this.touch(token);
-			return operation();
+			return withDeadline(operation(), timeoutMs);
 		});
 		this.commandQueue = next
 			// The caller observes `next`; only the queue tail consumes rejection so later work can continue.
@@ -537,6 +636,7 @@ export class WebBrowser {
 				...(input.modifiers & 4 ? ["Meta"] : []),
 				...(input.modifiers & 8 ? ["Shift"] : []),
 			];
+			gesture(tab);
 			await tab.page.keyboard.press([...modifiers, input.key].join("+"));
 		} else if (input.kind === "wheel") {
 			await tab.page.mouse.move(input.x, input.y);
@@ -544,6 +644,7 @@ export class WebBrowser {
 		} else {
 			await tab.page.mouse.move(input.x, input.y);
 			if (input.phase === "down") {
+				gesture(tab);
 				await tab.page.mouse.down({ button: input.button, clickCount: input.clicks });
 				tab.buttons.add(input.button);
 			}

@@ -490,7 +490,9 @@ after connection close cannot replace current state.
 
 HTTP(S) navigation, back/forward, reload/stop, twelve tabs, popup tabs and
 50-200% reflow zoom are connected. Navigation errors remain visible on the tab.
-Tab selection changes the remote frame source. The surface resizes with the
+A popup becomes a tab only right after a click or key press in its opener (one
+per gesture); popups a page opens on its own are closed. Tab selection changes
+the remote frame source. The surface resizes with the
 inspector, including its expanded view. Chromium renders the site, so
 X-Frame-Options and site CSP are not removed or bypassed. Permissions are denied,
 service workers blocked, and StepCode Host/client ports blocked across HTTP(S)
@@ -505,7 +507,10 @@ the proxy refuses connections to its own port and closes with the browser,
 including startup failure. It forwards directly to the destination; chaining
 an operating-system or corporate upstream proxy is not implemented.
 
-Frames are JPEG over authenticated SSE. The host ACKs Chromium frames locally,
+Frames are JPEG over authenticated SSE. Each frame reports the page viewport
+and the captured surface separately: headless windows are at least 500px wide,
+so in a narrower panel the client scales the surface until the page area fills
+it. The host ACKs Chromium frames locally,
 caps delivery at 15 fps and keeps at most one newest scheduled frame. A blocked
 response drops frames and keeps only the newest metadata; the client keeps
 one decoding image plus one pending latest frame. Input is serialized and

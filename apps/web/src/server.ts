@@ -962,3 +962,5 @@ const shutdown = async (): Promise<void> => {
 };
 process.once("SIGINT", () => void shutdown());
 process.once("SIGTERM", () => void shutdown());
+// A closed launching terminal sends SIGHUP; without this the host would exit without stopping its shells.
+process.once("SIGHUP", () => void shutdown());

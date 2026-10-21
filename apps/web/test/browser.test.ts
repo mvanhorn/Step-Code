@@ -59,6 +59,17 @@ test("browser command queue is bounded and revalidates control before mutations"
 	} finally { await browser.close(); }
 });
 
+test("a browser command that never settles times out and does not block the next one", async () => {
+	const browser = new WebBrowser([3077]);
+	try {
+		const { token } = browser.acquire("client-111111111111");
+		const hung = browser.command(token, () => new Promise<never>(() => {}), 50);
+		const next = browser.command(token, async () => "closed", 1000);
+		await assert.rejects(hung, (error: unknown) => error instanceof BrowserRequestError && error.status === 504);
+		assert.equal(await next, "closed");
+	} finally { await browser.close(); }
+});
+
 test("browser routes require control for mutations and reject invalid JSON and unknown paths", async () => {
 	const browser = new WebBrowser([3077]);
 	const server = createServer((request, response) => {
@@ -137,7 +148,8 @@ test("installed Chromium: frames, Chinese input, click, navigation, zoom, reconn
 		// The fixed fixture places the input below the h1; Tab is a deterministic focus path.
 		await browser.input(id, { kind: "key", key: "Tab", modifiers: 0 });
 		await browser.input(id, { kind: "text", text: "\u4e2d\u6587-test" });
-		await browser.input(id, { kind: "key", key: "a", modifiers: 2 });
+		// Select-all is Cmd+A on macOS and Ctrl+A elsewhere.
+		await browser.input(id, { kind: "key", key: "a", modifiers: process.platform === "darwin" ? 4 : 2 });
 		assert.equal(await browser.selection(id), "\u4e2d\u6587-test");
 		await browser.input(id, { kind: "key", key: "Enter", modifiers: 0 });
 		await waitFor(() => received === "\u4e2d\u6587-test");
@@ -174,5 +186,41 @@ test("installed Chromium: frames, Chinese input, click, navigation, zoom, reconn
 		assert.equal(browser.snapshot().tabs.length, 0);
 		fixture.closeAllConnections(); forbidden.closeAllConnections();
 		await Promise.all([new Promise<void>((resolve) => fixture.close(() => resolve())), new Promise<void>((resolve) => forbidden.close(() => resolve()))]);
+	}
+});
+
+test("installed Chromium: page scripts cannot open tabs, a clicked popup still opens", {
+	skip: process.env.STEPCODE_WEB_BROWSER_TEST !== "1",
+	timeout: 45_000,
+}, async () => {
+	const fixture = createServer((request, response) => {
+		response.setHeader("content-type", "text/html; charset=utf-8");
+		if (request.url === "/spam") response.end("<title>spam</title><script>for (let i = 0; i < 5; i++) window.open('/p' + i)</script>");
+		else if (request.url === "/link")
+			response.end("<title>link</title><style>body{margin:0}a{display:block;width:300px;height:300px}</style><a target=_blank href='/popup'>open</a>");
+		else response.end("<title>popup</title>");
+	});
+	fixture.listen(0, "127.0.0.1");
+	await once(fixture, "listening");
+	const address = fixture.address();
+	assert.ok(address && typeof address !== "string");
+	const root = `http://127.0.0.1:${address.port}`;
+	const browser = new WebBrowser([]);
+	try {
+		const { token } = browser.acquire("fixture-111111111111");
+		await browser.command(token, () => browser.create(`${root}/spam`));
+		await waitFor(() => browser.snapshot().tabs[0]?.title === "spam");
+		await browser.command(token, () => browser.create(`${root}/link`));
+		await waitFor(() => browser.snapshot().tabs[1]?.title === "link");
+		const id = browser.snapshot().activeId ?? "";
+		await browser.input(id, { kind: "pointer", phase: "down", x: 100, y: 100, button: "left", clicks: 1 });
+		await browser.input(id, { kind: "pointer", phase: "up", x: 100, y: 100, button: "left", clicks: 1 });
+		await waitFor(() => browser.snapshot().tabs.length === 3);
+		await delay(300);
+		assert.deepEqual(browser.snapshot().tabs.map((tab) => tab.title), ["spam", "link", "popup"]);
+	} finally {
+		await browser.close();
+		fixture.closeAllConnections();
+		await new Promise<void>((resolve) => fixture.close(() => resolve()));
 	}
 });
