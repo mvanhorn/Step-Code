@@ -22,7 +22,9 @@ import {
 	stepOpenAiBaseUrl,
 	stepProviderInlineExtension,
 	stepThinkingLevelMap,
+	withProductDefaultFirst,
 } from "../src/features/step-provider/index.ts";
+import { STEP_DEFAULT_MODEL } from "../src/step/defaults.ts";
 
 function callbacks(overrides: Partial<OAuthLoginCallbacks> = {}): OAuthLoginCallbacks {
 	return {
@@ -441,6 +443,35 @@ describe("Step dynamic model discovery", () => {
 			api: "openai-completions",
 			baseUrl: "https://api.stepfun.com/step_plan/v1",
 		});
+	});
+
+	it("lists the product default model first in the refreshed catalog", async () => {
+		// The endpoint lists the product default last; pickers and the
+		// "first available" fallback both follow catalog order.
+		const fetchMock = vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({
+						data: [{ id: "step-3.7-flash" }, { id: "step-router-v1" }, { id: STEP_DEFAULT_MODEL }],
+					}),
+					{ status: 200, headers: { "content-type": "application/json" } },
+				),
+		);
+		const config = createStepProviderConfig({ env: {}, fetch: fetchMock });
+		const models = await config.refreshModels?.(
+			refreshContext({ credential: { type: "oauth", access: "t", refresh: "", expires: 0 } }),
+		);
+		expect(models?.map((model) => model.id)).toEqual([STEP_DEFAULT_MODEL, "step-3.7-flash", "step-router-v1"]);
+	});
+
+	it("keeps catalog order when the product default is first or absent", () => {
+		const ids = (models: { id: string }[]) => models.map((model) => model.id);
+		expect(ids(withProductDefaultFirst([{ id: STEP_DEFAULT_MODEL }, { id: "a" }]))).toEqual([
+			STEP_DEFAULT_MODEL,
+			"a",
+		]);
+		expect(ids(withProductDefaultFirst([{ id: "a" }, { id: "b" }]))).toEqual(["a", "b"]);
+		expect(withProductDefaultFirst([])).toEqual([]);
 	});
 
 	it("keeps chat-capable models (LLM and router) when the endpoint tags model_type", async () => {

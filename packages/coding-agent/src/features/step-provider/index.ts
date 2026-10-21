@@ -11,6 +11,7 @@ import {
 	stepOpenAiBaseUrl,
 } from "@step-harness/providers/step-provider";
 import type { ExtensionAPI, InlineExtension, ProviderConfig } from "../../core/extensions/types.ts";
+import { STEP_DEFAULT_MODEL } from "../../step/defaults.ts";
 
 // The Step provider's identity / OAuth / model-catalog core now lives in the providers
 // layer (packages/providers/src/step-provider). Re-export it here so existing importers
@@ -44,7 +45,7 @@ function createStepProviderConfigFromResolved(resolved: ResolvedStepProviderOpti
 		models: resolved.models.map((model) => normalizeStepModelConfig(model)),
 		// After login, replace the baseline with the account's real usable models
 		// discovered from `{base}/v1/models`.
-		refreshModels: (context) => fetchStepModels(context, resolved),
+		refreshModels: async (context) => withProductDefaultFirst(await fetchStepModels(context, resolved)),
 		oauth: {
 			name: "Step Plan",
 			isSubscription: true,
@@ -53,6 +54,19 @@ function createStepProviderConfigFromResolved(resolved: ResolvedStepProviderOpti
 			getApiKey: getStepOAuthApiKey,
 		},
 	};
+}
+
+/**
+ * Move the product default model to the front of a discovered catalog, keeping
+ * the endpoint's order for the rest. The endpoint lists it last, and catalog
+ * order is both what model pickers show and what model resolution falls back
+ * to ("first available") when a saved default cannot be resolved, e.g. a
+ * provider that only exists in another host's `models.json`.
+ */
+export function withProductDefaultFirst<T extends { id: string }>(models: readonly T[]): T[] {
+	const index = models.findIndex((model) => model.id === STEP_DEFAULT_MODEL);
+	if (index <= 0) return [...models];
+	return [models[index] as T, ...models.slice(0, index), ...models.slice(index + 1)];
 }
 
 /** Register Step with pi's extension provider registry. */
