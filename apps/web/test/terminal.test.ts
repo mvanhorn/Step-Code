@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -165,5 +166,35 @@ test("closing during terminal startup settles the pending creation", { skip: pro
 	} finally {
 		await terminals.stopAll();
 		await rm(cwd, { recursive: true, force: true });
+	}
+});
+
+test("POSIX terminal prompts show the directory and, inside a Git repository, its branch", { skip: process.platform === "win32" }, async () => {
+	const repository = await mkdtemp(join(tmpdir(), "stepcode-prompt-"));
+	const plain = await mkdtemp(join(tmpdir(), "stepcode-plain-"));
+	try {
+		spawnSync("git", ["init", "-q", "-b", "feature/prompt", repository]);
+		for (const shell of ["/bin/zsh", "/bin/bash"].filter((file) => existsSync(file))) {
+			const { file, args, env } = terminalShell(process.platform, { SHELL: shell });
+			assert.ok(env?.PS1, `${shell} has a prompt`);
+			// The real interactive shell, fed through a pipe, still prints its prompt before exiting.
+			const capture = (cwd: string) => {
+				const result = spawnSync(file, args, {
+					cwd,
+					input: "exit\n",
+					env: { PATH: process.env.PATH, HOME: process.env.HOME, ...env },
+					encoding: "utf8",
+				});
+				return `${result.stdout}${result.stderr}`.replace(/\x1b\[[0-9;]*m|[\x01\x02]/g, "");
+			};
+			const inRepository = capture(repository);
+			assert.match(inRepository, new RegExp(`${basename(repository)} git:\\(feature/prompt\\)`), `${shell}: ${inRepository}`);
+			const outside = capture(plain);
+			assert.match(outside, new RegExp(basename(plain)), `${shell}: ${outside}`);
+			assert.doesNotMatch(outside, /git:/, `${shell}: ${outside}`);
+		}
+	} finally {
+		await rm(repository, { recursive: true, force: true });
+		await rm(plain, { recursive: true, force: true });
 	}
 });

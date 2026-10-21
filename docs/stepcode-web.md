@@ -566,7 +566,11 @@ owns isolated Node helper processes using `node-pty`. This is a real interactive
 shell, not a model tool log or a pipe-based command runner. Creating a terminal
 is explicit. Windows chooses installed PowerShell 7 or Windows PowerShell;
 macOS/Linux choose an available bash, zsh or sh. User startup profiles and
-inherited startup-injection variables are suppressed. The environment keeps
+inherited startup-injection variables are suppressed. A shell starts in the
+workspace folder; zsh and bash get a built-in prompt with the current folder
+name and, inside a Git repository, its branch (or short commit when detached),
+re-evaluated at every prompt. sh and PowerShell keep their default prompt. The
+environment keeps
 an OS-variable allowlist, not the Host's API keys or Node loader configuration.
 This is not a sandbox: entered commands run with the Host user's filesystem
 and network privileges and can read credentials available to that OS user.
