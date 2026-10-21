@@ -67,6 +67,9 @@ test("terminal HTTP adapter rejects unknown workspaces, malformed JSON and unkno
 
 test("native terminal: Unicode output, resize, interrupt, bounded replay, reconnect, close and shutdown cleanup", { skip: process.env.STEPCODE_WEB_TERMINAL_TEST !== "1", timeout: 60000 }, async () => {
 	const cwd = await mkdtemp(join(tmpdir(), "stepcode-terminal-"));
+	// Shells load startup files from HOME; keep the developer's own out of this run.
+	const home = process.env.HOME;
+	process.env.HOME = cwd;
 	const terminals = new WebTerminals();
 	const external = spawn(process.execPath, ["-e", "setInterval(()=>{},1000)"], { windowsHide: true, stdio: "ignore" });
 	try {
@@ -148,6 +151,7 @@ test("native terminal: Unicode output, resize, interrupt, bounded replay, reconn
 	} finally {
 		await terminals.stopAll();
 		external.kill();
+		process.env.HOME = home;
 		await rm(cwd, { recursive: true, force: true });
 	}
 });
@@ -155,6 +159,8 @@ test("native terminal: Unicode output, resize, interrupt, bounded replay, reconn
 test("closing during terminal startup settles the pending creation", { skip: process.env.STEPCODE_WEB_TERMINAL_TEST !== "1", timeout: 20000 }, async () => {
 	const terminals = new WebTerminals();
 	const cwd = await mkdtemp(join(tmpdir(), "stepcode-terminal-cancel-"));
+	const home = process.env.HOME;
+	process.env.HOME = cwd;
 	try {
 		const creating = terminals.create(cwd).then(() => "ready", () => "closed");
 		// Registration follows an asynchronous native-support check; close before the helper is ready.
@@ -165,36 +171,30 @@ test("closing during terminal startup settles the pending creation", { skip: pro
 		assert.equal(terminals.list(cwd).length, 0);
 	} finally {
 		await terminals.stopAll();
+		process.env.HOME = home;
 		await rm(cwd, { recursive: true, force: true });
 	}
 });
 
-test("POSIX terminal prompts show the directory and, inside a Git repository, its branch", { skip: process.platform === "win32" }, async () => {
-	const repository = await mkdtemp(join(tmpdir(), "stepcode-prompt-"));
-	const plain = await mkdtemp(join(tmpdir(), "stepcode-plain-"));
+test("POSIX terminals run the user's login and interactive startup files", { skip: process.platform === "win32" }, async () => {
+	const home = await mkdtemp(join(tmpdir(), "stepcode-home-"));
 	try {
-		spawnSync("git", ["init", "-q", "-b", "feature/prompt", repository]);
+		await writeFile(join(home, ".zprofile"), "export STEPCODE_PROFILE=zprofile\n");
+		await writeFile(join(home, ".zshrc"), "alias stepcode_rc='echo rc-$STEPCODE_PROFILE'\n");
+		await writeFile(join(home, ".bash_profile"), "export STEPCODE_PROFILE=bash_profile\nshopt -s expand_aliases\nalias stepcode_rc='echo rc-$STEPCODE_PROFILE'\n");
 		for (const shell of ["/bin/zsh", "/bin/bash"].filter((file) => existsSync(file))) {
-			const { file, args, env } = terminalShell(process.platform, { SHELL: shell });
-			assert.ok(env?.PS1, `${shell} has a prompt`);
-			// The real interactive shell, fed through a pipe, still prints its prompt before exiting.
-			const capture = (cwd: string) => {
-				const result = spawnSync(file, args, {
-					cwd,
-					input: "exit\n",
-					env: { PATH: process.env.PATH, HOME: process.env.HOME, ...env },
-					encoding: "utf8",
-				});
-				return `${result.stdout}${result.stderr}`.replace(/\x1b\[[0-9;]*m|[\x01\x02]/g, "");
-			};
-			const inRepository = capture(repository);
-			assert.match(inRepository, new RegExp(`${basename(repository)} git:\\(feature/prompt\\)`), `${shell}: ${inRepository}`);
-			const outside = capture(plain);
-			assert.match(outside, new RegExp(basename(plain)), `${shell}: ${outside}`);
-			assert.doesNotMatch(outside, /git:/, `${shell}: ${outside}`);
+			const { file, args } = terminalShell(process.platform, { SHELL: shell });
+			// The real shell with the arguments a terminal uses; stdin is a pipe instead of a pty.
+			const result = spawnSync(file, args, {
+				cwd: home,
+				input: "stepcode_rc\nexit\n",
+				env: { PATH: process.env.PATH, HOME: home, SHELL: shell },
+				encoding: "utf8",
+			});
+			const expected = shell.endsWith("zsh") ? "rc-zprofile" : "rc-bash_profile";
+			assert.match(`${result.stdout}`, new RegExp(expected), `${shell}: ${result.stdout}${result.stderr}`);
 		}
 	} finally {
-		await rm(repository, { recursive: true, force: true });
-		await rm(plain, { recursive: true, force: true });
+		await rm(home, { recursive: true, force: true });
 	}
 });

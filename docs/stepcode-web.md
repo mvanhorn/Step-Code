@@ -565,13 +565,16 @@ the dock. The dock height is remembered; whether it is open is not. It uses
 owns isolated Node helper processes using `node-pty`. This is a real interactive
 shell, not a model tool log or a pipe-based command runner. Creating a terminal
 is explicit. Windows chooses installed PowerShell 7 or Windows PowerShell;
-macOS/Linux choose an available bash, zsh or sh. User startup profiles and
-inherited startup-injection variables are suppressed. A shell starts in the
-workspace folder; zsh and bash get a built-in prompt with the current folder
-name and, inside a Git repository, its branch (or short commit when detached),
-re-evaluated at every prompt. sh and PowerShell keep their default prompt. The
-environment keeps
-an OS-variable allowlist, not the Host's API keys or Node loader configuration.
+macOS/Linux choose the user's `$SHELL` when it is bash, zsh or sh, otherwise an
+available one. A shell starts in the workspace folder as a login, interactive
+shell, like a desktop terminal: it runs the user's startup files
+(`~/.zprofile` and `~/.zshrc`, `~/.bash_profile`, `~/.profile`), so PATH,
+aliases, history and the prompt (for example a theme showing the Git branch)
+match the user's own terminal. PowerShell still starts without a profile.
+Inherited startup-injection variables (`BASH_ENV`, `ENV`, Node loader options)
+are not passed on: the environment keeps an OS-variable allowlist plus the SSH
+agent socket, not the Host's API keys or Node loader configuration. The user's
+startup files may export their own credentials, as in any terminal.
 This is not a sandbox: entered commands run with the Host user's filesystem
 and network privileges and can read credentials available to that OS user.
 
@@ -609,8 +612,9 @@ failure remain outside the guarantee.
 SSE snapshots carry sequenced output and lifecycle metadata. The Host retains
 at most 512 KiB / 2048 chunks per terminal; a replay gap produces a visible
 truncation notice. Replaying a truncated ANSI tail is not a full terminal-screen
-snapshot and may produce an incomplete screen layout. No output/history files
-are written by this adapter. The helper pauses output at 256 KiB of unacknowledged
+snapshot and may produce an incomplete screen layout. The adapter writes no
+output files; the shell keeps its own history as the user's startup files
+configure it. The helper pauses output at 256 KiB of unacknowledged
 IPC and resumes below 64 KiB; Host acknowledgement is independent of UI presence.
 Network backpressure reads from the bounded ring rather than accumulating a
 subscriber queue. Input is bounded to 64 KiB per request, 32 outstanding Host

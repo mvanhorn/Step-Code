@@ -20,7 +20,7 @@ process.on("message", (raw: unknown) => {
 			const size = terminalSize(message.cols, message.rows);
 			const shell = terminalShell();
 			// Electron runs this helper as Node only for the helper itself; the shell must not inherit it.
-			const env = { ...process.env, ...shell.env };
+			const env = { ...process.env };
 			delete env.ELECTRON_RUN_AS_NODE;
 			pty = spawn(shell.file, shell.args, {
 				...size,

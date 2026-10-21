@@ -69,6 +69,9 @@ export function terminalEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEn
 		"LC_CTYPE",
 		"TZ",
 		"SHELL",
+		// Lets git and ssh in the terminal use the user's SSH agent, as in a desktop terminal.
+		"SSH_AUTH_SOCK",
+		"SSH_AGENT_PID",
 	]);
 	return {
 		...Object.fromEntries(
@@ -76,29 +79,13 @@ export function terminalEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEn
 		),
 		TERM: "xterm-256color",
 		COLORTERM: "truecolor",
-		HISTFILE: process.platform === "win32" ? "NUL" : "/dev/null",
-		LESSHISTFILE: "-",
 	};
 }
-
-// The current branch, or the short commit of a detached HEAD; empty outside a repository or without git.
-const GIT_HEAD = "git symbolic-ref --short -q HEAD 2>/dev/null || git rev-parse --short -q HEAD 2>/dev/null";
-
-/**
- * Startup scripts are skipped (see below), so the shell would otherwise show only the host name.
- * This prompt shows the directory name and, inside a Git repository, its branch:
- * `➜ Step-Code git:(main)`, or `➜ Downloads` elsewhere. It is re-evaluated at every prompt, so a
- * `cd` or `git switch` shows up immediately.
- */
-const SHELL_PROMPTS: Readonly<Record<string, string>> = {
-	zsh: `%F{green}➜%f %F{cyan}%1~%f$(b=$(${GIT_HEAD}); [ -n "$b" ] && printf ' %%F{blue}git:(%%F{red}%s%%F{blue})%%f' "$b") `,
-	bash: String.raw`\[\e[32m\]➜\[\e[0m\] \[\e[36m\]\W\[\e[0m\]$(b=$(${GIT_HEAD}); [ -n "$b" ] && printf ' \[\e[34m\]git:(\[\e[31m\]%s\[\e[34m\])\[\e[0m\]' "$b") `,
-};
 
 export function terminalShell(
 	platform: NodeJS.Platform = process.platform,
 	env: NodeJS.ProcessEnv = process.env,
-): { file: string; args: string[]; title: string; env?: Record<string, string> } {
+): { file: string; args: string[]; title: string } {
 	if (platform === "win32") {
 		const pwsh = join(env.ProgramFiles || "C:\\Program Files", "PowerShell", "7", "pwsh.exe");
 		const file = existsSync(pwsh)
@@ -127,17 +114,8 @@ export function terminalShell(
 					? "/bin/bash"
 					: "/bin/sh";
 	const name = basename(file);
-	// Suppress user startup scripts: opening a terminal must not run an unknown profile.
-	const prompt = SHELL_PROMPTS[name];
-	return {
-		file,
-		title: name,
-		args:
-			name === "bash"
-				? ["--noprofile", "--norc", "-i"]
-				: name === "zsh"
-					? ["-f", "-o", "PROMPT_SUBST", "-i"]
-					: ["-i"],
-		...(prompt ? { env: { PS1: prompt } } : {}),
-	};
+	// A login, interactive shell like iTerm2 or Terminal.app opens: the user's own startup files
+	// (~/.zprofile and ~/.zshrc, ~/.bash_profile, ~/.profile) set PATH, aliases and the prompt,
+	// including its Git branch.
+	return { file, title: name, args: ["-l", "-i"] };
 }
