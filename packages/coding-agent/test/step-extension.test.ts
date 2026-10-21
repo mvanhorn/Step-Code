@@ -44,7 +44,9 @@ describe("Step extension", () => {
 				};
 				handler("session_start")({}, ctx);
 				handler("agent_end")({
-					messages: [{ role: "assistant", stopReason: "error", errorMessage: "network down" }],
+					// Only transient failures resume; this matches the provider's
+					// network wording so the automatic tiers exercise that path.
+					messages: [{ role: "assistant", stopReason: "error", errorMessage: "network error: socket hang up" }],
 				});
 				handler("agent_settled")({}, ctx);
 				await vi.advanceTimersByTimeAsync(5000);
