@@ -58,11 +58,9 @@ export function SummaryBoard({ data }: { readonly data?: SessionInspector }) {
 	const t = useT();
 	const current = useAppStore((state) => state.current);
 	const [completedOpen, setCompletedOpen] = useState(false);
-	const [mcpOpen, setMcpOpen] = useState(false);
 	const [recent, setRecent] = useState<string[]>([]);
 	const previous = useRef(new Map<string, Task["status"]>());
 	const hasSnapshot = useRef(false);
-	const mcpId = useId();
 	useLayoutEffect(() => {
 		// An unavailable refresh is not a new history snapshot.
 		if (!data) return;
@@ -142,54 +140,6 @@ export function SummaryBoard({ data }: { readonly data?: SessionInspector }) {
 				) : null}
 			</section>
 			<SummaryAgents />
-			<section className="sb-mcp">
-				<button
-					className="sb-mcp-trigger"
-					type="button"
-					aria-expanded={mcpOpen}
-					aria-controls={mcpId}
-					onClick={() => setMcpOpen(!mcpOpen)}
-				>
-					<Icon name="mcp" size="sm" />
-					<span>MCP</span>
-					<Icon name="disclosure" size="xs" className={`sb-fold-icon${mcpOpen ? " is-open" : ""}`} />
-					<span className="sb-mcp-count">
-						{data
-							? `${data.mcp.filter((server) => server.status === "connected").length} / ${data.mcp.length}`
-							: "--"}
-					</span>
-				</button>
-				<div
-					id={mcpId}
-					className={`sb-disclosure${mcpOpen ? " is-open" : ""}`}
-					aria-hidden={!mcpOpen}
-					inert={!mcpOpen}
-				>
-					<div>
-						<p className="sb-state">{t("rightProcessScope")}</p>
-						<ul className="sb-mcp-list">
-							{data?.mcp.map((server) => (
-								<li key={server.name} className={`sb-mcp-server is-${server.status}`}>
-									<span
-										className={`sb-service-switch${server.status !== "disabled" ? " is-enabled" : ""}`}
-										aria-hidden="true"
-									>
-										<i />
-									</span>
-									<span className="sb-server-name">{server.name}</span>
-									<small className="sb-server-status">{t(`mcpStatus.${server.status}`)}</small>
-								</li>
-							))}
-							{data && !data.mcp.length ? <li className="sb-state">{t("mcpNone")}</li> : null}
-						</ul>
-					</div>
-				</div>
-			</section>
-			<section className="sb-skills">
-				<Icon name="layers3" size="sm" />
-				<span>{t("rightSkills")}</span>
-				<strong>{data?.skillCount ?? "--"}</strong>
-			</section>
 		</div>
 	);
 }
