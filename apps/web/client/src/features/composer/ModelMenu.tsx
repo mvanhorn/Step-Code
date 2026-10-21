@@ -67,6 +67,9 @@ export function ModelMenu({ open, onOpen, onClose }: ComposerMenuProps) {
 				)
 			}
 			popoverId="modelPopover"
+			// The trigger sits at the composer's right edge and its width varies with the
+			// name, so the panel lines up with its right edge rather than run past the window.
+			placement="top-end"
 			open={open}
 			onOpen={() => {
 				// Always open on the short view; "more models" is a deliberate step.

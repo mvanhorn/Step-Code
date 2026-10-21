@@ -3,9 +3,9 @@
  * `setupPopover`, `controlOption`, `hint`, `note`, `groupLabel`).
  */
 
-import { type KeyboardEvent, type ReactNode, type RefObject, useRef } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 import { useT } from "../../i18n";
-import { Icon, type IconName, Popover } from "../../ui";
+import { Icon, type IconName, Popover, type PopoverPlacement } from "../../ui";
 
 export interface ControlOptionProps<T extends string> {
 	readonly id: T;
@@ -105,11 +105,12 @@ export interface ControlMenuProps {
 	readonly labelId: string;
 	readonly label: ReactNode;
 	readonly popoverId: string;
+	/** Above the trigger; `top-end` for a trigger at the composer's right edge. Default `top-start`. */
+	readonly placement?: PopoverPlacement;
 	readonly open: boolean;
 	/** Trigger clicked while closed (legacy `open()`: render, then show). */
 	readonly onOpen: () => void;
 	readonly onClose: () => void;
-	readonly triggerRef?: RefObject<HTMLButtonElement | null>;
 	readonly children: ReactNode;
 }
 
@@ -127,42 +128,37 @@ export function ControlMenu({
 	labelId,
 	label,
 	popoverId,
+	placement = "top-start",
 	open,
 	onOpen,
 	onClose,
-	triggerRef,
 	children,
 }: ControlMenuProps) {
-	const ownTrigger = useRef<HTMLButtonElement | null>(null);
-	const trigger = triggerRef ?? ownTrigger;
 	return (
 		<div className="control-menu" id={id}>
-			<button
-				ref={trigger}
-				className={`control-select ${triggerClassName}`}
-				id={triggerId}
-				type="button"
-				aria-haspopup="listbox"
-				aria-expanded={open ? "true" : "false"}
-				title={title}
-				onClick={() => (open ? onClose() : onOpen())}
-			>
-				<Icon name={icon} />
-				<span id={labelId}>{label}</span>
-				<Icon name="chevron" size="2xs" className="chevron" />
-			</button>
 			<Popover
 				bare
 				className="control-popover"
 				id={popoverId}
 				role="listbox"
+				placement={placement}
 				open={open}
 				onClose={onClose}
-				ignoreRefs={[trigger]}
-				dismissOn="pointerdown"
-				returnFocusRef={trigger}
+				content={children}
 			>
-				{children}
+				<button
+					className={`control-select ${triggerClassName}`}
+					id={triggerId}
+					type="button"
+					aria-haspopup="listbox"
+					aria-expanded={open ? "true" : "false"}
+					title={title}
+					onClick={() => (open ? onClose() : onOpen())}
+				>
+					<Icon name={icon} />
+					<span id={labelId}>{label}</span>
+					<Icon name="chevron" size="2xs" className="chevron" />
+				</button>
 			</Popover>
 		</div>
 	);

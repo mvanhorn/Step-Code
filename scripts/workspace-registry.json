@@ -20,6 +20,7 @@
 		{ "name": "@step-harness/desktop", "dir": "apps/desktop", "role": "app", "reason": "Electron 桌面壳：以 Electron Node 模式托管 apps/web 服务与 React 客户端，提供原生目录选择/外链/定位文件桥接" },
 		{ "name": "@step-harness/contracts", "dir": "packages/contracts", "role": "contract", "reason": "host 到 agent 的稳定契约(in-process facade 类型 + wire 帧),依赖为空" },
 		{ "name": "@step-harness/config", "dir": "packages/config", "role": "engine", "reason": "产品中立的配置格式/加载与启动迁移(config/migrations),不含资源解析" },
+		{ "name": "@step-harness/lark-adapter", "dir": "packages/lark-adapter", "role": "adapter", "reason": "用户批准的飞书外部协议边界；仅 CLI 依赖，离线协议测试，连接独立取消与销毁，不依赖 Agent 或 UI" },
 		{ "name": "pi-extension-with-deps", "dir": "packages/coding-agent/examples/extensions/with-deps", "role": "example", "reason": "扩展示例" },
 		{ "name": "pi-extension-sandbox", "dir": "packages/coding-agent/examples/extensions/sandbox", "role": "example", "reason": "扩展示例" },
 		{ "name": "pi-extension-gondolin", "dir": "packages/coding-agent/examples/extensions/gondolin", "role": "example", "reason": "扩展示例(tsconfig 排除)" }

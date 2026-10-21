@@ -6,6 +6,17 @@ conversation; the canonical session history remains intact. CLM uses the
 configured model and retains native summary compaction and provider-overflow
 recovery as fallbacks.
 
+## Request notice stability
+
+Working-context status and pressure notices remain at their original positions
+in the request view during append-only conversation turns. They are not written
+to the canonical transcript. Retries reuse the same notice content and timestamp;
+new tool results and user messages follow previously issued notices. An edited,
+shortened, or different context projection clears the retained notices so a
+branch switch or compaction does not replay stale advice into the new context.
+This preserves ordinary prompt-prefix reuse without preventing intentional
+context edits.
+
 ## Select a compression mode
 
 No flag or configuration change is needed to use CLM. An existing explicit

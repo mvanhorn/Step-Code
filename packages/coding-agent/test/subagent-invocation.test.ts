@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, expect, test } from "vitest";
-import { currentStepInvocation } from "../src/features/subagent/helpers.ts";
+import { absoluteLoaderSpecifier, currentStepInvocation } from "../src/features/subagent/helpers.ts";
 
 const originalArgv = process.argv;
 const originalExecArgv = process.execArgv;
@@ -114,6 +114,35 @@ test("preserves equals and compact preload options as individual arguments", () 
 		fixture,
 		"--help",
 	]);
+});
+
+// Regression: the Web host spawned children from its own argv[1] (server.ts),
+// which rejects `--mode rpc`, so every subagent exited with code 1.
+test("an explicit CLI entry replaces the host's argv[1] and keeps its loader hooks", () => {
+	process.argv = [process.execPath, "/host/apps/web/src/server.ts"];
+	process.execArgv = ["--import", "file:///source/loader.mjs"];
+	expect(currentStepInvocation(["--mode", "rpc"], cliPath)).toEqual({
+		command: process.execPath,
+		args: ["--import", "file:///source/loader.mjs", cliPath, "--mode", "rpc"],
+	});
+	expect(() => currentStepInvocation(["--mode", "rpc"], "/missing/step.js")).toThrow(
+		"Subagent CLI entry does not exist: /missing/step.js",
+	);
+});
+
+// Regression: `node --import tsx src/server.ts` resolves `tsx` from the host's
+// cwd; the child starts in the task's cwd, where the bare name failed with
+// ERR_MODULE_NOT_FOUND and the subagent exited with code 1.
+test("forwards cwd-relative and bare loader specifiers as absolute locations", () => {
+	process.argv = [process.execPath, fixture];
+	process.execArgv = ["--import", "tsx", "--require=./hooks/preflight.cjs", "--import", "missing-loader-package"];
+	const [, tsxLoader, requireArg, , missing] = currentStepInvocation(["--help"]).args;
+	expect(tsxLoader).toBe(import.meta.resolve("tsx"));
+	expect(tsxLoader.startsWith("file:///")).toBe(true);
+	expect(requireArg).toBe(`--require=${join(process.cwd(), "hooks/preflight.cjs")}`);
+	expect(missing).toBe("missing-loader-package");
+	expect(absoluteLoaderSpecifier("--import", "./loader.mjs", "/work dir")).toBe("file:///work%20dir/loader.mjs");
+	expect(absoluteLoaderSpecifier("--import", "node:test")).toBe("node:test");
 });
 
 test("keeps plain Node and virtual Bun entry selection independent of loader flags", () => {

@@ -7,16 +7,22 @@ import { dirname, extname, join, normalize, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url";
 import type { StepPermissionPresetId } from "@step-harness/coding-agent";
 import {
+	getStepAccountProfile,
 	getStepAuthPath,
 	getStepLoginStatus,
 	openBrowser,
 	resolveStepAgentDir,
 	resolveStepCodeVersion,
 	resolveStepConfigRoot,
+	SessionSearchRequestError,
 } from "@step-harness/coding-agent";
+import { AccountProfileCache } from "./account.ts";
 import { WebAuth } from "./auth.ts";
-import { formatStartupBanner, launchUrl } from "./banner.ts";
+import { formatStartupBanner, launchUrl, resolveLaunchPort } from "./banner.ts";
+import { WebBrowser } from "./browser.ts";
 import { recordBrowserOpened, shouldOpenBrowser } from "./browser-open.ts";
+import { browserRoute } from "./browser-routes.ts";
+import { listWorkflowChildren, readChildTranscript } from "./child-sessions.ts";
 import { type DirectoryPickerMode, pickNativeDirectory, resolveDirectoryPickerMode } from "./directory-picker.ts";
 import {
 	containedWorkspacePath,
@@ -37,9 +43,12 @@ import {
 	defaultWorkspace,
 	MAX_ATTACHMENT_BYTES,
 	mcpStatuses,
+	projectEntry,
+	type QueuedFile,
 	type WebAttachment,
 	WebSessionStore,
 } from "./runtime.ts";
+import { searchParamsFromUrl, WebSessionSearch } from "./session-search.ts";
 import {
 	addMarketplace,
 	createSkill,
@@ -58,7 +67,17 @@ import {
 	setSkillEnabled,
 	updateMarketplace,
 } from "./settings.ts";
+import { WebTerminals } from "./terminal.ts";
+import { terminalRoute } from "./terminal-routes.ts";
 import { TurnRevertError } from "./turn-changes.ts";
+import {
+	MAX_UPLOAD_BYTES,
+	resolveUpload,
+	saveUpload,
+	UploadNotFoundError,
+	UploadTooLargeError,
+	withUploadedFiles,
+} from "./uploads.ts";
 import { WORKSPACES_FILE, WorkspaceRegistry } from "./workspaces.ts";
 
 const moduleRoot = resolve(fileURLToPath(new URL(".", import.meta.url)));
@@ -83,6 +102,8 @@ const STATIC_CONTENT_TYPES: Readonly<Record<string, string>> = {
 	".woff2": "font/woff2",
 };
 const port = Number.parseInt(process.env.STEPCODE_WEB_PORT ?? "3077", 10);
+/** Where the launch link points: this host, or the Vite dev server in `pnpm web:watch`. */
+const launchPort = resolveLaunchPort(process.env, port);
 const SECRET_FILE = "web-auth-secret";
 const authSecretPath = process.env.STEPCODE_WEB_AUTH_SECRET?.trim() || join(resolveStepConfigRoot(), SECRET_FILE);
 const bindHost = "127.0.0.1";
@@ -121,6 +142,46 @@ function readAttachments(raw: unknown): WebAttachment[] | Error | undefined {
 		attachments.push({ name, mimeType, data, kind: classifyAttachment(mimeType) });
 	}
 	return attachments;
+}
+
+/**
+ * The message text with the content of each uploaded file the composer named
+ * (`files`: upload ids in chip order). An Error answers 400: a malformed list
+ * or an id whose copy is gone.
+ */
+async function withFiles(text: string, raw: unknown): Promise<string | Error> {
+	if (raw === undefined || raw === null) return text;
+	if (!Array.isArray(raw) || raw.some((id) => typeof id !== "string")) {
+		return new Error("files must be an array of upload ids");
+	}
+	try {
+		return await withUploadedFiles(text, raw as string[]);
+	} catch (caught) {
+		if (caught instanceof UploadNotFoundError) return caught;
+		throw caught;
+	}
+}
+
+/**
+ * The file chips of a queued message (`files`: upload ids in chip order) with
+ * their names for the queue row. Their content is added when the message is
+ * dispatched, so an edit only ever sees the typed text.
+ */
+async function readQueuedFiles(raw: unknown): Promise<QueuedFile[] | Error> {
+	if (raw === undefined || raw === null) return [];
+	if (!Array.isArray(raw) || raw.some((id) => typeof id !== "string")) {
+		return new Error("files must be an array of upload ids");
+	}
+	const files: QueuedFile[] = [];
+	for (const id of new Set(raw as string[])) {
+		try {
+			files.push({ id, name: (await resolveUpload(id)).name });
+		} catch (caught) {
+			if (caught instanceof UploadNotFoundError) return caught;
+			throw caught;
+		}
+	}
+	return files;
 }
 
 function authorized(request: IncomingMessage): boolean {
@@ -164,8 +225,13 @@ async function serveStatic(_request: IncomingMessage, response: ServerResponse, 
 		if (!info.isFile()) return error(response, 404, "Not found");
 		const contentType = STATIC_CONTENT_TYPES[extname(target).toLowerCase()] ?? "application/octet-stream";
 		// Vite content-hashes everything under /assets/, so those names never change
-		// meaning; index.html must be revalidated to pick up a new build.
-		const cacheControl = relativePath.startsWith("assets/") ? "public, max-age=31536000, immutable" : "no-cache";
+		// meaning; the document itself is never stored, so a rebuild cannot leave a
+		// tab pointing at an asset hash that no longer exists on disk.
+		const cacheControl = relativePath.startsWith("assets/")
+			? "public, max-age=31536000, immutable"
+			: relativePath.endsWith("index.html")
+				? "no-store"
+				: "no-cache";
 		response.writeHead(200, { "content-type": contentType, "cache-control": cacheControl });
 		createReadStream(target).pipe(response);
 	} catch {
@@ -189,8 +255,11 @@ async function directoryList(inputPath: string): Promise<unknown> {
 	};
 }
 
-const store = new WebSessionStore();
+const sessionSearch = new WebSessionSearch(resolveStepAgentDir());
+const store = new WebSessionStore({ index: sessionSearch });
 const workspaces = new WorkspaceRegistry(join(resolveStepAgentDir(), WORKSPACES_FILE));
+const embeddedBrowser = new WebBrowser([port, launchPort]);
+const terminals = new WebTerminals();
 
 /**
  * Resolve the `cwd` of a workspace-scoped request, or undefined when the folder
@@ -252,10 +321,20 @@ async function loginReport(): Promise<LoginReport> {
  * Sign-in from the page. A saved credential invalidates the cached report and
  * the open sessions, which were built without it.
  */
+/**
+ * The signed-in account's name and avatar, for the sidebar footer. The session
+ * is read beside the credential file this host uses, the same place a sign-in
+ * from this host or a terminal `step login` writes it.
+ */
+const account = new AccountProfileCache(() =>
+	getStepAccountProfile({ env: { ...process.env, STEPCODE_AUTH_PATH: getStepAuthPath() } }),
+);
+
 const login = new WebLoginController({
 	authPath: () => getStepAuthPath(),
 	onSaved: () => {
 		loginCache = undefined;
+		account.invalidate();
 		void store.reloadCredentials();
 	},
 });
@@ -415,6 +494,23 @@ async function settingsRoute(
 	}
 }
 
+/** `GET /api/v1/search`: full-text search over every session. A client that goes away cancels the query. */
+async function searchSessions(url: URL, response: ServerResponse): Promise<void> {
+	const controller = new AbortController();
+	response.on("close", () => {
+		if (!response.writableFinished) controller.abort();
+	});
+	try {
+		return json(response, 200, await sessionSearch.search(searchParamsFromUrl(url), controller.signal));
+	} catch (caught) {
+		if (controller.signal.aborted) return;
+		if (caught instanceof SessionSearchRequestError) {
+			return json(response, 400, { error: caught.message, code: caught.code });
+		}
+		throw caught;
+	}
+}
+
 async function serveWorkspaceImage(response: ServerResponse, cwd: string, inputPath: string): Promise<void> {
 	const file = await readWorkspaceFile(cwd, inputPath);
 	if (file.kind !== "image") return error(response, 415, "Only images can be served raw");
@@ -458,8 +554,14 @@ const server = createServer(async (request, response) => {
 
 		const parts = url.pathname.split("/").filter(Boolean);
 		if (parts[0] !== "api" || parts[1] !== "v1") return error(response, 404, "Not found");
+		if (parts[2] === "browser") return await browserRoute(embeddedBrowser, parts.slice(3), request, response);
+		if (parts[2] === "terminals")
+			return await terminalRoute(terminals, parts.slice(3), url, request, response, knownWorkspace);
 		if (parts[2] === "bootstrap" && method === "GET") {
 			return json(response, 200, { cwd: defaultWorkspace(), directoryPicker, login: await loginReport() });
+		}
+		if (parts[2] === "account" && parts.length === 3 && method === "GET") {
+			return json(response, 200, await account.get());
 		}
 		if (parts[2] === "login" && parts.length === 3 && method === "GET") {
 			return json(response, 200, await loginReport());
@@ -484,6 +586,19 @@ const server = createServer(async (request, response) => {
 		}
 		if (parts[2] === "workspaces" && parts[3] === "pick" && parts.length === 4 && method === "POST") {
 			return pickWorkspaceFolder(request, response);
+		}
+		if (parts[2] === "uploads" && parts.length === 3 && method === "POST") {
+			const name = url.searchParams.get("name") ?? "";
+			if (!name.trim()) return error(response, 400, "name is required");
+			if (Number(request.headers["content-length"] ?? 0) > MAX_UPLOAD_BYTES) {
+				return error(response, 413, `File exceeds the ${MAX_UPLOAD_BYTES} byte limit`);
+			}
+			try {
+				return json(response, 201, await saveUpload(request, name));
+			} catch (caught) {
+				if (caught instanceof UploadTooLargeError) return error(response, 413, caught.message);
+				throw caught;
+			}
 		}
 		if (parts[2] === "directories" && method === "GET") {
 			return json(response, 200, await directoryList(url.searchParams.get("path") ?? defaultWorkspace()));
@@ -533,6 +648,10 @@ const server = createServer(async (request, response) => {
 			const cwd = (await knownWorkspace(url.searchParams.get("cwd"))) ?? defaultWorkspace();
 			return json(response, 200, await store.draftModels(cwd));
 		}
+		if (parts[2] === "search" && method === "GET") {
+			if (parts.length === 4 && parts[3] === "status") return json(response, 200, await sessionSearch.status());
+			if (parts.length === 3) return searchSessions(url, response);
+		}
 		if (parts[2] === "sessions" && parts.length === 3 && method === "GET") {
 			const sessions = await store.list();
 			return json(response, 200, { sessions });
@@ -549,6 +668,28 @@ const server = createServer(async (request, response) => {
 			}
 			const session = await store.getOrOpen(parts[3]);
 			if (parts.length === 4 && method === "GET") return json(response, 200, session.snapshot());
+			if (parts.length === 5 && parts[4] === "inspector" && method === "GET")
+				return json(response, 200, session.inspector());
+			if (parts[4] === "children" && method === "GET") {
+				if (parts.length === 6) {
+					const childId = decodeURIComponent(parts[5]);
+					const child = await readChildTranscript(session.id, session.sessionFile(), childId);
+					if (!child) return error(response, 404, "Child session not found");
+					return json(response, 200, {
+						...child,
+						parentId: session.id,
+						readOnly: true,
+						entries: child.entries.map(projectEntry),
+					});
+				}
+				if (parts.length === 5) {
+					const runId = url.searchParams.get("workflowRun");
+					if (!runId) return error(response, 400, "workflowRun is required");
+					return json(response, 200, {
+						children: await listWorkflowChildren(session.id, session.sessionFile(), runId),
+					});
+				}
+			}
 			if (parts[4] === "events" && method === "GET") {
 				response.writeHead(200, {
 					"content-type": "text/event-stream; charset=utf-8",
@@ -574,8 +715,10 @@ const server = createServer(async (request, response) => {
 				if (typeof input.text !== "string" || !input.text.trim()) return error(response, 400, "text is required");
 				const attachments = readAttachments(input.attachments);
 				if (attachments instanceof Error) return error(response, 400, attachments.message);
+				const text = await withFiles(input.text, input.files);
+				if (text instanceof Error) return error(response, 400, text.message);
 				if (session.isReverting()) return error(response, 409, "Wait for the revert to finish");
-				void session.send(input.text, attachments ?? []).catch((caught) => {
+				void session.send(text, attachments ?? []).catch((caught) => {
 					session.publishError(caught instanceof Error ? caught.message : String(caught));
 				});
 				return json(response, 202, { ok: true });
@@ -583,10 +726,55 @@ const server = createServer(async (request, response) => {
 			if (parts[4] === "steer" && method === "POST") {
 				const input = await body(request);
 				if (typeof input.text !== "string" || !input.text.trim()) return error(response, 400, "text is required");
-				void session.steer(input.text).catch((caught) => {
-					session.publishError(caught instanceof Error ? caught.message : String(caught));
-				});
+				const attachments = readAttachments(input.attachments);
+				if (attachments instanceof Error) return error(response, 400, attachments.message);
+				const text = await withFiles(input.text, input.files);
+				if (text instanceof Error) return error(response, 400, text.message);
+				// Queuing a steer is immediate; a refusal (an extension command) is this request's error.
+				try {
+					await session.steer(text, attachments ?? []);
+				} catch (caught) {
+					return error(response, 400, caught instanceof Error ? caught.message : String(caught));
+				}
 				return json(response, 202, { ok: true });
+			}
+			if (parts[4] === "queue") {
+				const itemId = parts[5] ? decodeURIComponent(parts[5]) : undefined;
+				if (parts.length === 5 && method === "POST") {
+					const input = await body(request);
+					if (typeof input.text !== "string" || !input.text.trim())
+						return error(response, 400, "text is required");
+					const attachments = readAttachments(input.attachments);
+					if (attachments instanceof Error) return error(response, 400, attachments.message);
+					const files = await readQueuedFiles(input.files);
+					if (files instanceof Error) return error(response, 400, files.message);
+					session.enqueue({ text: input.text.trim(), attachments: attachments ?? [], files });
+					return json(response, 202, session.queueState());
+				}
+				// `queue/steer` steers every queued message; `queue/<id>/steer` one of them.
+				const steerAll = parts.length === 6 && parts[5] === "steer";
+				const steerOne = parts.length === 7 && parts[6] === "steer" && itemId;
+				if ((steerAll || steerOne) && method === "POST") {
+					try {
+						const steered = await session.steerQueued(steerOne ? [steerOne] : undefined);
+						if (!steered) return error(response, 404, "Queued message not found");
+					} catch (caught) {
+						return error(response, 409, caught instanceof Error ? caught.message : String(caught));
+					}
+					return json(response, 202, session.queueState());
+				}
+				if (itemId && parts.length === 6 && method === "PATCH") {
+					const input = await body(request);
+					if (typeof input.text !== "string" || !input.text.trim())
+						return error(response, 400, "text is required");
+					if (!session.editQueued(itemId, input.text.trim()))
+						return error(response, 404, "Queued message not found");
+					return json(response, 200, session.queueState());
+				}
+				if (itemId && parts.length === 6 && method === "DELETE") {
+					if (!session.removeQueued(itemId)) return error(response, 404, "Queued message not found");
+					return json(response, 200, session.queueState());
+				}
 			}
 			if (parts[4] === "interrupt" && method === "POST") {
 				await session.interrupt();
@@ -738,10 +926,12 @@ const server = createServer(async (request, response) => {
 });
 
 server.listen(port, bindHost, () => {
-	console.log(formatStartupBanner({ port, token: auth.getLaunchToken(), version: resolveStepCodeVersion().value }));
+	console.log(
+		formatStartupBanner({ port: launchPort, token: auth.getLaunchToken(), version: resolveStepCodeVersion().value }),
+	);
 	// Opt-in: the dev commands ask for it; desktop and the tests must not open a window.
 	if (!shouldOpenBrowser(process.env, existsSync)) return;
-	openBrowser(launchUrl(port, auth.getLaunchToken()));
+	openBrowser(launchUrl(launchPort, auth.getLaunchToken()));
 	recordBrowserOpened(process.env);
 });
 
@@ -751,11 +941,31 @@ server.listen(port, bindHost, () => {
 const shutdown = async (): Promise<void> => {
 	server.close();
 	server.closeAllConnections();
+	let failed = false;
 	try {
-		await store.close();
+		const results = await Promise.allSettled([
+			embeddedBrowser.close(),
+			terminals.stopAll(),
+			(async () => {
+				try {
+					await store.close();
+				} finally {
+					// Flush sessions before stopping their index, even if session teardown fails.
+					await sessionSearch.close();
+				}
+			})(),
+		]);
+		for (const result of results) {
+			if (result.status === "rejected") {
+				failed = true;
+				console.error("Web host shutdown failed:", result.reason);
+			}
+		}
 	} finally {
-		process.exit(0);
+		process.exit(failed ? 1 : 0);
 	}
 };
 process.once("SIGINT", () => void shutdown());
 process.once("SIGTERM", () => void shutdown());
+// A closed launching terminal sends SIGHUP; without this the host would exit without stopping its shells.
+process.once("SIGHUP", () => void shutdown());

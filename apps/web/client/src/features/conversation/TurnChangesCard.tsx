@@ -5,14 +5,14 @@ import { DiffStat, Icon } from "../../ui";
 import { openTurnChanges } from "../files/actions";
 import { revertTurn } from "./actions";
 
-/** Files listed before "show N more". */
+/** Files listed before "show all N files". */
 const COLLAPSED_FILES = 3;
 
 /**
  * The card under a finished turn: how many files it edited and the line
  * counts, then the files themselves. A file opens its diff in the preview
  * panel; "查看变更" opens the whole turn there. Files without a recorded diff
- * and `bash` commands are marked: undo leaves them alone.
+ * are marked: undo leaves them alone.
  */
 export const TurnChangesCard = memo(function TurnChangesCard({
 	turn,
@@ -84,7 +84,6 @@ export const TurnChangesCard = memo(function TurnChangesCard({
 					);
 				})}
 			</ul>
-			{turn.bashCalls ? <p className="turn-changes-note">{t("turnBashNote", { count: turn.bashCalls })}</p> : null}
 			{hidden > 0 ? (
 				<button
 					type="button"
@@ -92,7 +91,7 @@ export const TurnChangesCard = memo(function TurnChangesCard({
 					aria-expanded={expanded}
 					onClick={() => setExpanded((value) => !value)}
 				>
-					{expanded ? t("showFewerFiles") : t("showMoreFiles", { count: hidden })}
+					{expanded ? t("showFewerFiles") : t("showAllFiles", { count: turn.files.length })}
 					<Icon name="chevronDown" size="sm" />
 				</button>
 			) : null}

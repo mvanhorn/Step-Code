@@ -19,7 +19,7 @@ import { cx } from "../../lib/format";
 import { showError } from "../../state/session";
 import { useAppStore } from "../../state/store";
 import type { SettingsModelProvider } from "../../state/types";
-import { Icon, IconButton } from "../../ui";
+import { Icon, IconButton, Tooltip } from "../../ui";
 import { closeSettingsEditor, openSettingsEditor, useSettingsResource } from "./actions";
 import { ModelEditor } from "./ModelEditor";
 import { Badge, EmptyBox, PageHeader, ResourceState, SectionHeader, SettingsCard, StatusDot } from "./parts";
@@ -66,22 +66,24 @@ function ProviderRow({
 				</div>
 			</div>
 			<div className="settings-list-actions">
-				<IconButton
-					icon="pencil"
-					iconSize="xs"
-					className="settings-icon-action"
-					aria-label={t("settingsEdit")}
-					data-tooltip={t("settingsEdit")}
-					onClick={() => openSettingsEditor({ kind: "model", id: provider.id })}
-				/>
-				<IconButton
-					icon="trash"
-					iconSize="xs"
-					className="settings-icon-action danger"
-					aria-label={t("settingsDelete")}
-					data-tooltip={t("settingsDelete")}
-					onClick={onDelete}
-				/>
+				<Tooltip content={t("settingsEdit")}>
+					<IconButton
+						icon="pencil"
+						iconSize="xs"
+						className="settings-icon-action"
+						aria-label={t("settingsEdit")}
+						onClick={() => openSettingsEditor({ kind: "model", id: provider.id })}
+					/>
+				</Tooltip>
+				<Tooltip content={t("settingsDelete")}>
+					<IconButton
+						icon="trash"
+						iconSize="xs"
+						className="settings-icon-action danger"
+						aria-label={t("settingsDelete")}
+						onClick={onDelete}
+					/>
+				</Tooltip>
 			</div>
 		</div>
 	);
@@ -140,14 +142,15 @@ export function ModelsPage() {
 				title={t("settingsModels")}
 				description={t("settingsModelsDesc")}
 				actions={
-					<IconButton
-						icon="refresh"
-						iconSize="xs"
-						className="settings-icon-action bordered"
-						aria-label={t("settingsRefresh")}
-						data-tooltip={t("settingsRefresh")}
-						onClick={resource.reload}
-					/>
+					<Tooltip content={t("settingsRefresh")}>
+						<IconButton
+							icon="refresh"
+							iconSize="xs"
+							className="settings-icon-action bordered"
+							aria-label={t("settingsRefresh")}
+							onClick={resource.reload}
+						/>
+					</Tooltip>
 				}
 			/>
 			<SectionHeader title={t("settingsModelsMine")} count={providers.length} />

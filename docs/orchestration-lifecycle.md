@@ -131,6 +131,18 @@ definition already inside somebody's fan-out, so it neither fans out again nor
 holds scheduling authority of its own. `buildSubagentChildEnv` owns this
 contract.
 
+A child also starts in the task's cwd, not the parent's, so anything the parent
+resolved against its own cwd is made absolute before the spawn: an inherited
+relative `TSX_TSCONFIG_PATH` (`buildSubagentChildEnv`) and bare or relative
+`--import` / `--require` loader specifiers (`currentStepInvocation`). The child
+entry defaults to the parent's `argv[1]`, which is only right when the parent is
+the CLI. A host with a different entry passes `cliPath` to
+`createStepCapabilitiesExtension`; the Web host passes `apps/cli/src/main.ts`
+when it runs from source and the coding-agent `bin.step` bundle when compiled.
+Without these, a Web-hosted child failed before its first RPC command and the
+parent saw only `Subagent exited with code 1`; an unstructured nonzero exit now
+appends a bounded, redacted stderr tail to that message.
+
 The workflow path ACL (`WORKFLOW_ACL_ENV`) stays separate from that decision. It
 is forwarded only when the caller supplies one, and is explicitly cleared
 otherwise so a child never inherits the parent's ACL. Deriving the fan-out gate

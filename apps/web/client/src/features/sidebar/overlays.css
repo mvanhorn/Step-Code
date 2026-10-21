@@ -1,4 +1,4 @@
-/* Search modal, session menu, tooltips and tag picker: legacy styles.css 1146-1277, 1332-1388. */
+/* Search modal, session menu and tag picker: legacy styles.css 1146-1277, 1332-1388. */
 .search-overlay {
 	position: fixed;
 	inset: 0;
@@ -106,6 +106,12 @@
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
+.search-result-snippet mark {
+	border-radius: var(--radius-hairline);
+	background: var(--selection);
+	color: var(--ink);
+	font-weight: 550;
+}
 .search-result time {
 	flex: none;
 	color: var(--ink-3);
@@ -121,6 +127,12 @@
 	color: var(--ink-3);
 	font-size: 12px;
 }
+.search-index-note {
+	overflow: hidden;
+	margin-left: auto;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
 .search-footer kbd {
 	display: inline-grid;
 	place-items: center;
@@ -135,8 +147,8 @@
 	font-size: 11px;
 }
 
-.context-menu {
-	position: fixed;
+/* #workspaceMenu, #sessionMenu, #tagPicker surface; Popover places them against their trigger. */
+.sidebar-menu {
 	z-index: 30;
 	min-width: 156px;
 	padding: 6px;
@@ -145,7 +157,7 @@
 	background: var(--surface);
 	box-shadow: 0 10px 30px var(--shadow);
 }
-.context-menu button {
+.session-menu button {
 	display: flex;
 	width: 100%;
 	min-height: var(--control-h-md);
@@ -155,51 +167,16 @@
 	text-align: left;
 	font-size: 12px;
 }
-.context-menu button:hover {
+.session-menu button:hover {
 	background: var(--hover);
 }
-.context-menu button.danger {
+.session-menu button.danger {
 	color: var(--ink);
 }
-.project-action[data-tooltip],
-.list-action[data-tooltip] {
-	position: relative;
-}
-.project-action[data-tooltip]::after,
-.list-action[data-tooltip]::after {
-	position: absolute;
-	top: calc(100% + 6px);
-	right: 0;
-	z-index: 40;
-	display: none;
-	width: max-content;
-	max-width: 180px;
-	padding: 5px 8px;
-	border: 1px solid var(--line);
-	border-radius: var(--radius-input);
-	background: var(--surface);
-	color: var(--ink-2);
-	box-shadow: 0 6px 18px var(--shadow);
-	content: attr(data-tooltip);
-	font-size: 11px;
-	font-weight: 400;
-	pointer-events: none;
-	white-space: nowrap;
-}
-.project-action[data-tooltip]:hover::after,
-.project-action[data-tooltip]:focus-visible::after,
-.list-action[data-tooltip]:hover::after,
-.list-action[data-tooltip]:focus-visible::after {
-	display: block;
-}
 .tag-picker {
-	position: fixed;
 	z-index: 50;
 	min-width: 172px;
-	padding: 6px;
-	border: 1px solid var(--line);
 	border-radius: var(--radius-surface);
-	background: var(--surface);
 	box-shadow: 0 12px 32px var(--shadow);
 }
 .tag-picker button,

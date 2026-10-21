@@ -12,8 +12,8 @@ export interface IconButtonProps extends ComponentPropsWithRef<"button"> {
 /**
  * Square icon button. Always carries the legacy `icon-button` class, which
  * feature CSS and tests select on (e.g. `.preview-tools .icon-button`), and
- * sets no accessible name of its own: pass `aria-label` and `title` (or a
- * `data-tooltip`) exactly as the legacy markup did.
+ * sets no accessible name of its own: pass `aria-label`, and wrap it in a
+ * `Tooltip` for a hover hint.
  */
 export function IconButton({ icon, iconSize = "md", type = "button", className, children, ...rest }: IconButtonProps) {
 	return (

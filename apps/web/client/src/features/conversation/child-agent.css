@@ -1,0 +1,305 @@
+/* Child-agent links under a subagent / workflow call, and the read-only transcript view. */
+.tool-children {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin: -4px 0 4px 22px;
+}
+.tool-child-link {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	max-width: 100%;
+	height: 24px;
+	padding: 0 10px;
+	border: 1px solid var(--line);
+	border-radius: 999px;
+	background: var(--surface);
+	color: var(--ink-2);
+	font-size: 12px;
+	cursor: pointer;
+}
+.tool-child-link span {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.tool-child-link:hover {
+	border-color: var(--line-strong);
+	background: var(--surface-soft);
+	color: var(--ink);
+}
+.tool-child-link:focus-visible {
+	outline: 2px solid var(--focus-border);
+	outline-offset: 1px;
+}
+
+.child-agent-view {
+	position: absolute;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	width: 100%;
+	z-index: 31;
+	display: none;
+	flex-direction: column;
+	background: var(--canvas);
+	border-left: 1px solid var(--line);
+}
+.child-agent-view.open {
+	display: flex;
+}
+.child-agent-header {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 8px;
+	padding: 10px 14px;
+	border-bottom: 1px solid var(--line);
+	color: var(--ink-2);
+}
+.child-agent-title {
+	min-width: 0;
+	overflow: hidden;
+	color: var(--ink);
+	font-size: 14px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.child-agent-expand {
+	margin-left: auto;
+}
+.child-agent-badge {
+	flex: none;
+	padding: 1px 8px;
+	border: 1px solid var(--line);
+	border-radius: 999px;
+	color: var(--ink-3);
+	font-size: 11px;
+}
+.child-agent-tabs {
+	display: flex;
+	flex: none;
+	gap: 6px;
+	padding: 8px 20px;
+	overflow-x: auto;
+	border-bottom: 1px solid var(--line);
+}
+.child-agent-tab {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	gap: 6px;
+	max-width: 260px;
+	height: 26px;
+	padding: 0 10px;
+	border: 1px solid transparent;
+	border-radius: var(--radius-control);
+	background: transparent;
+	color: var(--ink-2);
+	font-size: 12px;
+	cursor: pointer;
+}
+.child-agent-tab span:last-child {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.child-agent-tab:hover {
+	background: var(--surface-soft);
+}
+.child-agent-tab.active {
+	border-color: var(--line);
+	background: var(--surface-soft);
+	color: var(--ink);
+}
+.child-agent-tab-index {
+	color: var(--ink-3);
+	font-family: var(--mono);
+}
+.child-agent-stream {
+	flex: 1;
+	min-height: 0;
+	padding: 14px;
+}
+.child-agent-empty {
+	color: var(--ink-2);
+	font-size: 13px;
+}
+
+.main {
+	container-type: inline-size;
+	container-name: conversation;
+}
+.main.child-open {
+	overflow: clip;
+}
+@container conversation (min-width: 1000px) {
+	.child-agent-view:not(.expanded) {
+		width: 440px;
+	}
+	.child-open:has(.child-agent-view:not(.expanded)) > #stream,
+	.child-open:has(.child-agent-view:not(.expanded)) > .composer-zone {
+		margin-right: 440px;
+	}
+}
+.subagent-lanes {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+	margin: 4px 0;
+}
+.subagent-lanes .lane-row {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	width: fit-content;
+	max-width: 100%;
+	min-height: 30px;
+	height: auto;
+	margin: 0;
+	padding: 3px 0;
+	border: 0;
+	border-radius: var(--radius-inline-code);
+	background: transparent;
+	color: var(--ink-2);
+	font-size: 13px;
+	text-align: left;
+}
+.subagent-lanes .lane-row:hover,
+.subagent-lanes .lane-row[aria-pressed="true"] {
+	background: transparent;
+	color: var(--ink);
+}
+.subagent-lanes .lane-row[data-tool-state="failed"] {
+	color: var(--danger);
+}
+.lane-type {
+	flex: 0 1 auto;
+	min-width: 0;
+	max-width: 40%;
+	padding: 1px 6px;
+	overflow: hidden;
+	border: 1px solid var(--line);
+	border-radius: var(--radius-inline-code);
+	color: var(--ink-2);
+	font-size: 11px;
+	line-height: 1.5;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.lane-summary-text {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.lane-chevron {
+	transform: rotate(-90deg);
+}
+.subagent-status-icon {
+	position: relative;
+	display: inline-grid;
+	flex: 0 0 18px;
+	place-items: center;
+	width: 18px;
+	height: 18px;
+	color: var(--ink-2);
+}
+.subagent-lanes .subagent-status-icon {
+	overflow: visible;
+}
+.subagent-status-icon > .icon {
+	width: 16px;
+	height: 16px;
+}
+.subagent-status-icon[data-state="queued"] > .icon,
+.subagent-status-icon[data-state="unknown"] > .icon {
+	width: 12px;
+	height: 12px;
+}
+.subagent-status-icon[data-state="running"] > .icon {
+	animation: subagent-status-spin 1s linear infinite;
+}
+.subagent-status-icon[data-state="completed"] {
+	color: var(--success);
+}
+.subagent-status-icon[data-state="failed"] {
+	color: var(--danger);
+}
+.subagent-status-icon[data-state="aborted"] {
+	color: var(--attention-ink);
+}
+.subagent-status-icon[data-tooltip]::after {
+	position: absolute;
+	bottom: calc(100% + 6px);
+	left: 0;
+	z-index: 40;
+	display: none;
+	width: max-content;
+	padding: 4px 7px;
+	border: 1px solid var(--line);
+	border-radius: var(--radius-inline-code);
+	background: var(--surface);
+	color: var(--ink);
+	content: attr(data-tooltip);
+	font-size: 11px;
+	pointer-events: none;
+}
+.subagent-status-icon:hover::after,
+.lane-row:focus-visible .subagent-status-icon::after {
+	display: block;
+}
+.subagent-head {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 7px;
+	margin-bottom: 8px;
+}
+.subagent-state-label {
+	color: var(--ink-2);
+	font-size: 11px;
+}
+.subagent-meta {
+	display: inline-flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	min-width: 0;
+	margin-left: auto;
+	color: var(--ink-2);
+	font-size: 11px;
+	font-variant-numeric: tabular-nums;
+	overflow-wrap: anywhere;
+}
+.subagent-task-detail {
+	padding-bottom: 12px;
+	border-bottom: 1px solid var(--line);
+}
+.subagent-task {
+	color: var(--ink);
+	font-size: 13px;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+.subagent-error {
+	margin-top: 8px;
+	color: var(--danger);
+	font-size: 12px;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+.child-agent-stream .message .message-body {
+	font-size: 13px;
+	font-weight: 400;
+}
+@keyframes subagent-status-spin {
+	to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+	.subagent-status-icon[data-state="running"] > .icon {
+		animation: none;
+	}
+}

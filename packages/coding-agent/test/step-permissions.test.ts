@@ -262,12 +262,13 @@ describe("Step permission presets", () => {
 			expect(confirm).toHaveBeenCalledWith(
 				expect.stringMatching(new RegExp(`run_command.*${toolCallId.slice(-8)}`, "u")),
 				expect.stringContaining(toolCallId),
-				{ signal, overlay: true },
+				{ signal, overlay: true, mirror: true },
 			);
 		}
 		expect(confirm).toHaveBeenCalledWith(expect.any(String), expect.stringContaining("separately"), {
 			signal,
 			overlay: true,
+			mirror: true,
 		});
 	});
 
@@ -651,7 +652,7 @@ describe("Step autopilot continuation", () => {
 				{
 					role: "assistant",
 					stopReason: "error",
-					errorMessage: "network down",
+					errorMessage: "network error: socket hang up",
 				},
 			],
 		} as never;
@@ -698,6 +699,37 @@ describe("Step autopilot continuation", () => {
 		expect(setTimer).not.toHaveBeenCalled();
 	});
 
+	it("does not resume a rejected request that would fail identically", () => {
+		const setTimer = vi.fn(() => 1 as unknown as ReturnType<typeof setTimeout>);
+		const resume = vi.fn();
+		const telemetry = vi.fn();
+		const controller = new StepAutoResumeController({
+			isEnabled: () => true,
+			canResume: () => true,
+			resume,
+			onTelemetry: telemetry,
+			setTimer,
+		});
+		// Each attempt carries a fresh trace id, so the text never repeats exactly.
+		for (const traceId of ["b630c5b4", "189423fe"]) {
+			controller.handleAgentEnd({
+				type: "agent_end",
+				messages: [
+					{
+						role: "assistant",
+						stopReason: "error",
+						errorKind: "invalid_request",
+						errorMessage: `400 "thinking.type.enabled" is not supported for this model. [trace_id=${traceId}]`,
+					},
+				],
+			} as never);
+			controller.handleAgentSettled();
+		}
+		expect(setTimer).not.toHaveBeenCalled();
+		expect(resume).not.toHaveBeenCalled();
+		expect(telemetry).toHaveBeenCalledWith(expect.objectContaining({ giveUpReason: "not_retryable" }));
+	});
+
 	it("cancels stale failures and reports a rejected continuation", async () => {
 		const timers: Array<() => void> = [];
 		const announce = vi.fn();
@@ -721,7 +753,7 @@ describe("Step autopilot continuation", () => {
 				{
 					role: "assistant",
 					stopReason: "error",
-					errorMessage: "network down",
+					errorMessage: "network error: socket hang up",
 				},
 			],
 		} as never;

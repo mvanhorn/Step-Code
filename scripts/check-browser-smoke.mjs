@@ -87,8 +87,10 @@ function checkWebClientSurface() {
       "settingsView",
       "logoutButton",
     ].filter((name) => !hasId(name)),
+    // The upgrade link follows the account's region; its mainland default
+    // lives in a shared helper, which may be a .ts file.
     ...["https://platform.stepfun.com/step-plan"].filter(
-      (url) => !markup.includes(url),
+      (url) => !source.includes(url),
     ),
   ]
   if (missing.length) {

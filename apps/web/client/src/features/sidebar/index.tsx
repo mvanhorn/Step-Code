@@ -11,9 +11,7 @@ import "./overlays.css";
 import { BrandRow, ConversationList, SidebarActions } from "./SidebarNav";
 
 export { SearchModal } from "./SearchModal";
-export { SessionMenu } from "./SessionMenu";
 export { SidebarResizer } from "./SidebarResizer";
-export { TagPicker } from "./TagPicker";
 
 /** `.brand-row`, `nav.sidebar-actions`, `section.conversation-list` (legacy index.html 539-640). */
 export function SidebarNav() {

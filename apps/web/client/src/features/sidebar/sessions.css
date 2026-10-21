@@ -3,6 +3,7 @@
 	margin-bottom: 6px;
 }
 .project-header {
+	position: relative;
 	display: flex;
 	align-items: center;
 	gap: 8px;
@@ -16,23 +17,38 @@
 	background: var(--hover);
 }
 .project-header .project-name {
+	flex: 1;
 	min-width: 0;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 .project-actions {
+	position: absolute;
+	right: 8px;
 	display: flex;
-	margin-left: auto;
+	gap: 0;
 	opacity: 0;
+	pointer-events: none;
+}
+.project-header:hover .project-name,
+.project-header:focus-within .project-name,
+.project-header:has(.project-actions.menu-open) .project-name {
+	padding-right: calc(3 * var(--input-h) + 8px);
 }
 .project-header:hover .project-actions,
-.project-header:focus-within .project-actions {
+.project-header:focus-within .project-actions,
+.project-actions.menu-open {
 	opacity: 1;
+	pointer-events: auto;
+}
+.project-action[aria-expanded="true"] {
+	background: var(--hover);
+	color: var(--ink);
 }
 .project-action {
-	width: var(--control-h);
-	height: var(--control-h);
+	width: var(--input-h);
+	height: var(--input-h);
 	flex-shrink: 0;
 }
 .project-sessions {
@@ -108,7 +124,8 @@
 	border-radius: var(--radius-chip);
 	color: var(--ink-3);
 }
-.session-row:hover .session-tag-button {
+.session-row:hover .session-tag-button,
+.session-tag-button[aria-expanded="true"] {
 	display: grid;
 }
 .session-tag-button:hover {
@@ -172,11 +189,14 @@
 	border-radius: var(--radius-chip);
 	color: var(--ink-3);
 }
-.session-row:hover .session-menu-button {
+/* A button whose menu is open stays shown: the menu is anchored to it. */
+.session-row:hover .session-menu-button,
+.session-menu-button[aria-expanded="true"] {
 	display: inline-grid;
 	place-items: center;
 }
-.session-row:hover .session-time {
+.session-row:hover .session-time,
+.session-row:has([aria-expanded="true"]) .session-time {
 	display: none;
 }
 .session-time {

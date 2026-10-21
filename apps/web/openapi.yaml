@@ -6,6 +6,404 @@ info:
 servers:
   - url: http://127.0.0.1:3077
 paths:
+  /api/v1/terminals:
+    get:
+      description: List Host-owned terminal metadata for a known workspace. Requires the Host cookie and allowed Origin; never starts a shell.
+      parameters:
+        - { name: cwd, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: Terminal list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [terminals, support]
+                properties:
+                  terminals: { type: array, items: { $ref: "#/components/schemas/TerminalInfo" } }
+                  support:
+                    description: Whether this Host can start shells. Rechecked on each request; the client disables creation and shows reason when unavailable.
+                    type: object
+                    required: [available]
+                    properties:
+                      available: { type: boolean }
+                      reason: { type: string }
+        "403": { description: Unknown workspace }
+    post:
+      description: Create an interactive shell in a known workspace. Maximum eight per workspace and 24 per Host, including exited tabs. Opening the inspector alone does not launch a shell.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cwd]
+              properties:
+                cwd: { type: string }
+                cols: { type: integer, minimum: 2, maximum: 500, default: 80 }
+                rows: { type: integer, minimum: 1, maximum: 300, default: 24 }
+      responses:
+        "201":
+          description: Started terminal and initial retained output
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TerminalSnapshot" }
+        "400": { description: Invalid dimensions or JSON }
+        "403": { description: Unknown workspace }
+        "409": { description: Terminal limit reached, or the terminal was closed during startup }
+        "503": { description: Native module or shell unavailable. A failure after the helper started leaves a failed tab that must be closed. }
+  /api/v1/terminals/{terminalId}:
+    parameters:
+      - { name: terminalId, in: path, required: true, schema: { type: string } }
+    delete:
+      description: Terminate the owned terminal process tree and remove its tab only after cleanup succeeds. Hiding the panel and closing an SSE connection never call this.
+      responses:
+        "200": { description: Terminal stopped and removed }
+        "404": { description: Unknown terminal }
+        "503": { description: Cleanup failed; terminal retained with failed state }
+  /api/v1/terminals/{terminalId}/input:
+    parameters:
+      - { name: terminalId, in: path, required: true, schema: { type: string } }
+    post:
+      description: Write 1-65536 UTF-8 bytes of input. Includes terminal escape sequences and Ctrl+C. Input is never automatically retried; a timeout has an uncertain outcome.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data: { type: string, minLength: 1, description: At most 65536 UTF-8 bytes (not characters) }
+      responses:
+        "200": { description: Input accepted by the PTY helper }
+        "400": { description: Invalid input }
+        "404": { description: Unknown terminal }
+        "409": { description: Terminal is not running }
+        "429": { description: Input queue is full }
+        "504": { description: Outcome unknown; do not repeat input automatically }
+  /api/v1/terminals/{terminalId}/resize:
+    parameters:
+      - { name: terminalId, in: path, required: true, schema: { type: string } }
+    post:
+      description: Resize the running PTY; concurrent authorized pages share the same terminal dimensions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cols, rows]
+              properties:
+                cols: { type: integer, minimum: 2, maximum: 500 }
+                rows: { type: integer, minimum: 1, maximum: 300 }
+      responses:
+        "200": { description: Dimensions applied }
+        "400": { description: Invalid dimensions }
+        "404": { description: Unknown terminal }
+        "409": { description: Terminal is not running }
+  /api/v1/terminals/{terminalId}/events:
+    parameters:
+      - { name: terminalId, in: path, required: true, schema: { type: string } }
+    get:
+      description: |
+        Cookie/Origin-authenticated SSE with snapshot and closed events.
+        Each snapshot contains TerminalSnapshot with chunks strictly after the
+        cursor. The retained tail is bounded to 512 KiB and 2048 chunks per
+        terminal; truncated marks missing earlier output. A blocked socket has
+        at most one written snapshot; later output is read from the bounded
+        ring when it drains. Disconnects never stop the shell.
+      parameters:
+        - { name: after, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+      responses:
+        "200":
+          description: Terminal output and lifecycle stream
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "400": { description: Invalid or future cursor }
+        "404": { description: Unknown terminal }
+  /api/v1/browser:
+    get:
+      description: Host-wide browser tab snapshot. No engine is launched by reading it. An optional control header renews that page's lease.
+      parameters:
+        - { name: x-stepcode-browser-control, in: header, schema: { type: string } }
+      responses:
+        "200":
+          description: Browser snapshot
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EmbeddedBrowserSnapshot" }
+        "401": { description: Authentication required }
+        "409": { description: Supplied control lease expired }
+  /api/v1/browser/control:
+    post:
+      description: Acquire a 15-second controller lease. The same client id rotates its token on reload. A different active controller returns 409. No browser engine is launched.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [clientId]
+              properties:
+                clientId: { type: string, pattern: "^[a-zA-Z0-9-]{16,80}$" }
+      responses:
+        "200":
+          description: Controller token, sent subsequently in x-stepcode-browser-control
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token]
+                properties:
+                  token: { type: string }
+        "409": { description: Another page controls the browser }
+    delete:
+      description: Release this token only. Tabs remain alive; late release cannot remove a replacement lease.
+      parameters:
+        - { $ref: "#/components/parameters/BrowserControl" }
+      responses:
+        "200": { description: Released or already obsolete }
+  /api/v1/browser/events:
+    get:
+      description: |
+        Authenticated SSE with snapshot, frame and closed events. Each frame has
+        tabId, width, height (remote CSS viewport coordinates), surfaceWidth and
+        surfaceHeight (the captured image in the same units; the page is its
+        top-left width x height, the rest is unused window area) and base64 JPEG data.
+        Chromium frames are ACKed locally; transport is capped at 15 fps with one
+        pending latest frame. Network backpressure drops frames and retains only
+        the newest snapshot. Frame payloads are bounded to 2.8 million base64
+        characters. The client renews its lease every five seconds through GET
+        /browser; the stream itself does not renew ownership.
+      parameters:
+        - { $ref: "#/components/parameters/BrowserControl" }
+      responses:
+        "200":
+          description: Browser event stream
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "409": { description: Controller expired }
+  /api/v1/browser/tabs:
+    post:
+      description: Create a tab (maximum 12). Starts isolated, sandboxed installed Chromium on first use; never downloads an engine.
+      parameters:
+        - { $ref: "#/components/parameters/BrowserControl" }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url: { type: string, maxLength: 8192, description: "HTTP(S) URL, or about:blank. Defaults to about:blank." }
+      responses:
+        "201":
+          description: Tab created; navigation continues asynchronously
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EmbeddedBrowserSnapshot" }
+        "400": { description: Invalid URL, scheme, credentials or blocked StepCode port }
+        "409": { description: Controller expired or tab limit reached }
+        "503": { description: Installed browser unavailable or failed to start }
+  /api/v1/browser/tabs/{tabId}:
+    parameters:
+      - { $ref: "#/components/parameters/BrowserTabId" }
+      - { $ref: "#/components/parameters/BrowserControl" }
+    delete:
+      description: Destroy this tab. Hiding the inspector does not call this route.
+      responses:
+        "200":
+          description: Remaining tabs
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EmbeddedBrowserSnapshot" }
+        "404": { description: Tab missing }
+  /api/v1/browser/tabs/{tabId}/select:
+    parameters:
+      - { $ref: "#/components/parameters/BrowserTabId" }
+      - { $ref: "#/components/parameters/BrowserControl" }
+    post:
+      description: Select a tab and switch its frame stream.
+      responses:
+        "200":
+          description: Browser snapshot
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EmbeddedBrowserSnapshot" }
+        "404": { description: Tab missing }
+  /api/v1/browser/tabs/{tabId}/action:
+    parameters:
+      - { $ref: "#/components/parameters/BrowserTabId" }
+      - { $ref: "#/components/parameters/BrowserControl" }
+    post:
+      description: Navigation is asynchronous; failures appear on the tab. Zoom changes remote layout size, not the StepCode shell.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action: { type: string, enum: [navigate, back, forward, reload, stop, zoom] }
+                value: { type: [string, number], description: "navigate: HTTP(S) URL; zoom: factor 0.5 through 2" }
+      responses:
+        "200":
+          description: Browser snapshot
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EmbeddedBrowserSnapshot" }
+        "400": { description: Invalid action or value }
+        "404": { description: Tab missing }
+  /api/v1/browser/tabs/{tabId}/input:
+    parameters:
+      - { $ref: "#/components/parameters/BrowserTabId" }
+      - { $ref: "#/components/parameters/BrowserControl" }
+    post:
+      description: |
+        Ordered input to the active tab only. No arbitrary script or raw CDP.
+        Text commits through insertText, including Chinese IME commits and text
+        paste. Keys carry a modifier bitmask (Alt=1, Control=2, Meta=4, Shift=8).
+        Pointer phases are move/down/up with left/right/middle and clicks 1-3.
+        Wheel has deltaX/deltaY, each bounded to +/-4000.
+        The host bounds its queue to 64 operations; bodies to 64 KiB.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind]
+              properties:
+                kind: { type: string, enum: [text, key, pointer, wheel] }
+                text: { type: string, maxLength: 16384 }
+                key: { type: string, description: Single ASCII letter/digit or an allowlisted navigation/editing/function key }
+                modifiers: { type: integer, minimum: 0, maximum: 15 }
+                phase: { type: string, enum: [move, down, up] }
+                x: { type: number, minimum: 0, maximum: 3200 }
+                y: { type: number, minimum: 0, maximum: 2400 }
+                button: { type: string, enum: [left, right, middle] }
+                clicks: { type: integer, minimum: 1, maximum: 3 }
+                deltaX: { type: number, minimum: -4000, maximum: 4000 }
+                deltaY: { type: number, minimum: -4000, maximum: 4000 }
+      responses:
+        "200":
+          description: Input delivered, with browser snapshot
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EmbeddedBrowserSnapshot" }
+        "400": { description: Invalid input }
+        "409": { description: Controller expired or tab no longer active }
+        "413": { description: Request too large }
+        "429": { description: Input queue full }
+  /api/v1/browser/tabs/{tabId}/selection:
+    parameters:
+      - { $ref: "#/components/parameters/BrowserTabId" }
+      - { $ref: "#/components/parameters/BrowserControl" }
+    get:
+      description: Selected text in the main document or focused text input, capped at 65536 characters. Password fields return empty text. Does not read the host OS clipboard.
+      responses:
+        "200":
+          description: Selected text
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [text]
+                properties:
+                  text: { type: string, maxLength: 65536 }
+        "404": { description: Tab missing }
+  /api/v1/browser/viewport:
+    post:
+      parameters:
+        - { $ref: "#/components/parameters/BrowserControl" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [width, height]
+              properties:
+                width: { type: integer, minimum: 160, maximum: 1600 }
+                height: { type: integer, minimum: 120, maximum: 1200 }
+      responses:
+        "200": { description: Remote viewports resized with each tab's zoom applied }
+        "400": { description: Invalid size }
+  /api/v1/sessions/{id}/inspector:
+    get:
+      description: |
+        Read-only right-panel projection. Tasks come from the latest step-tasks
+        custom entry on the active branch. Statistics come from getSessionStats
+        (whole-session totals and kernel-estimated current context). Skill count
+        is session-scoped; MCP status is explicitly process-scoped. No task
+        metadata, credentials, system prompt or assembled model context is returned.
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Inspector data
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sessionId, tasks, stats, skillCount, mcpScope, mcp]
+                properties:
+                  sessionId: { type: string }
+                  plan:
+                    type: object
+                    required: [id, title]
+                    properties:
+                      id: { type: string }
+                      title: { type: string }
+                  tasks:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, subject, description, status]
+                      properties:
+                        id: { type: string }
+                        subject: { type: string }
+                        description: { type: string }
+                        status: { type: string, enum: [pending, in_progress, completed] }
+                  skillCount: { type: integer, minimum: 0 }
+                  mcpScope: { type: string, const: process }
+                  mcp:
+                    type: array
+                    items:
+                      type: object
+                      required: [name, status]
+                      properties:
+                        name: { type: string }
+                        status: { type: string, enum: [connected, connecting, failed, disabled] }
+                  stats:
+                    type: object
+                    required: [tokens, cost]
+                    properties:
+                      tokens:
+                        type: object
+                        required: [input, output, cacheRead, cacheWrite, total]
+                        properties:
+                          input: { type: number }
+                          output: { type: number }
+                          cacheRead: { type: number }
+                          cacheWrite: { type: number }
+                          total: { type: number }
+                      cost: { type: number }
+                      contextUsage:
+                        type: object
+                        required: [tokens, contextWindow, percent]
+                        properties:
+                          tokens: { type: [number, "null"] }
+                          contextWindow: { type: number }
+                          percent: { type: [number, "null"] }
+        "401": { description: Authentication required }
+        "500": { description: Session could not be opened }
   /healthz:
     get:
       security: []
@@ -46,6 +444,20 @@ paths:
                   cwd: { type: string, description: Launch working directory }
                   directoryPicker: { type: string, enum: [native, browse] }
                   login: { $ref: "#/components/schemas/LoginReport" }
+  /api/v1/account:
+    get:
+      description: |
+        The signed-in account's display name and avatar, for the sidebar footer.
+        Read from the account session stored beside auth.json (written by a
+        Step Plan sign-in, from a terminal or from the sign-in dialog) through
+        the developer center's `Dashboard/UserInfo`. Never carries a token.
+        Cached by the host; a sign-in from this host invalidates it.
+      responses:
+        "200":
+          description: Account profile, or why there is none
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AccountReport" }
   /api/v1/login:
     get:
       description: |
@@ -159,6 +571,26 @@ paths:
       responses:
         "200": { description: Workspace hidden persistently, including session-derived folders; idempotent for retries. Files and sessions untouched. }
         "404": { description: Path is missing or not absolute }
+  /api/v1/uploads:
+    post:
+      description: |
+        Store a file the composer received by paste or drop. Browsers expose a
+        pasted file's bytes and name but not its original path, so the Host
+        keeps a copy at `<os tmpdir>/stepcode-web-uploads/<id>/<name>` and does
+        not delete it. `id` is the SHA-256 of the stored name and the bytes, so
+        pasting the same file again reuses its copy and returns the same id. A
+        message names the upload by `id` in its `files` list.
+      parameters:
+        - { name: name, in: query, required: true, schema: { type: string }, description: Original file name; reduced to a safe last path segment }
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary, description: "The raw file bytes, at most 50 MiB" }
+      responses:
+        "201": { description: "id (SHA-256 hex of name and bytes), path (absolute), name (as stored) and size in bytes" }
+        "400": { description: name is missing }
+        "413": { description: The file exceeds 50 MiB }
   /api/v1/workspaces/pick:
     post:
       description: |
@@ -250,11 +682,67 @@ paths:
                     description: Full Access was granted with "don't ask again", so picking it needs no confirmation.
   /api/v1/sessions:
     get:
+      description: >-
+        Every session a user started, newest first after the client sorts. Child-agent sessions (subagent lanes and
+        workflow agents) are omitted. Rows carry `name`, `firstMessage` and counts but not the full message text;
+        content search is `GET /api/v1/search`.
       responses:
         "200": { description: Session list grouped by cwd by the client }
     post:
       responses:
         "201": { description: New StepCode v3 session }
+  /api/v1/search:
+    get:
+      description: >-
+        Full-text search over every session through the host's session index (SQLite FTS5, derived from the session
+        files). Queries whose words all have 3+ characters are ranked by relevance; shorter ones match the 200 most
+        recently modified sessions (of the last 30 days unless `cwd` is set) and return at most 50 hits, newest first.
+        When the index is unavailable (`state: degraded`) the host scans session files and returns session-level hits
+        only. Child-agent sessions are never returned. Closing the request cancels the query.
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string, minLength: 1, maxLength: 500 } }
+        - { name: cwd, in: query, description: Absolute workspace path; only its sessions, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+      responses:
+        "200":
+          description: Hits in rank order
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [hits, coverage, state]
+                properties:
+                  hits:
+                    type: array
+                    items: { $ref: "#/components/schemas/SessionSearchHit" }
+                  coverage:
+                    type: object
+                    description: Session files indexed versus found; below `total` while the first backfill runs.
+                    properties: { indexed: { type: integer }, total: { type: integer } }
+                  state: { type: string, enum: [ready, backfilling, degraded] }
+        "400":
+          description: Invalid parameter; `code` is `invalid_params`
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { error: { type: string }, code: { type: string } }
+  /api/v1/search/status:
+    get:
+      responses:
+        "200":
+          description: Index state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  state: { type: string, enum: [ready, backfilling, degraded] }
+                  indexed: { type: integer }
+                  total: { type: integer }
+                  pending: { type: integer }
+                  errors: { type: integer }
+                  degradedReason: { type: string }
   /api/v1/directories:
     get:
       parameters:
@@ -279,6 +767,26 @@ paths:
                 type: object
                 properties:
                   permissionPreset: { type: string, enum: [ask, approve-for-me, full-access] }
+                  entries:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        details:
+                          description: >-
+                            Lifecycle projection on custom_message / agent-notification entries only.
+                            Event and status must match; notification text is not a status protocol.
+                          type: object
+                          required: [agentId, event, status]
+                          additionalProperties: false
+                          properties:
+                            agentId: { type: string }
+                            event:
+                              type: string
+                              enum: [background_done, background_failed, background_interrupted, background_progress, background_restarted, background_needs_input]
+                            status: { type: string, enum: [running, completed, failed, aborted] }
+                        thinkingTimings:
+                          $ref: "#/components/schemas/ThinkingTimings"
                   policies:
                     type: array
                     items: { $ref: "#/components/schemas/PolicyPreset" }
@@ -291,11 +799,75 @@ paths:
                   pendingApprovals:
                     type: array
                     items: { $ref: "#/components/schemas/ApprovalRequest" }
+                  queuedMessages:
+                    type: array
+                    description: Messages sent during a turn that wait for it to end (in memory, lost on host restart)
+                    items: { $ref: "#/components/schemas/QueuedMessage" }
+                  steeringMessages:
+                    type: array
+                    description: Steered messages the running turn has not read yet
+                    items: { $ref: "#/components/schemas/SteeringMessage" }
+                  retry: { $ref: "#/components/schemas/SessionRetry" }
     delete:
       parameters:
         - { $ref: "#/components/parameters/SessionId" }
       responses:
         "200": { description: Session deleted }
+  /api/v1/sessions/{id}/children:
+    get:
+      summary: Agents of one workflow run started by this session
+      description: >-
+        Workflow agents' sessions are `workflow-<runId>-<agentId>`, written next to the parent's. Children that record
+        a different parentSessionId are left out. Ordered by agent number.
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+        - { name: workflowRun, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: The run's agents; empty when none are found.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [children]
+                properties:
+                  children:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, title, messageCount, modified]
+                      properties:
+                        id: { type: string }
+                        title: { type: string, description: The agent's task, its first user message cut short }
+                        messageCount: { type: integer }
+                        modified: { type: string, format: date-time }
+        "400": { description: workflowRun is missing }
+  /api/v1/sessions/{id}/children/{childId}:
+    get:
+      summary: A child agent's transcript, read-only
+      description: >-
+        The current branch of a child-agent session (subagent or workflow agent) that this session spawned. The file
+        is only read, never opened as a session, so a child still running is not disturbed and cannot be prompted.
+        A child naming another parentSessionId, or a session that is not a child agent, is 404.
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+        - { name: childId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: The child's entries, projected like a session snapshot's.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, parentId, cwd, modified, readOnly, entries]
+                properties:
+                  id: { type: string }
+                  parentId: { type: string }
+                  cwd: { type: string }
+                  modified: { type: string, format: date-time }
+                  readOnly: { type: boolean, enum: [true] }
+                  entries: { type: array, items: { type: object } }
+        "404": { description: Not a child agent of this session }
   /api/v1/sessions/{id}/events:
     get:
       parameters:
@@ -304,21 +876,152 @@ paths:
         "200":
           description: >-
             SSE snapshot and agent/status/approval/clarification_required/clarification_resolved/selection_required/
-            selection_resolved events. clarification_required carries clarification and selection_required carries
-            selection; the resolved events carry id.
+            selection_resolved/queue events. clarification_required carries clarification and selection_required carries
+            selection; the resolved events carry id; queue carries a QueueState (queued, steering).
+            Agent envelopes optionally carry thinkingTimings, keyed by original content-block index, with host-observed
+            epoch-millisecond startedAt/endedAt fields. Live intervals may omit endedAt; saved intervals are complete.
   /api/v1/sessions/{id}/messages:
     post:
       parameters:
         - { $ref: "#/components/parameters/SessionId" }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: { type: string }
+                files:
+                  type: array
+                  items: { type: string }
+                  description: |
+                    Upload ids (`POST /api/v1/uploads`) the message refers to. The Host
+                    appends one `<attached_file name path bytes>` block per file after the
+                    text: a UTF-8 file's content (cut past 40 000 characters, saying where
+                    to continue), or for any other file `type="binary"` and where to read it.
+                attachments: { type: array, description: "Paperclip files: name, mimeType, base64 data" }
       responses:
         "202": { description: Prompt accepted }
+        "400": { description: text is missing, or an attachment or upload id is invalid }
         "409": { description: A turn revert is writing files }
   /api/v1/sessions/{id}/steer:
     post:
       parameters:
         - { $ref: "#/components/parameters/SessionId" }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: { type: string }
+                files:
+                  type: array
+                  items: { type: string }
+                  description: |
+                    Upload ids (`POST /api/v1/uploads`) the message refers to. The Host
+                    appends one `<attached_file name path bytes>` block per file after the
+                    text: a UTF-8 file's content (cut past 40 000 characters, saying where
+                    to continue), or for any other file `type="binary"` and where to read it.
+                attachments: { type: array, description: "Paperclip files: name, mimeType, base64 data" }
       responses:
-        "202": { description: Steer accepted }
+        "202": { description: Steer accepted; the running turn reads it before its next model call }
+        "400": { description: text is missing, an attachment or upload id is invalid, or the kernel refused the steer (an extension command) }
+  /api/v1/sessions/{id}/queue:
+    post:
+      summary: Queue a message sent during a turn
+      description: >-
+        The message waits, editable, until the running turn settles; then the Host sends the oldest queued message as
+        the next turn, one turn per message. An interrupted or failed turn leaves the queue as it is. When no turn runs
+        and nothing is queued, the message starts at once. Changes are also published as the `queue` SSE event.
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: { type: string }
+                files:
+                  type: array
+                  items: { type: string }
+                  description: Upload ids; their content is added when the message is dispatched.
+                attachments: { type: array, description: "Paperclip files: name, mimeType, base64 data" }
+      responses:
+        "202":
+          description: Queued; the new queue state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QueueState" }
+        "400": { description: text is missing, or an attachment or upload id is invalid }
+  /api/v1/sessions/{id}/queue/steer:
+    post:
+      summary: Steer every queued message into the running turn
+      description: >-
+        Without a running turn the oldest queued message starts as a new turn instead. Messages the kernel refuses to
+        steer (extension commands) stay queued.
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+      responses:
+        "202":
+          description: The new queue state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QueueState" }
+        "404": { description: The queue is empty }
+        "409": { description: The kernel refused a steer, or the session waits on the user }
+  /api/v1/sessions/{id}/queue/{itemId}:
+    patch:
+      summary: Replace a queued message's text
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+        - { name: itemId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: { type: string }
+      responses:
+        "200":
+          description: The new queue state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QueueState" }
+        "400": { description: text is missing }
+        "404": { description: Not queued (already dispatched or removed) }
+    delete:
+      summary: Remove a queued message
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+        - { name: itemId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: The new queue state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QueueState" }
+        "404": { description: Not queued (already dispatched or removed) }
+  /api/v1/sessions/{id}/queue/{itemId}/steer:
+    post:
+      summary: Steer one queued message into the running turn (or start it now when no turn runs)
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+        - { name: itemId, in: path, required: true, schema: { type: string } }
+      responses:
+        "202":
+          description: The new queue state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QueueState" }
+        "404": { description: Not queued (already dispatched or removed) }
+        "409": { description: The kernel refused the steer, or the session waits on the user }
   /api/v1/sessions/{id}/interrupt:
     post:
       parameters:
@@ -883,6 +1586,138 @@ paths:
         "200": { description: Workspace file contents }
 components:
   schemas:
+    TerminalInfo:
+      type: object
+      required: [id, cwd, title, shell, status, cols, rows]
+      properties:
+        id: { type: string }
+        cwd: { type: string, description: Canonical (realpath) workspace folder; may differ from the requested spelling }
+        title: { type: string, description: Workspace folder name, numbered when the folder already has terminals }
+        shell: { type: string, description: Shell program name such as zsh or PowerShell }
+        status: { type: string, enum: [starting, running, exited, failed] }
+        cols: { type: integer, minimum: 2, maximum: 500 }
+        rows: { type: integer, minimum: 1, maximum: 300 }
+        pid: { type: integer, minimum: 1 }
+        exitCode: { type: integer }
+        error: { type: string }
+    TerminalSnapshot:
+      type: object
+      required: [info, chunks, seq, truncated]
+      properties:
+        info: { $ref: "#/components/schemas/TerminalInfo" }
+        seq: { type: integer, minimum: 0 }
+        truncated: { type: boolean }
+        chunks:
+          type: array
+          maxItems: 2048
+          items:
+            type: object
+            required: [seq, data]
+            properties:
+              seq: { type: integer, minimum: 1 }
+              data: { type: string, maxLength: 8192 }
+    EmbeddedBrowserSnapshot:
+      type: object
+      required: [revision, activeId, tabs]
+      properties:
+        revision: { type: integer }
+        activeId: { type: [string, "null"] }
+        tabs:
+          type: array
+          maxItems: 12
+          items:
+            type: object
+            required: [id, title, url, loading, canGoBack, canGoForward, zoom]
+            properties:
+              id: { type: string }
+              title: { type: string }
+              url: { type: string }
+              loading: { type: boolean }
+              canGoBack: { type: boolean }
+              canGoForward: { type: boolean }
+              zoom: { type: number, minimum: 0.5, maximum: 2 }
+              error: { type: string }
+              notice: { type: string, enum: [download, upload, dialog, popup, navigation] }
+    ThinkingTimings:
+      type: object
+      description: Host-observed thinking intervals by original content-block index; absent for unobserved legacy history.
+      additionalProperties:
+        type: object
+        required: [startedAt]
+        properties:
+          startedAt: { type: number, description: Host epoch milliseconds when thinking started streaming }
+          endedAt: { type: number, description: Host epoch milliseconds when thinking stopped streaming }
+    QueuedMessage:
+      type: object
+      required: [id, text, attachments, files]
+      properties:
+        id: { type: string }
+        text: { type: string, description: The text as typed; file contents are added at dispatch }
+        attachments:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              kind: { type: string, enum: [image, text] }
+        files:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              name: { type: string }
+    QueueState:
+      type: object
+      required: [queued, steering]
+      properties:
+        queued:
+          type: array
+          items: { $ref: "#/components/schemas/QueuedMessage" }
+        steering:
+          type: array
+          items: { $ref: "#/components/schemas/SteeringMessage" }
+    SteeringMessage:
+      type: object
+      description: A steered message the kernel has not delivered yet, with its images
+      required: [text, images]
+      properties:
+        text: { type: string }
+        images:
+          type: array
+          items:
+            type: object
+            required: [mimeType, data]
+            properties:
+              mimeType: { type: string }
+              data: { type: string, description: Base64 image bytes }
+    SessionRetry:
+      type: object
+      description: >-
+        The kernel's automatic retry of a failed model request (`auto_retry_start`), present from the start event until
+        `auto_retry_end` or the run settles. The live form arrives as `agent` SSE events.
+      required: [attempt, maxAttempts, delayMs, startedAt, errorMessage]
+      properties:
+        attempt: { type: integer, description: 1-based attempt about to run }
+        maxAttempts: { type: integer }
+        delayMs: { type: integer, description: Backoff before the attempt starts }
+        startedAt: { type: integer, description: Epoch milliseconds when the retry was scheduled }
+        errorMessage: { type: string, description: The provider error that caused the retry }
+        reason: { type: string, enum: [rate_limit] }
+    SessionSearchHit:
+      type: object
+      required: [sessionId, cwd, entryId, ts, snippet]
+      properties:
+        sessionId: { type: string }
+        cwd: { type: string }
+        entryId:
+          type: string
+          nullable: true
+          description: The matched entry; null for a title match or a hit from the degraded file scan.
+        entryType: { type: string, description: "Entry type, or `session` for a title match" }
+        role: { type: string, description: "`user` or `assistant` for message hits" }
+        ts: { type: number, description: Epoch milliseconds of the entry }
+        snippet: { type: string, description: Excerpt; each match is wrapped in U+0002 and U+0003 }
     McpServerConfig:
       description: "A server declaration as `config.toml` stores it: `command` for stdio, `url` for streamable HTTP."
       type: object
@@ -1065,17 +1900,36 @@ components:
         profile: { type: string }
         authUrl: { type: string, description: Authorize URL to open while pending }
         error: { type: string }
+    AccountReport:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ready, missing, expired, unavailable]
+          description: |
+            ready: `account` is set. missing: no account session (API-key sign-in).
+            expired: the session was rejected; signing in again restores it.
+            unavailable: the developer center could not be reached.
+        account:
+          type: object
+          required: [name]
+          properties:
+            name: { type: string, description: "Nickname, else email, else the (masked) phone number" }
+            avatarUrl: { type: string, format: uri }
+            uid: { type: string, description: "Account id, as the developer center shows it" }
     LoginReport:
       description: |
         Where the model credential comes from. Never contains the credential.
         `configured` reports that one exists; `validity` reports what the
         provider said when it was checked.
       type: object
-      required: [source, configured, loginCommand]
+      required: [source, configured, loginCommand, planUrl]
       properties:
         source: { type: string, enum: [environment, auth.json, none] }
         provider: { type: string, description: "Provider id the credential belongs to" }
         profile: { type: string, description: "Login profile recorded at sign-in" }
+        userId: { type: string, maxLength: 256, description: "Stored OAuth UID matching the kernel's valid checked account; omitted for environment keys or unknown identities" }
         path: { type: string, description: "Credential file, when one exists" }
         configured: { type: boolean, description: "A credential exists, whatever the provider said about it" }
         validity:
@@ -1083,7 +1937,24 @@ components:
           enum: [valid, invalid, unavailable, missing]
           description: "The provider's verdict; unavailable means it could not be reached"
         loginCommand: { type: string, description: "The command that changes this state" }
+        planUrl:
+          type: string
+          format: uri
+          description: |
+            Step Plan page of the credential's platform, where Upgrade leads:
+            platform.stepfun.ai for an overseas plan or key, platform.stepfun.com
+            otherwise (also when the region is unknown).
   parameters:
+    BrowserTabId:
+      name: tabId
+      in: path
+      required: true
+      schema: { type: string }
+    BrowserControl:
+      name: x-stepcode-browser-control
+      in: header
+      required: true
+      schema: { type: string }
     SessionId:
       name: id
       in: path

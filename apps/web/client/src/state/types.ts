@@ -7,6 +7,55 @@
 
 import type { TagColor } from "../i18n/messages";
 
+/** Host-owned interactive shells; independent of Agent tool execution. */
+export interface TerminalInfo {
+	readonly id: string;
+	readonly cwd: string;
+	readonly title: string;
+	readonly shell: string;
+	readonly status: "starting" | "running" | "exited" | "failed";
+	readonly cols: number;
+	readonly rows: number;
+	readonly pid?: number;
+	readonly exitCode?: number;
+	readonly error?: string;
+}
+export type TerminalSupport = { readonly available: true } | { readonly available: false; readonly reason: string };
+export interface TerminalSnapshot {
+	readonly info: TerminalInfo;
+	readonly seq: number;
+	readonly truncated: boolean;
+	readonly chunks: readonly { readonly seq: number; readonly data: string }[];
+}
+
+/** Host-wide embedded-browser projection, independent of model sessions. */
+export interface EmbeddedBrowserTab {
+	readonly id: string;
+	readonly title: string;
+	readonly url: string;
+	readonly loading: boolean;
+	readonly canGoBack: boolean;
+	readonly canGoForward: boolean;
+	readonly zoom: number;
+	readonly error?: string;
+	readonly notice?: "download" | "upload" | "dialog" | "popup" | "navigation";
+}
+export interface EmbeddedBrowserSnapshot {
+	readonly revision: number;
+	readonly activeId: string | null;
+	readonly tabs: readonly EmbeddedBrowserTab[];
+}
+export interface EmbeddedBrowserFrame {
+	readonly tabId: string;
+	/** The page's CSS viewport; pointer coordinates use this space. */
+	readonly width: number;
+	readonly height: number;
+	/** The whole captured image; the page is its top-left `width` x `height`. Older hosts omit it. */
+	readonly surfaceWidth?: number;
+	readonly surfaceHeight?: number;
+	readonly data: string;
+}
+
 export type SessionStatus = "idle" | "running" | "waiting" | "completed" | "failed";
 
 export interface ModelRef {
@@ -56,6 +105,8 @@ export interface Usage {
 export interface ContentPart {
 	readonly type: string;
 	readonly text?: string;
+	readonly thinking?: string;
+	readonly redacted?: boolean;
 	readonly id?: string;
 	readonly name?: string;
 	readonly arguments?: unknown;
@@ -78,6 +129,9 @@ export interface SessionEntry {
 	readonly timestamp?: string;
 	readonly message?: AgentMessage;
 	readonly usage?: Usage;
+	readonly thinkingTimings?: ThinkingTimings;
+	/** Lifecycle-only metadata on custom_message / agent-notification entries. */
+	readonly details?: unknown;
 	readonly [key: string]: unknown;
 }
 
@@ -87,7 +141,6 @@ export interface SessionSummary {
 	readonly cwd?: string;
 	readonly name?: string;
 	readonly firstMessage?: string;
-	readonly allMessagesText?: string;
 	readonly created?: string;
 	readonly modified?: string;
 	readonly messageCount?: number;
@@ -96,6 +149,26 @@ export interface SessionSummary {
 	readonly status?: SessionStatus;
 	readonly unread?: boolean;
 	readonly [key: string]: unknown;
+}
+
+/** One hit of GET /api/v1/search (session-search.ts `WebSearchHit`). */
+export interface SessionSearchHit {
+	readonly sessionId: string;
+	readonly cwd: string;
+	/** Null for a title match, or for every hit while the index is degraded. */
+	readonly entryId: string | null;
+	readonly entryType?: string;
+	readonly role?: string;
+	readonly ts: number;
+	/** Excerpt; each match is wrapped in U+0002 / U+0003. */
+	readonly snippet: string;
+}
+
+/** GET /api/v1/search (session-search.ts `WebSearchResult`). */
+export interface SessionSearchResult {
+	readonly hits: readonly SessionSearchHit[];
+	readonly coverage: { readonly indexed: number; readonly total: number };
+	readonly state: "ready" | "backfilling" | "degraded";
 }
 
 /** GET /api/v1/sessions/:id and the SSE `snapshot` event (runtime.ts `snapshot()`). */
@@ -117,6 +190,75 @@ export interface SessionSnapshot extends SessionSummary {
 	readonly pendingSelections?: readonly SelectionRequest[];
 	/** User entry ids of turns whose file changes were reverted (runtime.ts `revertTurn`). */
 	readonly revertedTurns?: readonly string[];
+	/** Messages sent during a turn, waiting for it to end (src/message-queue.ts). */
+	readonly queuedMessages?: readonly QueuedMessage[];
+	/** Steered messages the kernel has not delivered to the running turn yet. */
+	readonly steeringMessages?: readonly SteeringMessage[];
+	/** The kernel retrying a failed model request right now (runtime.ts `RetryTracker`). */
+	readonly retry?: SessionRetry;
+}
+
+/** GET /api/v1/sessions/{id}/inspector; read-only runtime projections. */
+export interface SessionInspector {
+	readonly sessionId: string;
+	readonly plan?: { readonly id: string; readonly title: string };
+	readonly tasks: readonly {
+		readonly id: string;
+		readonly subject: string;
+		readonly description: string;
+		readonly status: "pending" | "in_progress" | "completed";
+	}[];
+	readonly skillCount: number;
+	readonly mcpScope: "process";
+	readonly mcp: readonly { readonly name: string; readonly status: string }[];
+	readonly stats: {
+		readonly tokens: {
+			readonly input: number;
+			readonly output: number;
+			readonly cacheRead: number;
+			readonly cacheWrite: number;
+			readonly total: number;
+		};
+		readonly cost: number;
+		readonly contextUsage?: {
+			readonly tokens: number | null;
+			readonly contextWindow: number;
+			readonly percent: number | null;
+		};
+	};
+}
+
+/** Snapshot `retry` (src/retry-state.ts `WebRetryState`). */
+export interface SessionRetry {
+	/** 1-based attempt about to run. */
+	readonly attempt: number;
+	readonly maxAttempts: number;
+	/** Backoff before the attempt starts. */
+	readonly delayMs: number;
+	/** Host epoch milliseconds when the retry was scheduled. */
+	readonly startedAt: number;
+	readonly errorMessage: string;
+	readonly reason?: "rate_limit";
+}
+
+/** A steered message waiting for the running turn (src/message-queue.ts `SteeringMessageView`). */
+export interface SteeringMessage {
+	readonly text: string;
+	readonly images: readonly { readonly mimeType: string; readonly data: string }[];
+}
+
+/** A queued message as the host lists it (src/message-queue.ts `QueuedMessageView`). */
+export interface QueuedMessage {
+	readonly id: string;
+	readonly text: string;
+	readonly attachments: readonly { readonly name: string; readonly kind: "image" | "text" }[];
+	readonly files: readonly { readonly id: string; readonly name: string }[];
+}
+
+/** The `queue` SSE event and the queue routes' response (runtime.ts `WebQueueState`). */
+export interface QueueState {
+	readonly queued: readonly QueuedMessage[];
+	readonly steering: readonly SteeringMessage[];
 }
 
 export interface ClarificationQuestion {
@@ -169,8 +311,8 @@ export interface MessageTimelineItem {
 	readonly entryId?: string;
 	readonly role: string;
 	readonly content: string;
-	/** Images attached to a user message; a message can be images only. */
-	readonly images?: number;
+	/** Data URLs of the images attached to a user message; a message can be images only. */
+	readonly images?: readonly string[];
 	readonly usage?: Usage;
 	readonly timestamp?: string;
 	/** The model request failed (assistant `stopReason: "error"`); the provider's message. */
@@ -178,6 +320,23 @@ export interface MessageTimelineItem {
 }
 
 export type ToolState = "pending" | "completed" | "failed";
+
+export interface ThinkingTiming {
+	readonly startedAt: number;
+	readonly endedAt?: number;
+}
+
+export type ThinkingTimings = Readonly<Record<string, ThinkingTiming>>;
+
+export interface ThinkingTimelineItem {
+	readonly itemId: string;
+	readonly kind: "thinking";
+	readonly entryId?: string;
+	readonly content: string;
+	/** True only while this structured thinking block is being streamed. */
+	readonly running: boolean;
+	readonly timing?: ThinkingTiming;
+}
 
 export interface ToolTimelineItem {
 	readonly itemId: string;
@@ -189,8 +348,65 @@ export interface ToolTimelineItem {
 	/** Full arguments and result, shown when the row is expanded. */
 	readonly inputDetail?: string;
 	readonly outputDetail?: string;
+	/** The arguments the row shows by name (path, command...), when the call had them. */
+	readonly args?: ToolArgs;
 	/** A successful edit/write: its path argument and the unified patch from the result `details.patch`. */
 	readonly change?: FileChange;
+	/** Subagents this call started, from the result `details.results[].sessionId`. */
+	readonly children?: readonly ChildAgentLink[];
+	/** Validated presentation of the subagent tool's structured per-task records. */
+	readonly subagentTasks?: readonly SubagentTask[];
+	/** A workflow call's run id; its agents come from `GET /sessions/{id}/children?workflowRun=`. */
+	readonly workflowRun?: string;
+}
+
+/** A child agent a tool call started. Its transcript is read-only. */
+export interface ChildAgentLink {
+	readonly sessionId: string;
+	readonly label: string;
+}
+
+export type SubagentStatus = "queued" | "running" | "completed" | "failed" | "aborted" | "skipped" | "unknown";
+
+export interface SubagentTask {
+	readonly agent: string;
+	readonly task: string;
+	readonly status: SubagentStatus;
+	readonly sessionId?: string;
+	readonly backgroundAgentId?: string;
+	readonly model?: string;
+	readonly turns?: number;
+	readonly error?: string;
+}
+
+/** GET /api/v1/sessions/{id}/children/{childId} (child-sessions.ts `ChildTranscript`). */
+export interface ChildSessionSnapshot {
+	readonly id: string;
+	readonly parentId: string;
+	readonly cwd: string;
+	readonly modified: string;
+	readonly readOnly: true;
+	readonly entries: readonly SessionEntry[];
+}
+
+/** A row of GET /api/v1/sessions/{id}/children?workflowRun= (child-sessions.ts `ChildSummary`). */
+export interface ChildAgentSummary {
+	readonly id: string;
+	readonly title: string;
+	readonly messageCount: number;
+	readonly modified: string;
+}
+
+/** Tool arguments a tool row names instead of listing `key=value` pairs. */
+export interface ToolArgs {
+	/** `path` or `file_path` (read, write, edit, grep, find, ls). */
+	readonly path?: string;
+	/** `bash` command. */
+	readonly command?: string;
+	/** `read` start line (1-based). */
+	readonly offset?: number;
+	/** `grep` / `find` pattern. */
+	readonly pattern?: string;
 }
 
 /** Why an edit/write has no patch (host `SkippedChange.reason`). */
@@ -216,7 +432,26 @@ export interface ApprovalTimelineItem {
 	readonly approval: ApprovalRequest;
 }
 
-export type TimelineItem = MessageTimelineItem | ToolTimelineItem | ApprovalTimelineItem;
+/**
+ * Failed model requests the kernel retried, folded into one row instead of a
+ * red card each. The final failure of a series that gave up stays a message
+ * row with `error`.
+ */
+export interface RetryTimelineItem {
+	readonly itemId: string;
+	readonly kind: "retry";
+	/** The provider error of each retried attempt, oldest first. */
+	readonly errors: readonly string[];
+	/** Set on the series the kernel is retrying right now. */
+	readonly live?: SessionRetry;
+}
+
+export type TimelineItem =
+	| MessageTimelineItem
+	| ThinkingTimelineItem
+	| ToolTimelineItem
+	| ApprovalTimelineItem
+	| RetryTimelineItem;
 
 export interface WebWorkspace {
 	readonly path: string;
@@ -231,10 +466,19 @@ export interface LoginReport {
 	readonly source: "environment" | "auth.json" | "none";
 	readonly provider?: string;
 	readonly profile?: string;
+	readonly userId?: string;
 	readonly path?: string;
 	readonly configured: boolean;
 	readonly validity?: string;
 	readonly loginCommand: string;
+	/** Step Plan page of the credential's region (src/login.ts): where Upgrade leads. */
+	readonly planUrl: string;
+}
+
+/** `GET /api/v1/account` (src/account.ts `AccountReport`): the signed-in account for the sidebar. */
+export interface AccountReport {
+	readonly status: "ready" | "missing" | "expired" | "unavailable";
+	readonly account?: { readonly name: string; readonly avatarUrl?: string; readonly uid?: string };
 }
 
 /** One of the four `step login` profiles (src/login.ts `LoginMethod`). */
@@ -289,6 +533,15 @@ export interface Attachment {
 	readonly mimeType: string;
 	readonly data: string;
 	readonly kind: "image" | "text";
+}
+
+/** POST /api/v1/uploads (uploads.ts `SavedUpload`): the host's copy of a pasted file. */
+export interface UploadedFile {
+	/** Named in a message's `files` list; the host then adds the file's content. */
+	readonly id: string;
+	readonly path: string;
+	readonly name: string;
+	readonly size: number;
 }
 
 /** GET /api/v1/sessions/:id/skills and /api/v1/workspace/skills (runtime.ts `WebSkill`). */

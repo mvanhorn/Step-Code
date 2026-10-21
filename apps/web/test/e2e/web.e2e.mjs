@@ -497,6 +497,7 @@ test(
     assert.equal(report.boot.login.profile, "step_plan")
     assert.equal(report.boot.login.configured, true)
     assert.equal(report.boot.login.loginCommand, "step login")
+    assert.equal(report.boot.login.planUrl, "https://platform.stepfun.com/step-plan")
     assert.equal(report.boot.login.path, authPath)
     assert.deepEqual(report.direct, report.boot.login)
     assert.equal(
@@ -515,7 +516,7 @@ test(
 			remoteDisabled: $("#remoteControlButton").getAttribute("aria-disabled"),
 			popover: !!$("#userPopover"),
 			page: $("#settingsView [data-page]").dataset.page,
-			account: $("#settingsAccountLabel").textContent,
+			account: !!$("#settingsAccountLabel"),
 			legacy: !!$("#loginNote") || !!$("#loginCommand") || !!$(".user-popover-account"),
 		};
 	`)
@@ -524,8 +525,102 @@ test(
     assert.equal(footer.remoteDisabled, "true")
     assert.equal(footer.popover, false, "the popover is gone")
     assert.equal(footer.page, "general")
-    assert.equal(footer.account, "Step Plan · 中国大陆")
+    assert.equal(footer.account, false, "account settings no longer live on General")
     assert.equal(footer.legacy, false)
+
+    const account = await browser.run(`
+		$("[data-settings-page='account']").click();
+		await until(() => $("#settingsAccountLabel"), "account page");
+		await until(() => $$(".settings-account-channel").length === 4, "four sign-in methods");
+		const result = {
+			page: $("#settingsView [data-page]").dataset.page,
+			label: $("#settingsAccountLabel").textContent,
+			mark: !!$(".settings-account-logo use[href='#i-stepPlatform']"),
+			channels: $$(".settings-account-channel").map((row) => row.dataset.loginProfile),
+			logout: !!$("#logoutButton"),
+			upgrade: $("#stepPlanLink").getAttribute("href"),
+			firstPage: $(".settings-nav-item").dataset.settingsPage,
+			logoutInIdentity: !!$(".settings-account-identity #logoutButton use[href='#i-accountLogout']"),
+			loginIcon: !!$("#settingsAccountLogin use[href='#i-accountExternal']"),
+			twoColumns: (() => {
+				const rows = $$(".settings-account-channel").map((row) => row.getBoundingClientRect());
+				return rows[0].y === rows[1].y && rows[2].y > rows[0].y && rows[2].y === rows[3].y;
+			})(),
+		};
+		$("[data-settings-page='general']").click();
+		await until(() => $("[data-language-choice='en-US']"), "general page");
+		return result;
+	`);
+    assert.deepEqual(account, {
+      page: "account", label: "Step Plan · 中国大陆", mark: true,
+      channels: ["step_plan", "step_plan_oversea", "platform_cn", "platform_oversea"],
+      logout: true,
+      upgrade: "https://platform.stepfun.com/step-plan",
+      firstPage: "account", logoutInIdentity: true, loginIcon: true, twoColumns: true,
+    });
+
+    // The account button opens the account menu above it, not the settings view.
+    const menu = await browser.run(`
+		$("#settingsBack").click();
+		await until(() => $("#settingsView").hidden, "settings view to close");
+		$("#userAccountButton").click();
+		await until(() => $("#accountMenu"), "account menu");
+		const opened = {
+			expanded: $("#userAccountButton").getAttribute("aria-expanded"),
+			settingsHidden: $("#settingsView").hidden,
+			items: [...$("#accountMenu").querySelectorAll("[role=menuitem]")].map((item) => item.id),
+			upgrade: $("#accountUpgradeButton").dataset.href,
+			above: $("#accountMenu").getBoundingClientRect().bottom <= $("#userAccountButton").getBoundingClientRect().top,
+		};
+		document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+		await until(() => !$("#accountMenu"), "account menu to close");
+		const expandedAfter = $("#userAccountButton").getAttribute("aria-expanded");
+		// Log out asks in the app's own dialog; Escape cancels it and keeps the session.
+		const nativeConfirm = window.confirm;
+		let nativeAsked = false;
+		window.confirm = () => { nativeAsked = true; return false; };
+		$("#userAccountButton").click();
+		await until(() => $("#accountLogoutButton"), "account menu again");
+		$("#accountLogoutButton").click();
+		await until(() => !$("#logoutDialog").hidden, "log-out dialog");
+		const dialog = {
+			menuClosed: !$("#accountMenu"),
+			focused: document.activeElement?.id,
+			buttons: [...$("#logoutDialog").querySelectorAll("footer button")].map((button) => button.textContent),
+			nativeAsked,
+		};
+		document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+		await until(() => $("#logoutDialog").hidden, "log-out dialog to close");
+		window.confirm = nativeConfirm;
+		// Enter on a dialog button is that button's own; Enter on Cancel cancels.
+		$("#settingsButton").click();
+		await until(() => !$("#settingsView").hidden, "settings view for account");
+		$("[data-settings-page='account']").click();
+		await until(() => $("#logoutButton"), "settings log-out button");
+		$("#logoutButton").click();
+		await until(() => !$("#logoutDialog").hidden, "log-out dialog from settings");
+		$("#logoutCancel").focus();
+		$("#logoutCancel").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+		$("#logoutCancel").click();
+		await until(() => $("#logoutDialog").hidden, "log-out dialog to cancel");
+		$("#settingsBack").click();
+		await until(() => $("#settingsView").hidden, "settings view to close again");
+		const stillIn = $("#loggedOutOverlay").hidden && (await fetch("/api/v1/login")).ok;
+		// Back to the settings view for the steps below.
+		$("#settingsButton").click();
+		await until(() => !$("#settingsView").hidden, "settings view to reopen");
+		return { ...opened, expandedAfter, dialog, stillIn };
+	`)
+    assert.deepEqual(menu, {
+      expanded: "true",
+      settingsHidden: true,
+      items: ["accountUpgradeButton", "accountLogoutButton"],
+      upgrade: "https://platform.stepfun.com/step-plan",
+      above: true,
+      expandedAfter: "false",
+      dialog: { menuClosed: true, focused: "logoutConfirm", buttons: ["取消esc", "退出登录↵"], nativeAsked: false },
+      stillIn: true,
+    })
 
     // Language applies from the general page and is remembered.
     const language = await browser.run(`
@@ -838,7 +933,8 @@ test(
 		const view = $("#previewBody .code-view");
 		return {
 			panel: !$("#previewPanel").hidden,
-			shifted: $(".app").classList.contains("preview-open"),
+			shifted: $(".app").classList.contains("right-panel-open"),
+			railPressed: $("[data-right-panel='files']").getAttribute("aria-pressed"),
 			tabs: tabs(),
 			path: $("#previewPath").textContent,
 			code: codeText(),
@@ -853,6 +949,7 @@ test(
 	`)
     assert.equal(opened.panel, true)
     assert.equal(opened.shifted, true)
+    assert.equal(opened.railPressed, "true")
     assert.deepEqual(opened.tabs, ["main.ts"])
     assert.ok(opened.path.startsWith(`${workspace}/src/main.ts`), opened.path)
     assert.equal(
@@ -966,15 +1063,16 @@ test(
     await browser.chord("KeyB", "b", SHIFT_META)
     const hidden = await browser.run(`
 		await until(() => $("#previewPanel").hidden, "panel to hide");
-		return { shifted: $(".app").classList.contains("preview-open"), reopen: !$("#previewShow").hidden };
+		const rail = $("[data-right-panel='files']");
+		return { shifted: $(".app").classList.contains("right-panel-open"), reopen: Boolean(rail) && !rail.disabled, pressed: rail?.getAttribute("aria-pressed") };
 	`)
-    assert.deepEqual(hidden, { shifted: false, reopen: true })
+    assert.deepEqual(hidden, { shifted: false, reopen: true, pressed: "false" })
     const shown = await browser.run(`
-		$("#previewShow").click();
+		$("[data-right-panel='files']").click();
 		await until(() => !$("#previewPanel").hidden, "panel to return");
-		return tabs().length;
+		return { tabs: tabs().length, shifted: $(".app").classList.contains("right-panel-open") };
 	`)
-    assert.equal(shown, 4)
+    assert.deepEqual(shown, { tabs: 4, shifted: true })
   },
 )
 
@@ -1017,7 +1115,7 @@ test(
   async () => {
     const before = await browser.run(`
 		$("#fileTreeBack").click();
-		return { projects: projects(), tooltip: $("#addWorkspace").dataset.tooltip };
+		return { projects: projects(), tooltip: $("#addWorkspace + [role='tooltip']").textContent };
 	`)
     assert.deepEqual(before.projects, [])
     assert.match(before.tooltip, /O$/)
@@ -1065,7 +1163,9 @@ test(
     )
 
     const removed = await browser.run(`
-		$("#projectGroups .remove-workspace").click();
+		$("#projectGroups .workspace-menu-button").click();
+		await until(() => $("#workspaceMenu"), "workspace menu");
+		$("#workspaceMenu .remove-workspace").click();
 		await until(() => !$("#removeWorkspaceModal").hidden, "removal dialog");
 		$("#removeWorkspaceConfirm").click();
 		await until(() => !projects().length, "workspace to be removed");
@@ -1144,7 +1244,9 @@ test(
 
     const removed = await browser.run(`
 		$("#fileTreeBack").click();
-		$("#projectGroups .remove-workspace").click();
+		$("#projectGroups .workspace-menu-button").click();
+		await until(() => $("#workspaceMenu"), "workspace menu");
+		$("#workspaceMenu .remove-workspace").click();
 		await until(() => !$("#removeWorkspaceModal").hidden, "removal dialog");
 		$("#removeWorkspaceConfirm").click();
 		await until(() => !projects().length, "workspace to be removed");
@@ -1386,16 +1488,19 @@ test("Full Access needs the risk dialog: the host asks, cancel keeps the tier, a
   const draft = await browser.run(`
     (await until(() => $("#newSession"), "new chat")).click();
     await until(() => !$("#workspaceControl").hidden, "draft composer");
-    // Above the card, not inside it.
-    const pillAboveCard = $("#workspaceControl").nextElementSibling === $(".composer-card")
+    // Above the card, not inside it. The queue dock sits between them but stays hidden while the queue is empty.
+    let nextShown = $("#workspaceControl").nextElementSibling;
+    while (nextShown?.hidden) nextShown = nextShown.nextElementSibling;
+    const pillAboveCard = $(".queue-dock").hidden
+      && nextShown === $(".composer-card")
       && $("#workspaceControl").getBoundingClientRect().bottom <= $(".composer-card").getBoundingClientRect().top;
     $("#workspaceButton").click();
-    const popover = await until(() => !$("#workspacePopover").hidden && $("#workspacePopover"), "workspace popover");
+    const popover = await until(() => $("#workspacePopover"), "workspace popover");
     // Below the pill when the list fits there, otherwise above; never off screen.
     const box = popover.getBoundingClientRect();
     const onScreen = box.top >= 0 && box.bottom <= innerHeight;
     document.body.click();
-    await until(() => $("#workspacePopover").hidden, "popover closed");
+    await until(() => !$("#workspacePopover"), "popover closed");
     const option = (label) => $$("#policyPopover [role=option]").find((row) => row.textContent.includes(label));
     $("#policyTrigger").click();
     await until(() => $$("#policyPopover [role=option]").length === 3, "three presets");
@@ -1425,20 +1530,325 @@ test("Full Access needs the risk dialog: the host asks, cancel keeps the tier, a
   });
 });
 
+test(
+  "the workspace more menu starts hidden and toggles without folding the project",
+  { skip },
+  async () => {
+    const toggled = await browser.run(`
+		const project = await until(() => $("#projectGroups .project-group"), "workspace project");
+		const button = project.querySelector(".workspace-menu-button");
+		const initial = {
+			rendered: !!$("#workspaceMenu"),
+			inlineRemove: !!project.querySelector(".remove-workspace"),
+			controls: button.getAttribute("aria-controls"),
+			hasPopup: button.getAttribute("aria-haspopup"),
+			expanded: button.getAttribute("aria-expanded"),
+			label: button.getAttribute("aria-label"),
+			toolbar: [...project.querySelectorAll(".project-actions button")].map((action) =>
+				["workspace-menu-button", "tree-button", "new-project-session"].find((name) => action.classList.contains(name))),
+			folded: project.classList.contains("folded"),
+		};
+		button.click();
+		const menu = await until(() => $("#workspaceMenu"), "workspace menu to open");
+		const opened = {
+			role: menu.getAttribute("role"),
+			removeRole: menu.querySelector(".remove-workspace").getAttribute("role"),
+			expanded: button.getAttribute("aria-expanded"),
+			folded: project.classList.contains("folded"),
+		};
+		button.click();
+		await until(() => !$("#workspaceMenu"), "repeated click to close workspace menu");
+		return { initial, opened, closed: { rendered: !!$("#workspaceMenu"), expanded: button.getAttribute("aria-expanded"), folded: project.classList.contains("folded") } };
+	`)
+    // The menu is rendered only while open.
+    assert.equal(toggled.initial.rendered, false)
+    assert.equal(toggled.initial.inlineRemove, false)
+    assert.equal(toggled.initial.controls, "workspaceMenu")
+    assert.equal(toggled.initial.hasPopup, "menu")
+    assert.equal(toggled.initial.expanded, "false")
+    assert.ok(toggled.initial.label?.trim(), "the more button has an accessible name")
+    assert.deepEqual(toggled.initial.toolbar, ["workspace-menu-button", "tree-button", "new-project-session"])
+    assert.equal(toggled.initial.folded, false)
+    assert.deepEqual(toggled.opened, { role: "menu", removeRole: "menuitem", expanded: "true", folded: false })
+    assert.deepEqual(toggled.closed, { rendered: false, expanded: "false", folded: false })
+  },
+)
+
+test("icon hints open on hover, centered above their trigger, and the open menu's trigger shows none", { skip }, async () => {
+  // A real pointer move, so CSS :hover applies; returns where the trigger's hint sits.
+  const hover = async (selector) => {
+    const box = await browser.run(`
+		const rect = (await until(() => $(${JSON.stringify(selector)}), "hint trigger")).getBoundingClientRect();
+		return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+	`)
+    await browser.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: box.x, y: box.y })
+    return browser.run(`
+		const trigger = $(${JSON.stringify(selector)});
+		const hint = trigger.nextElementSibling;
+		const shown = await until(() => hint && getComputedStyle(hint).display !== "none" && hint, "hint to show");
+		const a = trigger.getBoundingClientRect();
+		const b = shown.getBoundingClientRect();
+		return {
+			role: shown.getAttribute("role"),
+			text: shown.textContent,
+			describedBy: trigger.getAttribute("aria-describedby") === shown.id,
+			centerOffset: Math.round((b.left + b.width / 2) - (a.left + a.width / 2)),
+			above: b.bottom <= a.top,
+		};
+	`)
+  }
+  const tree = await hover("#projectGroups .project-group .tree-button")
+  assert.equal(tree.role, "tooltip")
+  assert.ok(tree.text.trim(), "the tree button's hint has text")
+  // Same words as the aria-label: not announced twice.
+  assert.equal(tree.describedBy, false)
+  assert.ok(Math.abs(tree.centerOffset) <= 1, `hint off center by ${tree.centerOffset}px`)
+  assert.equal(tree.above, true)
+
+  // Rich content: the footer's settings hint is an element, linked to its button.
+  const settings = await hover("#settingsButton")
+  assert.equal(settings.role, "tooltip")
+  assert.equal(settings.describedBy, true)
+  assert.equal(settings.above, true)
+
+  // Settings icon buttons never had a visible hint before the Tooltip component.
+  await browser.run(`
+		$("#settingsButton").click();
+		await until(() => !$("#settingsView").hidden, "settings view");
+		$("[data-settings-page='mcp']").click();
+	`)
+  const refresh = await hover("#settingsView .settings-icon-action.bordered")
+  assert.equal(refresh.role, "tooltip")
+  assert.ok(Math.abs(refresh.centerOffset) <= 1, `hint off center by ${refresh.centerOffset}px`)
+  assert.equal(refresh.above, true)
+  await browser.run(`
+		document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+		await until(() => $("#settingsView").hidden, "settings view to close");
+	`)
+
+  const open = await browser.run(`
+		const button = $("#projectGroups .project-group .workspace-menu-button");
+		const before = button.nextElementSibling?.getAttribute("role");
+		button.click();
+		await until(() => $("#workspaceMenu"), "workspace menu to open");
+		const during = button.nextElementSibling?.getAttribute("role") ?? null;
+		button.click();
+		await until(() => !$("#workspaceMenu"), "workspace menu to close");
+		return { before, during };
+	`)
+  assert.deepEqual(open, { before: "tooltip", during: null })
+  await browser.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 0, y: 0 })
+})
+
+test(
+  "sidebar menus follow their trigger; the workspace menu closes on outside click and Escape returns focus to its trigger",
+  { skip },
+  async () => {
+    const outside = await browser.run(`
+		const project = $("#projectGroups .project-group");
+		const button = project.querySelector(".workspace-menu-button");
+		button.click();
+		await until(() => $("#workspaceMenu"), "workspace menu to open");
+		document.body.click();
+		await until(() => !$("#workspaceMenu"), "outside click to close workspace menu");
+		return { hidden: !$("#workspaceMenu"), expanded: button.getAttribute("aria-expanded"), folded: project.classList.contains("folded") };
+	`)
+    assert.deepEqual(outside, { hidden: true, expanded: "false", folded: false })
+
+    // Anchored to its trigger, the menu follows it, so scrolling no longer closes it.
+    const anchored = await browser.run(`
+		const button = $("#projectGroups .workspace-menu-button");
+		button.click();
+		const menu = await until(() => $("#workspaceMenu"), "workspace menu before scrolling");
+		$(".conversation-list").dispatchEvent(new Event("scroll"));
+		await new Promise((resolve) => requestAnimationFrame(resolve));
+		const a = button.getBoundingClientRect();
+		const b = menu.getBoundingClientRect();
+		const result = { open: menu.isConnected, rightOffset: Math.round(b.right - a.right), gap: Math.round(b.top - a.bottom) };
+		button.click();
+		await until(() => !$("#workspaceMenu"), "workspace menu to close");
+		return result;
+	`)
+    assert.deepEqual(anchored, { open: true, rightOffset: 0, gap: 4 })
+
+    // The session row's more and tag buttons open their menus under themselves the same way.
+    const rowMenus = await browser.run(`
+		const row = await until(() => $(".session-row"), "a session row");
+		const place = async (selector, menuId) => {
+			const button = row.querySelector(selector);
+			button.click();
+			const menu = await until(() => $("#" + menuId), menuId + " to open");
+			await new Promise((resolve) => requestAnimationFrame(resolve));
+			const a = button.getBoundingClientRect();
+			const b = menu.getBoundingClientRect();
+			const placed = {
+				// The grouped view renders the same session in a hidden row; only the visible row's menu exists.
+				count: $$("#" + menuId).length,
+				expanded: button.getAttribute("aria-expanded"),
+				shown: a.width > 0,
+				rightOffset: Math.round(b.right - a.right),
+				gap: Math.round(b.top - a.bottom),
+			};
+			button.click();
+			await until(() => !$("#" + menuId), menuId + " to close on a second click");
+			return placed;
+		};
+		return { session: await place(".session-menu-button", "sessionMenu"), tag: await place(".session-tag-button", "tagPicker") };
+	`)
+    const placed = { count: 1, expanded: "true", shown: true, rightOffset: 0, gap: 4 }
+    assert.deepEqual(rowMenus, { session: placed, tag: placed })
+
+    await browser.run(`
+		$("#projectGroups .workspace-menu-button").click();
+		await until(() => $("#workspaceMenu"), "workspace menu to reopen");
+		$("#workspaceMenu .remove-workspace").focus();
+	`)
+    await browser.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 })
+    await browser.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 })
+    const escaped = await browser.run(`
+		const project = $("#projectGroups .project-group");
+		const button = project.querySelector(".workspace-menu-button");
+		await until(() => !$("#workspaceMenu") && document.activeElement === button, "Escape to close menu and return trigger focus");
+		return {
+			hidden: !$("#workspaceMenu"),
+			expanded: button.getAttribute("aria-expanded"),
+			focused: document.activeElement === button,
+			folded: project.classList.contains("folded"),
+			modalHidden: $("#removeWorkspaceModal").hidden,
+		};
+	`)
+    assert.deepEqual(escaped, { hidden: true, expanded: "false", focused: true, folded: false, modalHidden: true })
+  },
+)
+
+test(
+  "the workspace more menu opens the accessible removal dialog without removing files or chats",
+  { skip },
+  async () => {
+    const dialog = await browser.run(`
+		const project = $("#projectGroups .project-group");
+		const button = project.querySelector(".workspace-menu-button");
+		const before = { projects: projects(), sessions: $$(".session-row").map((row) => row.dataset.sessionId) };
+		button.focus(); button.click();
+		await until(() => $("#workspaceMenu"), "workspace menu to open");
+		$("#workspaceMenu .remove-workspace").click();
+		await until(() => !$("#removeWorkspaceModal").hidden && document.activeElement === $("#removeWorkspaceCancel"), "removal dialog and cancel focus");
+		const section = $("#removeWorkspaceModal [role='dialog']");
+		const opened = {
+			menuHidden: !$("#workspaceMenu"),
+			expanded: button.getAttribute("aria-expanded"),
+			modal: section.getAttribute("aria-modal"),
+			labelledBy: section.getAttribute("aria-labelledby"),
+			describedBy: section.getAttribute("aria-describedby"),
+			title: $("#removeWorkspaceTitle").textContent,
+			description: $("#removeWorkspaceDescription").textContent,
+			focus: document.activeElement.id,
+			folded: project.classList.contains("folded"),
+		};
+		// Opening and cancelling exercise semantics without confirming removal.
+		$("#removeWorkspaceCancel").click();
+		await until(() => $("#removeWorkspaceModal").hidden && document.activeElement === button, "cancel to restore trigger focus");
+		return {
+			before, opened,
+			after: { projects: projects(), sessions: $$(".session-row").map((row) => row.dataset.sessionId) },
+			cancelled: $("#removeWorkspaceModal").hidden,
+			focused: document.activeElement === button,
+		};
+	`)
+    assert.equal(dialog.opened.menuHidden, true)
+    assert.equal(dialog.opened.expanded, "false")
+    assert.equal(dialog.opened.modal, "true")
+    assert.equal(dialog.opened.labelledBy, "removeWorkspaceTitle")
+    assert.equal(dialog.opened.describedBy, "removeWorkspaceDescription")
+    assert.equal(dialog.opened.title, "移除 project?")
+    assert.match(dialog.opened.description, /文件和现有聊天不会被删除/)
+    assert.equal(dialog.opened.focus, "removeWorkspaceCancel")
+    assert.equal(dialog.opened.folded, false)
+    assert.equal(dialog.cancelled, true)
+    assert.equal(dialog.focused, true)
+    assert.deepEqual(dialog.after, dialog.before)
+    assert.ok(existsSync(join(workspace, "README.md")), "opening the removal dialog must not delete workspace files")
+  },
+)
+
+test(
+  "the workspace more menu stays visible in a narrow sidebar without folding the project",
+  { skip },
+  async () => {
+    try {
+      await browser.send("Emulation.setDeviceMetricsOverride", {
+        width: 720,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+      })
+      const narrow = await browser.run(`
+			await new Promise((resolve) => requestAnimationFrame(resolve));
+			const project = await until(() => $("#projectGroups .project-group"), "project in narrow sidebar");
+			project.querySelector(".workspace-menu-button").click();
+			const menu = await until(() => $("#workspaceMenu"), "workspace menu in narrow sidebar");
+			await new Promise((resolve) => requestAnimationFrame(resolve));
+			const box = menu.getBoundingClientRect();
+			const remove = menu.querySelector(".remove-workspace");
+			const item = remove.getBoundingClientRect();
+			return {
+				left: box.left,
+				right: box.right,
+				bottom: box.bottom,
+				viewportWidth: innerWidth,
+				viewportHeight: innerHeight,
+				removeVisible: !remove.hidden && getComputedStyle(remove).visibility !== "hidden"
+					&& item.width > 0 && item.height > 0
+					&& item.left >= 0 && item.right <= innerWidth && item.top >= 0 && item.bottom <= innerHeight
+					&& remove.contains(document.elementFromPoint(item.left + item.width / 2, item.top + item.height / 2)),
+				folded: project.classList.contains("folded"),
+			};
+		`)
+      assert.ok(narrow.left >= 8, `menu left ${narrow.left} must retain the viewport margin`)
+      assert.ok(narrow.right <= narrow.viewportWidth, "the menu must fit within the viewport's right edge")
+      assert.ok(narrow.bottom <= narrow.viewportHeight, "the menu must fit within the viewport's bottom edge")
+      assert.equal(narrow.removeVisible, true, "the removal item must be visible and not covered")
+      assert.equal(narrow.folded, false)
+    } finally {
+      try {
+        await browser.run(`
+			if ($("#workspaceMenu")) document.body.click();
+			await until(() => !$("#workspaceMenu"), "narrow sidebar menu to close");
+		`)
+      } finally {
+        await browser.send("Emulation.setDeviceMetricsOverride", {
+          width: 1440,
+          height: 900,
+          deviceScaleFactor: 1,
+          mobile: false,
+        })
+        await browser.run(`await new Promise((resolve) => requestAnimationFrame(resolve));`)
+      }
+    }
+  },
+)
+
 test("workspaces with chats can be removed through the dialog, retained after reload and restored", { skip }, async () => {
   const before = await browser.run(`
-    const session = $(".session-row.active").dataset.sessionId;
+    // Pick a conversation instead of assuming the page opened one: the removal must keep it.
+    (await until(() => $("#projectGroups .session-row, #recentTasks .session-row"), "a conversation")).click();
+    const session = await until(() => $(".session-row.active")?.dataset.sessionId, "open conversation");
     const project = $("#projectGroups .project-group");
-    const button = project.querySelector(".remove-workspace");
+    const button = project.querySelector(".workspace-menu-button");
     button.focus(); button.click();
+    await until(() => $("#workspaceMenu"), "workspace menu");
+    $("#workspaceMenu .remove-workspace").click();
     await until(() => !$("#removeWorkspaceModal").hidden, "removal dialog");
     const title = $("#removeWorkspaceTitle").textContent;
     const description = $("#removeWorkspaceDescription").textContent;
     const focused = document.activeElement.id;
     $("#removeWorkspaceCancel").click();
-    await until(() => $("#removeWorkspaceModal").hidden, "cancel");
+    await until(() => $("#removeWorkspaceModal").hidden && document.activeElement === button, "cancel and restore trigger focus");
     const restoredFocus = document.activeElement === button;
-    button.click(); await until(() => !$("#removeWorkspaceModal").hidden, "reopen");
+    button.click();
+    await until(() => $("#workspaceMenu"), "workspace menu again");
+    $("#workspaceMenu .remove-workspace").click();
+    await until(() => !$("#removeWorkspaceModal").hidden, "reopen");
     return { session, title, description, focused, restoredFocus };
   `);
   assert.equal(before.title, "移除 project?");
@@ -1449,11 +1859,17 @@ test("workspaces with chats can be removed through the dialog, retained after re
   await browser.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
   const removed = await browser.run(`
     await until(() => $("#removeWorkspaceModal").hidden, "Escape closes dialog");
-    const button = $("#projectGroups .remove-workspace");
-    button.click(); await until(() => !$("#removeWorkspaceModal").hidden, "reopen for close");
+    const button = $("#projectGroups .workspace-menu-button");
+    button.click();
+    await until(() => $("#workspaceMenu"), "workspace menu for close");
+    $("#workspaceMenu .remove-workspace").click();
+    await until(() => !$("#removeWorkspaceModal").hidden, "reopen for close");
     $("#removeWorkspaceModal header button").click();
     await until(() => $("#removeWorkspaceModal").hidden, "close button");
-    button.click(); await until(() => !$("#removeWorkspaceModal").hidden, "reopen for confirm");
+    button.click();
+    await until(() => $("#workspaceMenu"), "workspace menu for confirm");
+    $("#workspaceMenu .remove-workspace").click();
+    await until(() => !$("#removeWorkspaceModal").hidden, "reopen for confirm");
     const original = window.fetch; let calls = 0;
     window.fetch = (...args) => {
       if (String(args[0]).startsWith("/api/v1/workspaces?") && args[1]?.method === "DELETE") {
@@ -1488,3 +1904,219 @@ test("workspaces with chats can be removed through the dialog, retained after re
   `);
   assert.deepEqual(restored, [workspace]);
 });
+
+test("conversation search finds message content written outside the page and opens the matching message", { skip }, async () => {
+  // A session another process (the CLI) wrote: the host's index picks it up without a notification.
+  const sessionId = "e2e-search-session"
+  const now = new Date().toISOString()
+  const lines = [
+    { type: "session", version: 3, id: sessionId, timestamp: now, cwd: workspace },
+    { type: "message", id: "e2e-user", parentId: null, timestamp: now, message: { role: "user", content: "where is the config loader", timestamp: Date.now() } },
+    {
+      type: "message",
+      id: "e2e-answer",
+      parentId: "e2e-user",
+      timestamp: now,
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "The quokkaloader module reads config.toml once at startup." }],
+        api: "openai-completions",
+        provider: "e2e",
+        model: "e2e",
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+        stopReason: "stop",
+        timestamp: Date.now(),
+      },
+    },
+  ]
+  const dir = join(base, "agent", "sessions", "--e2e-search--")
+  await mkdir(dir, { recursive: true })
+  await writeFile(join(dir, `${sessionId}.jsonl`), lines.map((line) => JSON.stringify(line)).join("\n") + "\n")
+  // A subagent's transcript in the same folder: indexed, but neither searched nor listed.
+  const child = [
+    { type: "session", version: 3, id: "subagent-e2e", timestamp: now, cwd: workspace, origin: "subagent" },
+    { ...lines[1], id: "e2e-child", message: { role: "user", content: "You are a subagent. Read the quokkaloader module.", timestamp: Date.now() } },
+  ]
+  await writeFile(join(dir, "subagent-e2e.jsonl"), child.map((line) => JSON.stringify(line)).join("\n") + "\n")
+
+  const found = await browser.run(`
+    $("#searchPlaceholder").click();
+    await until(() => !$("#searchModal").hidden, "search modal");
+    const input = $("#globalSearchInput");
+    input.value = "quokkaloader";
+    input.dispatchEvent(new Event("input"));
+    const result = await until(() => $$(".search-result").find((row) => row.querySelector("mark")), "content hit");
+    const marked = result.querySelector("mark").textContent;
+    const entry = result.dataset.entryId;
+    const all = $$(".search-result").length;
+    result.click();
+    await until(() => $("#searchModal").hidden, "modal to close");
+    const message = await until(() => $('#streamInner [data-entry-id="e2e-answer"]'), "matching message");
+    const stream = $("#stream").getBoundingClientRect();
+    const box = message.getBoundingClientRect();
+    return { marked, entry, all, visible: box.bottom > stream.top && box.top < stream.bottom };
+  `)
+  assert.deepEqual(found, { marked: "quokkaloader", entry: "e2e-answer", all: 1, visible: true })
+
+  const rejected = await browser.run(`
+    return (await fetch("/api/v1/search?q=abc&cwd=relative")).status;
+  `)
+  assert.equal(rejected, 400)
+
+  const listed = await browser.run(`
+    const { sessions } = await (await fetch("/api/v1/sessions")).json();
+    return sessions.map((session) => session.id).filter((id) => id.startsWith("e2e-search") || id.startsWith("subagent-"));
+  `)
+  assert.deepEqual(listed, [sessionId])
+})
+
+test("the conversation locator rail jumps to a query and follows the viewport", { skip }, async () => {
+  const sessionId = "e2e-nav-session"
+  const now = new Date().toISOString()
+  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }
+  const filler = "A conversation tall enough for the stream to scroll, so the locator rail has somewhere to jump. ".repeat(6)
+  const user = (n) => ({
+    type: "message", id: `e2e-nav-user-${n}`, parentId: n === 1 ? null : `e2e-nav-answer-${n - 1}`, timestamp: now,
+    message: { role: "user", content: `question ${n}: ${filler}`, timestamp: Date.now() },
+  })
+  const answer = (n) => ({
+    type: "message", id: `e2e-nav-answer-${n}`, parentId: `e2e-nav-user-${n}`, timestamp: now,
+    message: {
+      role: "assistant", content: [{ type: "text", text: `answer ${n}: ${filler}` }],
+      api: "openai-completions", provider: "e2e", model: "e2e", usage, stopReason: "stop", timestamp: Date.now(),
+    },
+  })
+  const lines = [{ type: "session", version: 3, id: sessionId, timestamp: now, cwd: workspace }]
+  for (let n = 1; n <= 5; n++) {
+    lines.push(user(n))
+    lines.push(answer(n))
+  }
+  const dir = join(base, "agent", "sessions", "--e2e-nav--")
+  await mkdir(dir, { recursive: true })
+  await writeFile(join(dir, `${sessionId}.jsonl`), lines.map((line) => JSON.stringify(line)).join("\n") + "\n")
+
+  await browser.goto(`${origin}/`)
+  const located = await browser.run(`
+    const row = await until(() => $('.session-row[data-session-id="${sessionId}"]'), "session row");
+    row.click();
+    await until(() => $("#stream .message.user"), "messages to draw");
+    // With the sidebar shown at 1440px, the docked Summary (open by default on wide windows)
+    // narrows the middle column below the rail's minimum, so the ticks would cover the messages.
+    // Closing it brings the rail back; earlier tests may already have changed either panel.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    if (!$(".stream-nav") && $(".app").classList.contains("summary-docked")) $("[data-right-panel='summary']").click();
+    const rail = await until(() => $(".stream-nav"), "locator rail");
+    const stream = $("#stream");
+    // Opening a session pins the bottom; back to the top the first tick is the active one.
+    stream.scrollTop = 0;
+    await until(() => {
+      // A late projection after the session opens can pin the bottom again.
+      if (stream.scrollTop > 0) stream.scrollTop = 0;
+      return $('.stream-nav-tick[data-active="true"]')?.dataset.index === "0";
+    }, "first tick active at the top");
+    // Clicking the second tick centres that query and the active tick follows.
+    $('.stream-nav-tick[data-index="1"]').click();
+    await until(() => {
+      const message = $('#streamInner [data-entry-id="e2e-nav-user-2"]');
+      const box = message.getBoundingClientRect();
+      const view = stream.getBoundingClientRect();
+      return box.bottom > view.top && box.top < view.bottom
+        && $('.stream-nav-tick[data-active="true"]')?.dataset.index === "1";
+    }, "second query centred and its tick active");
+    return {
+      ticks: $$(".stream-nav-tick").length,
+      label: rail.getAttribute("aria-label"),
+      jump: $(".stream-nav-tick").getAttribute("aria-label"),
+    };
+  `)
+  assert.equal(located.ticks, 5)
+  assert.equal(located.label, "对话定位")
+  assert.equal(located.jump, "跳转到第 1 条提问")
+})
+
+test("a subagent or workflow call opens its child agents' transcripts read-only over the conversation", { skip }, async () => {
+  const now = new Date().toISOString()
+  const stamp = now.replace(/[:.]/g, "-")
+  const parentId = "e2e-parent-session"
+  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }
+  const reply = (id, parentEntry, text) => ({
+    type: "message", id, parentId: parentEntry, timestamp: now,
+    message: { role: "assistant", content: [{ type: "text", text }], api: "openai-completions", provider: "e2e", model: "e2e", usage, stopReason: "stop", timestamp: Date.now() },
+  })
+  const user = (id, parentEntry, text) => ({ type: "message", id, parentId: parentEntry, timestamp: now, message: { role: "user", content: text, timestamp: Date.now() } })
+  const call = (id, parentEntry, toolId, name) => ({
+    type: "message", id, parentId: parentEntry, timestamp: now,
+    message: { role: "assistant", content: [{ type: "toolCall", id: toolId, name, arguments: {} }], api: "openai-completions", provider: "e2e", model: "e2e", usage, stopReason: "toolUse", timestamp: Date.now() },
+  })
+  const result = (id, parentEntry, toolId, name, details) => ({
+    type: "message", id, parentId: parentEntry, timestamp: now,
+    message: { role: "toolResult", toolCallId: toolId, toolName: name, content: [{ type: "text", text: "done" }], details, isError: false, timestamp: Date.now() },
+  })
+  const run = "wf_e2e0001"
+  const subagentId = "subagent-e2e-linked"
+  const parent = [
+    { type: "session", version: 3, id: parentId, timestamp: now, cwd: workspace },
+    user("p1", null, "delegate the wombat audit"),
+    call("p2", "p1", "t1", "subagent"),
+    result("p3", "p2", "t1", "subagent", { mode: "single", results: [{ agent: "explore", task: "audit wombat", sessionId: subagentId }] }),
+    call("p4", "p3", "t2", "workflow"),
+    result("p5", "p4", "t2", "workflow", { schemaVersion: 1, runId: run, name: "e2e" }),
+    reply("p6", "p5", "All delegated."),
+  ]
+  const childLines = (id, task, answer) => [
+    { type: "session", version: 3, id, timestamp: now, cwd: workspace, origin: "subagent", parentSessionId: parentId },
+    user(`${id}-u`, null, task),
+    reply(`${id}-a`, `${id}-u`, answer),
+  ]
+  const dir = join(base, "agent", "sessions", "--e2e-children--")
+  await mkdir(dir, { recursive: true })
+  const write = (id, lines) => writeFile(join(dir, `${stamp}_${id}.jsonl`), lines.map((line) => JSON.stringify(line)).join("\n") + "\n")
+  await write(parentId, parent)
+  await write(subagentId, childLines(subagentId, "audit wombat", "Wombat audit finished."))
+  await write(`workflow-${run}-${run}-1`, childLines(`workflow-${run}-${run}-1`, "first workflow agent", "First agent answer."))
+  await write(`workflow-${run}-${run}-2`, childLines(`workflow-${run}-${run}-2`, "second workflow agent", "Second agent answer."))
+
+  await browser.goto(`${origin}/`)
+  const seen = await browser.run(`
+    const row = await until(() => $('.session-row[data-session-id="${parentId}"]'), "parent session row");
+    const listedChildren = $$(".session-row").filter((item) => /^(subagent|workflow)-/.test(item.dataset.sessionId)).length;
+    row.click();
+    const link = await until(() => $('.tool-child-link[data-child-session-id="${subagentId}"]'), "subagent link");
+    link.click();
+    const view = $("#childAgentView");
+    await until(() => !view.hidden && view.textContent.includes("Wombat audit finished."), "child transcript");
+    const single = {
+      listedChildren,
+      readOnlyBadge: Boolean(view.querySelector(".child-agent-badge")),
+      actions: view.querySelectorAll(".message-actions, textarea, input").length,
+      activeRow: $(".session-row.active")?.dataset.sessionId,
+    };
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await until(() => view.hidden, "child view closed by Escape");
+
+    $('.tool-child-link[data-workflow-run="${run}"]').click();
+    await until(() => !view.hidden && view.textContent.includes("First agent answer."), "first workflow agent");
+    const agentTabs = $$(".child-agent-tab").map((tab) => tab.textContent);
+    const tabHints = $$(".child-agent-tab").map((tab) => tab.nextElementSibling?.getAttribute("role") === "tooltip" && tab.nextElementSibling.textContent);
+    $$(".child-agent-tab")[1].click();
+    await until(() => view.textContent.includes("Second agent answer."), "second workflow agent");
+    $("#childAgentBack").click();
+    await until(() => view.hidden, "child view closed");
+    return { ...single, tabs: agentTabs, tabHints };
+  `)
+  assert.deepEqual(seen, {
+    listedChildren: 0,
+    readOnlyBadge: true,
+    actions: 0,
+    activeRow: parentId,
+    tabs: ["#1first workflow agent", "#2second workflow agent"],
+    tabHints: ["first workflow agent", "second workflow agent"],
+  })
+
+  const refused = await browser.run(`
+    const other = await fetch("/api/v1/sessions/${parentId}/children/${encodeURIComponent("../etc")}");
+    const notChild = await fetch("/api/v1/sessions/${parentId}/children/e2e-search-session");
+    return [other.status, notChild.status];
+  `)
+  assert.deepEqual(refused, [404, 404])
+})

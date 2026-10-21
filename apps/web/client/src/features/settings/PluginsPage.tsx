@@ -11,7 +11,7 @@ import { cx } from "../../lib/format";
 import { showError } from "../../state/session";
 import { useAppStore } from "../../state/store";
 import type { SettingsPluginCatalog } from "../../state/types";
-import { Icon, IconButton, Modal, SearchInput, SegmentedControl } from "../../ui";
+import { Icon, IconButton, Modal, SearchInput, SegmentedControl, Tooltip } from "../../ui";
 import { closeSettingsDialog, openSettingsDialog, showSettingsPage, useSettingsResource } from "./actions";
 import { Badge, EmptyBox, PageHeader, ResourceState, SectionHeader, SettingsCard } from "./parts";
 
@@ -198,14 +198,15 @@ export function PluginsPage() {
 					onChange={setTab}
 				/>
 				<div className="settings-section-actions">
-					<IconButton
-						icon="refresh"
-						iconSize="xs"
-						className="settings-icon-action bordered"
-						aria-label={t("settingsRefresh")}
-						data-tooltip={t("settingsRefresh")}
-						onClick={resource.reload}
-					/>
+					<Tooltip content={t("settingsRefresh")}>
+						<IconButton
+							icon="refresh"
+							iconSize="xs"
+							className="settings-icon-action bordered"
+							aria-label={t("settingsRefresh")}
+							onClick={resource.reload}
+						/>
+					</Tooltip>
 					<button type="button" className="settings-btn" onClick={() => openSettingsDialog("marketplace")}>
 						<Icon name="store" size="xs" />
 						{t("settingsMarketplaceAdd")}
@@ -350,23 +351,29 @@ export function PluginsPage() {
 										</button>
 									) : null}
 									{source.kind !== "builtin" ? (
-										<IconButton
-											icon="trash"
-											iconSize="xs"
-											className="settings-icon-action danger"
-											aria-label={t("settingsDelete")}
-											data-tooltip={t("settingsDelete")}
-											onClick={() => {
-												if (!window.confirm(t("settingsMarketplaceRemoveConfirm", { name: source.name })))
-													return;
-												void run(
-													`remove-source:${source.name}`,
-													() =>
-														apiSend(`${MARKETPLACES_PATH}/${encodeURIComponent(source.name)}`, "DELETE"),
-													t("settingsMarketplaceRemoved", { name: source.name }),
-												);
-											}}
-										/>
+										<Tooltip content={t("settingsDelete")}>
+											<IconButton
+												icon="trash"
+												iconSize="xs"
+												className="settings-icon-action danger"
+												aria-label={t("settingsDelete")}
+												onClick={() => {
+													if (
+														!window.confirm(t("settingsMarketplaceRemoveConfirm", { name: source.name }))
+													)
+														return;
+													void run(
+														`remove-source:${source.name}`,
+														() =>
+															apiSend(
+																`${MARKETPLACES_PATH}/${encodeURIComponent(source.name)}`,
+																"DELETE",
+															),
+														t("settingsMarketplaceRemoved", { name: source.name }),
+													);
+												}}
+											/>
+										</Tooltip>
 									) : null}
 								</div>
 							</div>

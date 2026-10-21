@@ -92,8 +92,6 @@ export interface TurnChanges {
 	readonly files: readonly ChangedFile[];
 	readonly additions: number;
 	readonly deletions: number;
-	/** `bash` calls in the turn: what they changed is not tracked. */
-	readonly bashCalls: number;
 }
 
 /** `path` relative to `cwd` when it lies inside it, without a leading `./`. */
@@ -126,7 +124,6 @@ interface TurnDraft {
 	readonly turnId: string;
 	readonly ordinal: number;
 	lastIndex: number;
-	bashCalls: number;
 	readonly files: Map<string, { patches: string[]; untracked?: UntrackedReason }>;
 }
 
@@ -144,7 +141,6 @@ function sameTurn(left: TurnChanges, right: TurnChanges): boolean {
 		left.ordinal === right.ordinal &&
 		left.latest === right.latest &&
 		left.lastIndex === right.lastIndex &&
-		left.bashCalls === right.bashCalls &&
 		left.files.length === right.files.length &&
 		left.files.every((file, index) => file === right.files[index])
 	);
@@ -164,15 +160,14 @@ export function collectTurnChanges(items: readonly TimelineItem[], cwd: string):
 	items.forEach((item, index) => {
 		if (item.kind === "message" && item.role === "user") {
 			ordinal += 1;
-			turns.push({ turnId: item.entryId ?? item.itemId, ordinal, lastIndex: index, bashCalls: 0, files: new Map() });
+			turns.push({ turnId: item.entryId ?? item.itemId, ordinal, lastIndex: index, files: new Map() });
 			return;
 		}
-		if (!turns.length) turns.push({ turnId: "", ordinal: 0, lastIndex: index, bashCalls: 0, files: new Map() });
+		if (!turns.length) turns.push({ turnId: "", ordinal: 0, lastIndex: index, files: new Map() });
 		const turn = turns[turns.length - 1];
 		if (item.kind === "approval") return;
 		turn.lastIndex = index;
 		if (item.kind !== "tool") return;
-		if (item.toolName === "bash") turn.bashCalls += 1;
 		if (!item.change) return;
 		const path = displayPath(item.change.path, cwd);
 		const file = turn.files.get(path) ?? { patches: [] };
@@ -204,7 +199,6 @@ export function collectTurnChanges(items: readonly TimelineItem[], cwd: string):
 				files,
 				additions: files.reduce((sum, file) => sum + file.additions, 0),
 				deletions: files.reduce((sum, file) => sum + file.deletions, 0),
-				bashCalls: turn.bashCalls,
 			};
 			const kept = previous && sameTurn(previous, changes) ? previous : changes;
 			next.set(turn.turnId, kept);

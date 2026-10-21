@@ -124,15 +124,6 @@
 	border-left: 1px solid var(--line);
 	background: var(--canvas);
 }
-.app.preview-open .main {
-	margin-right: var(--preview-width, 560px);
-}
-.preview-show {
-	position: absolute;
-	top: 14px;
-	right: 14px;
-	z-index: 5;
-}
 .preview-resizer {
 	position: absolute;
 	top: 0;
@@ -338,9 +329,6 @@
 /* Legacy styles.css 1420-1424. */
 /* Too narrow to share: the preview covers the conversation instead. */
 @media (max-width: 1000px) {
-	.app.preview-open .main {
-		margin-right: 0;
-	}
 	.preview-panel {
 		width: min(100vw, var(--preview-width, 560px));
 		max-width: 100vw;
@@ -408,23 +396,16 @@
 .changes-tools .icon-button:disabled {
 	opacity: 0.4;
 }
+/* Placed by Popover, 6px below its trigger. */
 .changes-menu {
-	position: absolute;
-	top: calc(100% + 6px);
+	--popover-gap: 6px;
 	z-index: 30;
-}
-.changes-turn-menu {
-	left: 0;
 }
 .changes-turn-menu [role="menu"] {
 	min-width: 200px;
 }
 .changes-turn-menu [aria-checked="true"] {
 	background: var(--selected);
-}
-.changes-more-menu,
-.changes-file-menu {
-	right: 0;
 }
 .changes-files {
 	flex: 1;
@@ -471,7 +452,7 @@
 	outline: 2px solid var(--focus-border);
 	outline-offset: -2px;
 }
-/* Full path on hover, like the sidebar's data-tooltip. */
+/* Full path on hover, under the row (a wide hint the icon `Tooltip` does not suit). */
 .changes-file-toggle[data-tooltip] {
 	position: relative;
 }

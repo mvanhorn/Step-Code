@@ -2,70 +2,193 @@
  * `.user-area` at the foot of the sidebar: the signed-in account on the left,
  * and two icon buttons on the right. The phone button is a placeholder for
  * mobile remote control (not available yet); the gear opens the settings view.
+ *
+ * The account shows the nickname and avatar the host reads from the account
+ * session (`GET /api/v1/account`). Without one (API-key sign-in, or the
+ * developer center unreachable) it falls back to a label for the credential.
+ * Pressing it opens `#accountMenu` above it: the account (avatar, name, id)
+ * and the account actions, Upgrade and Log out.
  */
 
+import { useState } from "react";
 import { type TranslateFn, useT } from "../../i18n";
-import { useAppStore } from "../../state/store";
-import type { LoginReport } from "../../state/types";
-import { Icon } from "../../ui";
+import { copyText } from "../../state/session";
+import { setUi, useAppStore } from "../../state/store";
+import type { AccountReport, LoginReport } from "../../state/types";
+import { Icon, IconButton, Menu, MenuDivider, MenuItem, Popover, Tooltip } from "../../ui";
+import { openLoginPage } from "../login/actions";
 import { openSettings } from "../settings/actions";
+import { logout, stepPlanUrl } from "./actions";
 
-function accountName(t: TranslateFn, login: LoginReport | null): string {
+function isStepPlan(login: LoginReport | null): boolean {
+	return login?.source === "auth.json" && login.profile?.startsWith("step_plan") === true;
+}
+
+/** The name to show; empty while a Step Plan account is still being looked up. */
+function accountName(t: TranslateFn, login: LoginReport | null, account: AccountReport | null): string {
 	if (!login?.configured) return t("footerSignedOut");
-	if (login.source === "environment") return t("footerApiKey");
-	return login.profile?.startsWith("step_plan") ? "Step Plan" : t("footerApiKey");
+	if (account?.account) return account.account.name;
+	if (!isStepPlan(login)) return t("footerApiKey");
+	return account ? t("footerSignedIn") : "";
+}
+
+function AccountAvatar({ name, url, className }: { name: string; url: string | undefined; className?: string }) {
+	// Remember which URL failed, so a new URL gets a fresh attempt.
+	const [brokenUrl, setBrokenUrl] = useState<string>();
+	return (
+		<span className={className ? `user-avatar ${className}` : "user-avatar"} aria-hidden="true">
+			{url && url !== brokenUrl ? (
+				<img
+					className="user-avatar-image"
+					src={url}
+					alt=""
+					referrerPolicy="no-referrer"
+					draggable={false}
+					onError={() => setBrokenUrl(url)}
+				/>
+			) : (
+				name.slice(0, 1).toUpperCase()
+			)}
+		</span>
+	);
+}
+
+const closeAccountMenu = () => setUi({ accountMenuOpen: false });
+
+function AccountMenu({
+	name,
+	avatarUrl,
+	uid,
+}: {
+	name: string;
+	avatarUrl: string | undefined;
+	uid: string | undefined;
+}) {
+	const t = useT();
+	const planUrl = useAppStore((state) => stepPlanUrl(state.login));
+	return (
+		<>
+			<div className="account-menu-header">
+				<AccountAvatar name={name} url={avatarUrl} className="large" />
+				<div className="account-menu-identity">
+					<span className="account-menu-name">{name}</span>
+					{uid ? (
+						<span className="account-menu-id">
+							<span id="accountMenuId">{t("accountId", { uid })}</span>
+							<Tooltip content={t("copyAccountId")}>
+								<IconButton
+									className="account-menu-copy"
+									icon="copy"
+									iconSize="xs"
+									aria-label={t("copyAccountId")}
+									onClick={() => void copyText(uid)}
+								/>
+							</Tooltip>
+						</span>
+					) : null}
+				</div>
+			</div>
+			<MenuDivider />
+			<Menu bare role="menu" aria-label={t("footerAccount", { name })}>
+				<MenuItem
+					role="menuitem"
+					id="accountUpgradeButton"
+					data-href={planUrl}
+					icon="upgrade"
+					onClick={() => {
+						closeAccountMenu();
+						openLoginPage(planUrl);
+					}}
+				>
+					{t("upgrade")}
+				</MenuItem>
+				<MenuItem
+					role="menuitem"
+					id="accountLogoutButton"
+					icon="logout"
+					danger
+					onClick={() => {
+						closeAccountMenu();
+						logout();
+					}}
+				>
+					{t("logout")}
+				</MenuItem>
+			</Menu>
+		</>
+	);
 }
 
 export function UserArea() {
 	const t = useT();
 	const login = useAppStore((state) => state.login);
-	const name = accountName(t, login);
+	const account = useAppStore((state) => state.account);
+	const name = accountName(t, login, account);
+	const avatarUrl = login?.configured ? account?.account?.avatarUrl : undefined;
+	const uid = login?.configured ? account?.account?.uid : undefined;
+	const menuOpen = useAppStore((state) => state.ui.accountMenuOpen);
 	return (
 		<div className="user-area">
-			<button
-				type="button"
-				className="user-account"
-				id="userAccountButton"
-				aria-label={t("footerAccount", { name })}
-				onClick={() => openSettings("general")}
+			{/* Escape belongs to the shell's chain. */}
+			<Popover
+				className="account-menu"
+				id="accountMenu"
+				placement="top-start"
+				open={menuOpen}
+				onClose={closeAccountMenu}
+				closeOnEscape={false}
+				content={<AccountMenu name={name} avatarUrl={avatarUrl} uid={uid} />}
 			>
-				<span className="user-avatar" aria-hidden="true">
-					{name.slice(0, 1).toUpperCase()}
-				</span>
-				<span className="user-name">{name}</span>
-			</button>
+				<button
+					type="button"
+					className="user-account"
+					id="userAccountButton"
+					aria-label={t("footerAccount", { name })}
+					aria-haspopup="menu"
+					aria-expanded={menuOpen}
+					aria-controls="accountMenu"
+					onClick={() => setUi((ui) => ({ accountMenuOpen: !ui.accountMenuOpen }))}
+				>
+					<AccountAvatar name={name} url={avatarUrl} />
+					<span className="user-name">{name}</span>
+				</button>
+			</Popover>
 			<div className="user-actions">
-				<span className="footer-tip-anchor">
+				<Tooltip
+					id="remoteControlTip"
+					className="footer-tooltip"
+					content={
+						<>
+							<strong>{t("remoteControl")}</strong>
+							<span>{t("remoteControlOff")}</span>
+						</>
+					}
+				>
 					<button
 						type="button"
 						className="footer-icon-button"
 						id="remoteControlButton"
 						aria-label={t("remoteControl")}
-						aria-describedby="remoteControlTip"
 						aria-disabled="true"
 					>
 						<Icon name="phone" size="md" />
 					</button>
-					<span className="footer-tooltip" id="remoteControlTip" role="tooltip">
-						<strong>{t("remoteControl")}</strong>
-						<span>{t("remoteControlOff")}</span>
-					</span>
-				</span>
-				<span className="footer-tip-anchor">
+				</Tooltip>
+				<Tooltip
+					id="settingsButtonTip"
+					className="footer-tooltip compact"
+					content={<strong>{t("settings")}</strong>}
+				>
 					<button
 						type="button"
 						className="footer-icon-button"
 						id="settingsButton"
 						aria-label={t("settings")}
-						aria-describedby="settingsButtonTip"
 						onClick={() => openSettings()}
 					>
 						<Icon name="cog" size="md" />
 					</button>
-					<span className="footer-tooltip compact" id="settingsButtonTip" role="tooltip">
-						<strong>{t("settings")}</strong>
-					</span>
-				</span>
+				</Tooltip>
 			</div>
 		</div>
 	);

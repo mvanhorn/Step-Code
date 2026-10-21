@@ -1,0 +1,109 @@
+/*
+ * Conversation locator rail (StreamNav.tsx): a column of ticks pinned to the
+ * right edge of the middle column. Rendered only while the column is at least
+ * RAIL_MIN_WIDTH wide, so the ticks clear the 760px message column.
+ */
+
+.stream-nav {
+	position: absolute;
+	inset-block: 0;
+	right: 0;
+	z-index: 2;
+}
+
+.stream-nav-rail {
+	position: absolute;
+	top: 50%;
+	right: 10px;
+	transform: translateY(-50%);
+	max-height: calc(100% - 96px);
+	overflow-x: hidden;
+	overflow-y: auto;
+	padding: 4px 0;
+	pointer-events: auto;
+	/* The rail scrolls on its own when a session has many queries; its scrollbar would only flicker. */
+	scrollbar-width: none;
+}
+
+.stream-nav-rail::-webkit-scrollbar {
+	display: none;
+}
+
+.stream-nav-list {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+}
+
+.stream-nav-tick {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	width: 26px;
+	height: 12px;
+	cursor: pointer;
+}
+
+.stream-nav-tick:focus-visible {
+	outline: 2px solid var(--focus-border);
+	outline-offset: -3px;
+	border-radius: var(--radius-tiny);
+}
+
+.stream-nav-bar {
+	width: 12px;
+	height: 2px;
+	border-radius: var(--radius-pill);
+	background: var(--ink-3);
+	/* The rail hugs the right edge, so bars grow leftward into the column. */
+	transform-origin: right center;
+	transition:
+		transform var(--fast) ease,
+		opacity var(--fast) ease,
+		background-color var(--fast) ease;
+}
+
+.stream-nav-bar--strong {
+	background: var(--ink);
+}
+
+/* The hover preview card, portalled to <body> and placed by geometry from the
+   tick's viewport box (see StreamNav.tsx): CSS anchor positioning
+   intermittently left this card unpositioned inside the transformed, scrolling
+   rail, which clipped it at the viewport edge. */
+.stream-nav-card {
+	position: fixed;
+	z-index: 60;
+	display: grid;
+	gap: 6px;
+	width: 300px;
+	max-width: 300px;
+	padding: 10px 12px;
+	border: 1px solid var(--line);
+	border-radius: var(--radius-panel);
+	background: var(--surface);
+	box-shadow: 0 6px 18px var(--shadow);
+	font-size: 12px;
+	line-height: 1.5;
+	color: var(--ink);
+	transform: translateY(-50%);
+	pointer-events: none;
+}
+
+.stream-nav-card p {
+	margin: 0;
+	overflow: hidden;
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	white-space: pre-line;
+}
+
+.stream-nav-card-user {
+	-webkit-line-clamp: 2;
+	font-weight: 500;
+}
+
+.stream-nav-card-reply {
+	-webkit-line-clamp: 3;
+	color: var(--ink-2);
+}

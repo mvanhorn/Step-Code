@@ -17,6 +17,8 @@ export interface DefaultWorkflowAgentRunnerOptions {
 	agentDir?: string;
 	configDirName?: string;
 	includeBuiltinAgents?: boolean;
+	/** CLI entry for workflow agents; see `StepSubagentRunInput.cliPath`. */
+	cliPath?: string;
 }
 
 /** Build the production runner on top of Step's existing rpc subagent path. */
@@ -45,6 +47,7 @@ export function createDefaultWorkflowAgentRunner(options: DefaultWorkflowAgentRu
 			},
 			task: prompt,
 			cwd: path.resolve(input.cwd),
+			...(options.cliPath === undefined ? {} : { cliPath: options.cliPath }),
 			model: input.options.model,
 			thinkingLevel: thinkingLevel(input.options.effort),
 			signal: input.signal,

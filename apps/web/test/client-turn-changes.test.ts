@@ -34,7 +34,7 @@ test("the client splits turns at every user message, like the host's revert", ()
 		kind: "message",
 		role: "user",
 		content: "",
-		images: 1,
+		images: ["data:image/png;base64,AAAA"],
 		usage: undefined,
 		timestamp: "2026-10-15T00:00:00.000Z",
 	});
@@ -50,7 +50,7 @@ test("the client splits turns at every user message, like the host's revert", ()
 	]);
 });
 
-test("collectTurnChanges marks files without a patch and counts bash calls", () => {
+test("collectTurnChanges marks files without a patch", () => {
 	const entries = [
 		message("u1", { role: "user", content: "go" }),
 		...edit("c1", "big.txt", { untracked: "too_large" }),
@@ -59,7 +59,6 @@ test("collectTurnChanges marks files without a patch and counts bash calls", () 
 	];
 	const [turn] = collectTurnChanges(timelineFromEntries(entries), "/w");
 	assert.deepEqual(turn?.files, [{ path: "big.txt", patches: [], untracked: "too_large", additions: 0, deletions: 0 }]);
-	assert.equal(turn?.bashCalls, 1);
 });
 
 test("collectTurnChanges keeps unchanged turns and files as the same objects", () => {

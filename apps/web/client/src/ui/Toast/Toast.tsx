@@ -10,7 +10,10 @@ export interface ToastProps extends Omit<ComponentPropsWithRef<"div">, "children
 	readonly tone?: ToastTone;
 }
 
-/** `role="alert"` toast with `data-tone`, as the legacy `#errorToast`. Timing is the caller's job. */
+/**
+ * `role="alert"` toast with `data-tone`, as the legacy `#errorToast`: fixed at
+ * the top centre of the window. Timing is the caller's job.
+ */
 export function Toast({ message, tone = "danger", className, ...rest }: ToastProps) {
 	return (
 		<div className={cx(styles.root, className)} role="alert" data-tone={tone} hidden={!message} {...rest}>

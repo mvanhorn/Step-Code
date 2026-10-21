@@ -4,7 +4,9 @@
  */
 
 import type { TagColor } from "../../i18n";
-import { type ConversationView, setState, setToggled, setUi } from "../../state/store";
+import { api } from "../../lib/api";
+import { type ConversationView, getState, setState, setToggled, setUi } from "../../state/store";
+import type { SessionSearchResult } from "../../state/types";
 
 /* ── Global search (legacy 1199-1211) ────────────────────────────────────── */
 
@@ -28,16 +30,45 @@ export function openSearch(): void {
 	for (const listener of [...searchOpenListeners]) listener();
 }
 
+/** Hits per query; several can fall in one session, which the modal shows once. */
+const SEARCH_HIT_LIMIT = 100;
+
+/** Full-text search over session content through the host's index (GET /api/v1/search). */
+export function searchSessionContent(query: string, signal: AbortSignal): Promise<SessionSearchResult> {
+	const params = new URLSearchParams({ q: query, limit: String(SEARCH_HIT_LIMIT) });
+	return api<SessionSearchResult>(`/api/v1/search?${params}`, { signal });
+}
+
 /** Hide the global search modal (legacy `closeSearch`, 1207-1211); the modal drops its results. */
 export function closeSearch(): void {
 	setUi({ searchOpen: false });
 }
 
-/* ── Session context menu and tag picker ─────────────────────────────────── */
+/* ── Sidebar menus ───────────────────────────────────────────────────────── */
+/* At most one is open; each is a Popover around its trigger in ProjectGroup / SessionRow. */
 
-/** Show `#sessionMenu` for a session at viewport coordinates (legacy `openSessionMenu`, 1291-1329). */
-export function openSessionMenu(sessionId: string, x: number, y: number): void {
-	setUi({ sessionMenu: { sessionId, x, y } });
+export function toggleWorkspaceMenu(cwd: string): void {
+	if (getState().ui.workspaceMenu?.cwd === cwd) {
+		closeWorkspaceMenu(true);
+		return;
+	}
+	setUi({ workspaceMenu: { cwd }, sessionMenu: null, tagPicker: null });
+}
+
+export function closeWorkspaceMenu(restoreFocus = false): void {
+	const menu = getState().ui.workspaceMenu;
+	setUi({ workspaceMenu: null });
+	if (restoreFocus && menu) {
+		document
+			.querySelector<HTMLButtonElement>(`.project-group[data-cwd="${CSS.escape(menu.cwd)}"] .workspace-menu-button`)
+			?.focus({ preventScroll: true });
+	}
+}
+
+/** Open or close `#sessionMenu` for a session (legacy `openSessionMenu`, 1291-1329). */
+export function toggleSessionMenu(sessionId: string): void {
+	const open = getState().ui.sessionMenu?.sessionId === sessionId;
+	setUi({ sessionMenu: open ? null : { sessionId }, workspaceMenu: null, tagPicker: null });
 }
 
 /** Legacy `closeSessionMenu` (1287-1289). */
@@ -45,10 +76,10 @@ export function closeSessionMenu(): void {
 	setUi({ sessionMenu: null });
 }
 
-/** Show `#tagPicker` for a session under the button that opened it (legacy `openTagPicker`, 1022-1060). */
-export function openTagPicker(sessionId: string, anchor: Element): void {
-	const rect = anchor.getBoundingClientRect();
-	setUi({ tagPicker: { sessionId, anchorRight: rect.right, anchorBottom: rect.bottom } });
+/** Open or close `#tagPicker` for a session (legacy `openTagPicker`, 1022-1060). */
+export function toggleTagPicker(sessionId: string): void {
+	const open = getState().ui.tagPicker?.sessionId === sessionId;
+	setUi({ tagPicker: open ? null : { sessionId }, workspaceMenu: null, sessionMenu: null });
 }
 
 export function closeTagPicker(): void {

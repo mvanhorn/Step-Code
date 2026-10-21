@@ -25,9 +25,9 @@ A change to the client is a change to the desktop app. Check both hosts when it 
 | Markdown, highlighting, i18n | In-house (`lib/markdown.ts`, `features/files/highlight.ts`, `i18n/`) | No libraries |
 | Types | TypeScript strict, `erasableSyntaxOnly`, `verbatimModuleSyntax` | Type-checked by `tsgo` (both tsconfigs) |
 | Lint / format | Biome (root `biome.json`) | Tabs, indent width 3, line width 120, double quotes, semicolons |
-| Tests | `node:test` + `tsx` (unit), headless Chrome over CDP (e2e) | No Jest, Vitest, Playwright |
+| Tests | `node:test` + `tsx` (unit), headless Chrome over CDP (e2e) | No Jest, Vitest or Playwright Test runner; the browser adapter itself uses playwright-core |
 
-The runtime dependencies are `react`, `react-dom` and the workspace `@step-harness/coding-agent`. Adding any dependency
+The runtime dependencies are `react`, `react-dom`, `playwright-core`, `node-pty`, `@xterm/xterm`, `@xterm/addon-fit` and the workspace `@step-harness/coding-agent`. Adding any dependency
 needs the user's approval first; pin it to an exact version and install with `pnpm install --ignore-scripts`.
 
 ## Directory layout
@@ -47,6 +47,14 @@ apps/web/
     workspaces.ts        workspace registry (newest first)
     files.ts             workspace file tree / read / search
     auth.ts, login.ts    cookie secret, launch-token exchange, credential status, desktop sign-in
+    browser.ts           isolated Chromium ownership, leased controller, bounded frames and input
+    browser-routes.ts, browser-policy.ts  authenticated browser HTTP/SSE adapter and input/URL policy
+    browser-proxy.ts     private authenticated network boundary for redirect-safe port blocking
+    terminal.ts          bounded host-owned terminal sessions and process cleanup
+    terminal-process.ts  isolated node-pty helper; native failures must not crash the Host
+    terminal-cleanup.ts  owned process discovery: POSIX session/group/tty, Windows identity-validated descendants
+    terminal-native.ts   node-pty native build probe and macOS spawn-helper exec-bit repair
+    terminal-routes.ts, terminal-policy.ts  authenticated HTTP/SSE and shell/environment/input policy
     directory-picker.ts  server-side folder chooser
     settings.ts          settings back end: MCP servers, plugins/marketplaces, skills
     attachments.ts, feedback.ts, banner.ts, bootstrap.ts, writer-lease.ts
@@ -102,7 +110,8 @@ apps/web/
    cross-feature CSS select on are an API. Do not rename or remove them; grep `test/e2e/web.e2e.mjs` and the smoke
    script before you do.
 4. **Overlays stay mounted.** Popovers, modals, banners and panels toggle the native `hidden` attribute
-   (`hidden={!open}`) or an `open` class; do not unmount them. Tests read `element.hidden`.
+   (`hidden={!open}`) or an `open` class; do not unmount them. Tests read `element.hidden`. Exception: `Popover`
+   renders its panel only while open (one per trigger, e.g. per sidebar row); tests check the panel's presence.
 5. **Text.** Every user-visible string comes from `useT()` / `t()`. Add each new key to both the `zh` and the `en`
    dictionary in `i18n/messages.ts`. Do not reuse a key whose wording you need to change in only one place; add a
    new key.
@@ -111,8 +120,9 @@ apps/web/
      radii...) instead of literal colors and sizes, so light and dark themes both work.
    - Feature CSS keeps global class names (tests depend on them); CSS Modules are for `ui/` only.
    - Load order is global.css, then ui modules, then feature CSS.
-   - Reuse the existing patterns: `data-tooltip` + `.list-action` / `.project-action` for hover tooltips (not
-     `title`), `SearchInput` for search fields, `IconButton` for icon buttons.
+   - Reuse the `ui/` components (see [Shared UI components](#shared-ui-components)) instead of restyling native
+     elements in feature CSS: `Tooltip` for hover hints (not `title`), `SearchInput` for search fields, `IconButton`
+     for icon buttons.
 7. **Accessibility.** Every `<button>` has `type`; icon-only buttons have `aria-label`. Clickable non-buttons need a
    role, `tabIndex` and a keyboard handler. Biome's a11y rules must pass.
 8. **Inputs driven by tests.** The e2e suite sets `input.value` and dispatches a non-bubbling `input` event. React's
@@ -123,6 +133,45 @@ apps/web/
 10. **Icons** are `<symbol id="i-<name>">` entries in `ui/IconSprite/IconSprite.tsx`; add the name to `ICON_NAMES`
     and use `<Icon name>`.
 
+## Shared UI components
+
+`client/src/ui/` holds the product-agnostic primitives; import them from the barrel (`import { Modal } from
+"../../ui"`), never from a component file. Each one forwards `id`, `className`, `aria-*` and `data-*`, so feature code
+keeps the ids and classes tests and feature CSS select on. Most styled ones take `bare` to drop the module styles and
+keep only the classes passed in. Read the component's doc comment before using it; it states the DOM it renders.
+
+| Component | Use it for | Notes |
+|---|---|---|
+| `Button` | Text buttons; `variant` `plain` (default, native look reset), `primary` / `secondary` (dialog footer actions) | `type="button"` by default |
+| `IconButton` | Square icon-only buttons (`icon`, `iconSize`) | Always has `.icon-button`; pass `aria-label`; wrap in `Tooltip` for a hint |
+| `Icon` | Sprite icons: `<Icon name size>`; `LEGACY_ICONS` holds preset name+size pairs | Sizes `2xs xs sm md lg menu`. New icons: add a `<symbol id="i-<name>">` to `IconSprite` and the name to `ICON_NAMES` |
+| `IconSprite` | The `<symbol>` sheet every `Icon` references | Rendered once in `App.tsx`; do not render again |
+| `Tooltip` | Hover / keyboard-focus hints: `<Tooltip content={text or element}>{trigger}</Tooltip>` | Placement top, centered, shifts only at viewport edges. One child that forwards `style`, `ref` and `aria-describedby`; the hint is its next sibling (no wrapper). Empty `content` = no hint. Can itself be a `Popover` trigger |
+| `Modal` | Dialogs: backdrop + `section[role=dialog][aria-modal]`, toggled by `open` | `id` / `overlayClassName` on the overlay, `className` / `dialogProps` on the dialog, `labelledBy`. Escape belongs to the shell's chain unless `closeOnEscape` |
+| `Popover` | A panel or menu opened from a trigger (dropdowns, pickers, overflow menus): `<Popover content={panel} open onClose>{trigger}</Popover>` | The child is the trigger (forwards `ref` and `style`; may be a `Tooltip`); other div props go to the panel. The panel renders only while open, portaled to `body`, `--popover-gap` (4px) from the trigger: `placement` `bottom-start` (default) / `bottom-end` / `top-start` / `top-end`, or `bottom` / `top` centred on the trigger (shifted at a viewport edge), flipped when there is no room. `dismissOn`, `closeOnEscape` (refocuses the trigger) |
+| `Menu`, `MenuItem`, `MenuDivider` | Rows inside a `Popover` | `MenuItem`: `icon`, `trailing`, `danger`; pass `role="menu"` / `"menuitem"` where it is a real menu |
+| `SegmentedControl` (alias `Tabs`) | Mutually exclusive options or tabs: `items`, `value`, `onChange` | `selection` marks the chosen item with `aria-pressed` or an `active` class |
+| `Switch` | On/off settings: `<button role="switch" aria-checked>`; `checked`, `onChange(boolean)` | Pass `aria-label` |
+| `SearchInput` | Search fields (icon + `input[type=search]`); input props go to the `<input>` | For test-driven inputs use `onInputCapture` on an uncontrolled input (convention 8) |
+| `Toast` | `role="alert"` message, `tone` `danger` / `neutral`; fixed at the top centre of the window | Empty `message` hides it; timing is the caller's. The app has one, `#errorToast` (`showError`); do not restyle it in feature CSS |
+| `EmptyState` | The muted "nothing here" line (`.empty-list`) | |
+| `Spinner` | Decorative running dot (`aria-hidden`) | Put the status text next to it |
+| `ShimmerText` | Animated "working on it" label | Put it in a status region to announce it |
+| `Kbd` | Keyboard shortcut hints | |
+| `DiffStat` | `+12 -3` line counts (`additions`, `deletions`) | |
+| `MarkdownView` | Rendering `lib/markdown` output (`html`), with code-block copy buttons (`onCopyCode`) | Only HTML from `renderMarkdown`; never other HTML |
+| `ResizeHandle` | Draggable / keyboard splitter between panels | Holds no size: `getSize`, `onResize` (live), `onCommit` (persist), `onReset`; `orientation="horizontal"` for stacked panels |
+| `useDismiss` | Outside-press and Escape dismissal for a mounted overlay | Include the trigger in `insideRefs` |
+| `useMergedRef` | One ref callback feeding two refs (own + forwarded) | |
+
+When to add or change one:
+
+- Check this table before writing a control in a feature. A one-off look is a feature class on the shared component
+  (`className`), not a copy of it.
+- A new primitive goes to `ui/<Name>/<Name>.tsx` + `<Name>.module.css`, is exported from `ui/index.ts`, follows the
+  rules in that file's header (no `state/`, `lib/api`, `features/` or `i18n/` imports; strings arrive as props;
+  overlays stay mounted and toggle `hidden`), and gets a row in this table.
+
 ## Host conventions
 
 - Every route is under `/api/v1/` (plus `/auth/*`, `/healthz`). It must pass the auth cookie and Origin checks in
@@ -131,11 +180,89 @@ apps/web/
   and add a unit test.
 - Anything a reloaded page must show again belongs in the session snapshot (e.g. `pendingApprovals`), not only in
   an SSE event.
+- Thinking elapsed time is host-observed presentation metadata (`src/thinking-timing.ts`), persisted through
+  the session manager's `stepcode-web.thinking-timing` custom entries outside model context. Snapshots and agent
+  envelopes project validated `thinkingTimings` by original content index. Never infer durations for unobserved
+  history or start clocks from browser receipt times.
+- The main transcript uses fixed DFSC Simple process groups, not a complexity
+  setting. Group consecutive thinking and ordinary tools only; singleton groups
+  show the member's own disclosure without a group heading or indentation.
+  Retain keyed member components and a manually opened singleton when siblings
+  arrive. Keep failed tools, approvals, retries and dedicated lifecycle calls
+  separate. Preserve original
+  timeline indices for turn footers, file deliveries and search reveal. Group
+  completion counts tool results, never canonical Tasks or child-agent success.
+- Subagent rows project structured per-task results and use the existing read-only child transcript API.
+  Planned arguments mean queued, not running; missing legacy statuses stay unknown. Background custom messages
+  expose only validated agentId/event/status fields through `src/subagent-notification.ts`. Do not parse
+  notification prose, infer per-task success from the parent tool, or add child execution controls in the inspector.
+- `features/inspector` owns the shared right rail, Summary and Context views.
+  Summary uses DFSC's independent content-height floating board with a close-only
+  header, fixed compact width and an optional reading-space reservation; do not
+  wrap it in the full-height inspector chrome used by the other panels.
+  Summary's DFSC colors are scoped to that surface. Keep grid disclosures,
+  fixed-slot completion motion and reduced-motion support; never replay a
+  live completion animation for initially loaded completed history.
+  Its MCP switch-shaped indicators are decorative, not configuration controls.
+  Latest-turn task/subagent activity can reveal Summary once per selection/turn;
+  respect manual dismissal and never displace an already active inspector.
+  Its task progress uses canonical completed/total tasks, not tool-call counts.
+  Agent rows below the task list reuse validated timeline statuses and existing read-only
+  inspector actions; count records, never infer distinct live agents or success.
+  The header repeats canonical task completion and agent-record counts; its
+  activity dot uses explicit running states and preserves unknown history.
+  File and Subagent entry points select the shared panel through `state/right-panel.ts`.
+  The read-only `/sessions/{id}/inspector` route projects canonical `step-tasks`
+  snapshots and SDK statistics; task-tool completion is not task completion.
+  MCP status is process-scoped, unlike the session's skill count. Do not label
+  recorded messages as assembled model context or turn patches as Git net changes.
+  Conversation navigation is excluded. Terminal uses its separate Web adapter.
+  `features/terminal` renders xterm in `#terminalDock`, a resizable bottom dock
+  under the conversation toggled from the rail (`data-terminal-toggle`) or
+  Ctrl+`; it is independent of the exclusive inspector. Keys typed in the shell
+  stay there (Escape, Ctrl chords). Only opening an empty dock or explicit tab
+  creation starts a shell; ending the last tab hides the dock. Hiding/switching tabs
+  disconnects streams without killing processes; closing a tab awaits owned
+  process-tree cleanup. Refresh replays bounded sequenced output, never creates
+  replacement shells. Shell exit retains helper ownership until Host cleanup;
+  Windows descendant discovery checks creation times, not just reusable PIDs.
+  Startup cancellation waits for a shell identity or startup failure before
+  terminating the helper. Retention gaps must be visible; do not claim full-screen
+  restoration from a truncated ANSI tail. Keep input/IPC/SSE queues bounded,
+  disable OSC 52 and automatic links, and do not inherit Host API keys or
+  startup-injection environment variables. Never load sibling-project binaries
+  as runtime dependencies or silently install/compile native modules; the only
+  repair is restoring the exec bit of node-pty's published macOS spawn-helper.
+  POSIX cleanup kills the shell's session, process group and controlling-tty
+  members, never the Host or helper.
+  `features/browser` uses the authenticated host-owned Chromium adapter in
+  `src/browser.ts` / `browser-routes.ts`, not a Desktop bridge or iframe.
+  Hiding releases its stream/controller but keeps tabs. Refresh rotates a
+  leased controller token; late cleanup must not release its replacement.
+  Keep frame/input queues bounded and block host/client ports for subresources
+  and WebSockets too. The browser-owned authenticated loopback proxy checks
+  connection destinations across redirects and tunnels; keep loopback bypass
+  disabled, strip proxy credentials upstream, and await proxy shutdown.
+  All client snapshot sources share one monotonic revision gate per connection.
+  Never attach a personal profile, expose arbitrary CDP,
+  download a browser automatically or disable its sandbox.
+- File delivery recognition is a frontend projection, not a persisted or
+  filesystem-verified registry. Settled turns collect local Markdown links
+  and supported structured successful write/edit outputs; inline basenames
+  require an unambiguous observed output. References use the existing
+  workspace file API and containment checks, never browser `file:` navigation.
+  Delivery buttons toggle only their own visible Files preview, retaining
+  tabs and trigger focus; other files or panels switch to the requested file.
+  Markdown opens rendered; preview links resolve relative to that document.
 - Workspace navigation metadata is separate from sessions: `web-workspaces.json` stores registered `workspaces`
   and explicit `removedWorkspaces`. Removed entries are returned with `hidden: true`; clients must not recreate
   their project groups from session cwd values. Re-adding restores the group; removal never deletes chats or files.
 - Environment variables: `STEPCODE_WEB_PORT` (default 3077), `STEPCODE_WEB_CWD` (default workspace),
-  `STEPCODE_WEB_PUBLIC_DIR` (client directory), `STEPCODE_WEB_AUTH_SECRET`, `STEPCODE_WEB_OPEN` (below).
+  `STEPCODE_WEB_PUBLIC_DIR` (client directory), `STEPCODE_WEB_AUTH_SECRET`, `STEPCODE_WEB_OPEN` (below),
+  `STEPCODE_WEB_CLIENT_PORT` (the launch URL points at this port instead of the host's; `web:watch` sets it to the
+  Vite dev server, default 5173).
+  `STEPCODE_WEB_BROWSER_PATH` optionally names an installed Chrome/Edge/Chromium executable.
+  The browser adapter detects common locations otherwise and reports missing engines without installing one.
   Document new ones here and in `apps/desktop/README.md` if the desktop passes them through.
 - Opening a browser on start is **opt-in**, because Desktop shows the client in its own window and the tests must stay
   headless. `STEPCODE_WEB_OPEN=1|true|on` makes the host open the launch URL right after printing the banner; unset or
@@ -150,6 +277,13 @@ apps/web/
   `step mcp`, `/plugin` and the TUI resource selector use — and never project scope. Only user-scope state moves;
   a change reaches a session when that session starts (MCP servers connect at `session_start`, skills load with its
   resources), so the client says so instead of reloading sessions.
+- Account settings are separate from General and reuse `features/login/actions.ts`
+  and the existing Host sign-in routes. Keep credential presence separate from
+  validity; an unavailable check is not a rejected credential. Optional UID is
+  only a bounded stored OAuth identity matching the kernel's valid account,
+  never a profile name, key or token. Environment credentials remain read-only.
+  Cancel page-owned browser authorization on exit and ignore late callbacks.
+  Keep cookie-only `/auth/logout` unchanged; no balance/allowance placeholders.
 - Do not depend on `process.cwd()` being the workspace; the desktop starts the server elsewhere (macOS privacy
   blocks a cwd inside `~/Documents`).
 
@@ -160,11 +294,13 @@ Run from the repo root.
 | Command | Use |
 |---|---|
 | `pnpm web` | Build the client, run the host from source with the current folder as workspace (port 3077), and open the launch URL in the default browser (`STEPCODE_WEB_OPEN=0` to skip) |
-| `pnpm web:watch` | Same as `pnpm web`, but rebuilds the client and restarts the host on every source change (web or imported packages); refresh the page to see it. A host restart drops running turns. The browser opens once per run, not on each restart |
+| `pnpm web:watch` | Host from source plus the Vite dev server (port `STEPCODE_WEB_CLIENT_PORT`, default 5173); the launch URL opens Vite, so client edits apply by HMR. The host is not watched, so an agent editing this repo does not restart it and drop its own turn; restart the command for host or package changes, or set `STEPCODE_WEB_WATCH_HOST=1` to restart the host on every change (drops running turns). The browser opens once per run |
 | `pnpm --filter @step-harness/web dev:client` | Vite dev server with HMR, proxies to a host on `STEPCODE_WEB_PORT` (start the host first) |
 | `pnpm --filter @step-harness/web typecheck` | Host and client type check |
 | `pnpm --filter @step-harness/web test` | Host unit tests |
 | `TSX_TSCONFIG_PATH=../../tsconfig.json node --import tsx --test test/<name>.test.ts` | One unit test file (from `apps/web/`); without the tsconfig, workspace packages resolve to `dist/` and fail |
+| `STEPCODE_WEB_BROWSER_TEST=1 TSX_TSCONFIG_PATH=../../tsconfig.json node --import tsx --test test/browser.test.ts` | Opt-in installed-Chromium adapter acceptance against a local fixture only; no account, provider or engine download |
+| `STEPCODE_WEB_TERMINAL_TEST=1 TSX_TSCONFIG_PATH=../../tsconfig.json node --import tsx --test test/terminal.test.ts` | Opt-in real local-shell acceptance in temporary folders; no account/provider calls |
 | `pnpm --filter @step-harness/web test:e2e` | Client build + e2e in headless Chrome (`CHROME_PATH` to override; skipped without Chrome) |
 | `pnpm run check` | Required before handing back any code change: Biome, guards, type checks, web unit tests, web runtime, browser smoke, desktop type check |
 

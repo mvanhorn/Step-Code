@@ -10,6 +10,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { AgentToolResult, AgentToolUpdateCallback } from "@step-harness/agent-core";
 import type { Static } from "typebox";
+import { SUBAGENT_SESSION_ID_PREFIX } from "../../core/child-session.ts";
 import type { ExtensionContext } from "../../core/extensions/types.ts";
 import { type StepTelemetryReporter, trackStepTelemetry } from "../../step/telemetry.ts";
 import {
@@ -69,7 +70,9 @@ function resultRecord(
 	agent: string,
 	task: string,
 	result: StepSubagentRunResult,
-	extra: Partial<Pick<StepSubagentResultRecord, "agentSource" | "step" | "worktreePath" | "worktreeBranch">> = {},
+	extra: Partial<
+		Pick<StepSubagentResultRecord, "agentSource" | "step" | "worktreePath" | "worktreeBranch" | "sessionId">
+	> = {},
 ): StepSubagentResultRecord {
 	return {
 		agent,
@@ -392,11 +395,17 @@ export async function executeSubagent(
 			}
 		}
 		let requestEpoch = admission?.epoch ?? 0;
+		const sessionId = laneRuntime?.sessionId
+			? index === 0
+				? laneRuntime.sessionId
+				: `${laneRuntime.sessionId}-${index}`
+			: `${SUBAGENT_SESSION_ID_PREFIX}${randomUUID()}`;
 		// Flip the queued placeholder before spawning, so the step reads as running
 		// (with a clock) from the moment it is dispatched, not from its first event.
 		records[index] = {
 			...records[index],
 			agentSource: agent.source,
+			sessionId,
 			status: "running",
 			startedAt: Date.now(),
 			updatedAt: Date.now(),
@@ -413,6 +422,7 @@ export async function executeSubagent(
 			const update = (partial: StepSubagentRunResult): void => {
 				records[index] = resultRecord(agent.name, task.task, partial, {
 					agentSource: agent.source,
+					sessionId,
 					worktreePath: worktree?.path,
 					worktreeBranch: worktree?.branch,
 				});
@@ -430,11 +440,7 @@ export async function executeSubagent(
 				onUpdate: update,
 				onNeedsInput: laneRuntime?.onNeedsInput,
 				onChildRespawn: laneRuntime?.onChildRespawn,
-				sessionId: laneRuntime?.sessionId
-					? index === 0
-						? laneRuntime.sessionId
-						: `${laneRuntime.sessionId}-${index}`
-					: `subagent-${randomUUID()}`,
+				sessionId,
 				keepAlive: laneRuntime?.keepAlive === true,
 				// An admitted child keeps its shared slot until its process has exited.
 				...(admission ? { awaitExit: true } : {}),
@@ -451,6 +457,7 @@ export async function executeSubagent(
 			});
 			const completed = resultRecord(agent.name, task.task, child, {
 				agentSource: agent.source,
+				sessionId,
 				worktreePath: worktree?.path,
 				worktreeBranch: worktree?.branch,
 			});
@@ -462,7 +469,7 @@ export async function executeSubagent(
 		} catch (error) {
 			if (worktree && task.retainWorktree === false) await worktree.cleanup().catch(() => undefined);
 			const message = error instanceof Error ? error.message : String(error);
-			const failed = makeFailureResult(agent.name, task.task, message, agent.source);
+			const failed = { ...makeFailureResult(agent.name, task.task, message, agent.source), sessionId };
 			records[index] = failed;
 			emit(mode);
 			reportFinished(failed, index);

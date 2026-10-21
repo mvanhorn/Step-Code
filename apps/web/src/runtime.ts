@@ -6,6 +6,7 @@ import {
 	type AgentSession,
 	type AgentSessionEvent,
 	type AgentSessionRuntime,
+	attachSessionIndex,
 	clampThinkingLevel,
 	createAgentSessionFromServices,
 	createAgentSessionRuntime,
@@ -29,6 +30,7 @@ import {
 	getStepMcpStatuses,
 	getSupportedThinkingLevels,
 	type InlineExtension,
+	isChildAgentSession,
 	listAllStepSessions,
 	ModelRuntime,
 	NOOP_OBSERVABILITY_PROVIDER,
@@ -42,6 +44,7 @@ import {
 	resolveStepConfigRoot,
 	resolveStepStorageRoot,
 	type SessionEntry,
+	type SessionIndex,
 	type SessionInfo,
 	STEP_DEFAULT_MODEL,
 	STEP_PERMISSION_PRESETS,
@@ -53,13 +56,27 @@ import {
 	submitFeedback as submitKernelFeedback,
 	syncStepLoginProfileEndpoint,
 	THINKING_LEVEL_OPTIONS,
+	withSessionIndex,
 } from "@step-harness/coding-agent";
 import { ApprovalBroker, type ApprovalRequest } from "./approval.ts";
 import { type WebAttachment, withTextAttachments } from "./attachments.ts";
 import { ClarificationBroker, type ClarificationEvent } from "./clarification.ts";
 import { feedbackCategoryFor } from "./feedback.ts";
+import { projectInspectorTasks } from "./inspector.ts";
+import {
+	MessageQueue,
+	type QueuedFile,
+	type QueuedMessage,
+	type QueuedMessageView,
+	SteeringImages,
+	type SteeringMessageView,
+} from "./message-queue.ts";
+import { RetryTracker } from "./retry-state.ts";
 import { SelectionBroker, type SelectionEvent, type SelectionRequest, selectionSelect } from "./selection.ts";
 import { type WebSkill, webSkills } from "./skills.ts";
+import { resolveSubagentCliPath } from "./subagent-cli.ts";
+import { projectSubagentNotification } from "./subagent-notification.ts";
+import { savedThinkingTimings, THINKING_TIMING_TYPE, ThinkingClock, type ThinkingTimings } from "./thinking-timing.ts";
 import {
 	revertedTurnIds,
 	type SkippedChange,
@@ -68,10 +85,12 @@ import {
 	TurnReverter,
 	turnRevertNotice,
 } from "./turn-changes.ts";
+import { withUploadedFiles } from "./uploads.ts";
 import { claimWebSessionWriter } from "./writer-lease.ts";
 
 // Re-exported so the server and tests have one import site for attachment types.
 export { classifyAttachment, MAX_ATTACHMENT_BYTES, type WebAttachment, withTextAttachments } from "./attachments.ts";
+export type { QueuedFile, QueuedMessageView } from "./message-queue.ts";
 
 /** How long a session may spend discovering the account's model catalog. */
 const MODEL_CATALOG_REFRESH_TIMEOUT_MS = 10_000;
@@ -103,10 +122,21 @@ async function refreshStepModelCatalog(modelRuntime: ModelRuntime): Promise<void
 export type WebEvent =
 	| ClarificationEvent
 	| SelectionEvent
-	| { type: "agent"; event: AgentSessionEvent }
+	| { type: "agent"; event: AgentSessionEvent; thinkingTimings?: ThinkingTimings }
 	| { type: "approval_required"; approval: ApprovalRequest }
 	| { type: "status"; status: WebSessionStatus; unread: boolean }
+	| ({ type: "queue" } & WebQueueState)
 	| { type: "error"; message: string };
+
+/**
+ * Messages the user sent during a turn and nothing has run yet: `queued` waits
+ * for the turn to end (editable), `steering` is already in the kernel and is
+ * delivered before its next model call (read-only).
+ */
+export interface WebQueueState {
+	readonly queued: readonly QueuedMessageView[];
+	readonly steering: readonly SteeringMessageView[];
+}
 
 export type WebSessionStatus = "idle" | "running" | "waiting" | "completed" | "failed";
 
@@ -202,7 +232,7 @@ function makeExtensions(
 			onPermissionChange,
 			traceHeaderPolicy: NOOP_OBSERVABILITY_PROVIDER.traceHeaderPolicy(),
 		}),
-		createStepCapabilitiesExtensionInline({ telemetry }),
+		createStepCapabilitiesExtensionInline({ telemetry, cliPath: resolveSubagentCliPath() }),
 		createStepCronExtension({ telemetry }),
 		createStepGoalExtension({ telemetry }),
 		createStepPlanExtension({ telemetry }),
@@ -350,14 +380,23 @@ export async function predictDraftModel(
 	};
 }
 
+/** The image attachments as kernel image content; text attachments are inlined by `withTextAttachments`. */
+function imagesOf(attachments: readonly WebAttachment[]): { type: "image"; data: string; mimeType: string }[] {
+	return attachments
+		.filter((attachment) => attachment.kind === "image")
+		.map((attachment) => ({ type: "image" as const, data: attachment.data, mimeType: attachment.mimeType }));
+}
+
 /** Same provider and model id, which is all a resolved model needs to match. */
 function modelsMatch(left: { provider: string; id: string }, right: { provider: string; id: string }): boolean {
 	return left.provider === right.provider && left.id === right.id;
 }
 
-function projectEntry(entry: SessionEntry): Record<string, unknown> {
+export function projectEntry(entry: SessionEntry): Record<string, unknown> {
 	// Only assistant turns carry usage; other message kinds have none to report.
 	const usage = entry.type === "message" && entry.message.role === "assistant" ? entry.message.usage : undefined;
+	const notification =
+		entry.type === "custom_message" ? projectSubagentNotification(entry.customType, entry.details) : undefined;
 	return {
 		id: entry.id,
 		type: entry.type,
@@ -365,9 +404,22 @@ function projectEntry(entry: SessionEntry): Record<string, unknown> {
 		...(entry.type === "message" ? { message: entry.message } : {}),
 		...(usage ? { usage } : {}),
 		...(entry.type === "custom_message" ? { content: entry.content, customType: entry.customType } : {}),
+		...(notification ? { details: notification } : {}),
 		...(entry.type === "compaction" ? { summary: entry.summary } : {}),
 		...(entry.type === "branch_summary" ? { summary: entry.summary } : {}),
 	};
+}
+
+/** Timing is host presentation metadata, not a field added to provider messages. */
+export function projectEntries(entries: readonly SessionEntry[]): Record<string, unknown>[] {
+	const timings = savedThinkingTimings(entries);
+	return entries.map((entry) => {
+		const thinkingTimings =
+			entry.type === "message" && entry.message.role === "assistant"
+				? timings.get(entry.message.timestamp)
+				: undefined;
+		return { ...projectEntry(entry), ...(thinkingTimings ? { thinkingTimings } : {}) };
+	});
 }
 
 export class WebSession {
@@ -383,6 +435,8 @@ export class WebSession {
 	private unsubscribeSession?: () => void;
 	private unsubscribeRuntimeSessionChange?: () => void;
 	private releaseWriterLease?: () => void;
+	/** Receives this session's file writes, including those of forks and /new. */
+	private index?: SessionIndexSink;
 	private writerLeasePath?: string;
 	private archived = false;
 	private readonly reverter = new TurnReverter();
@@ -399,6 +453,16 @@ export class WebSession {
 	 * Approve for Me.
 	 */
 	private livePermission?: StepPermissionPresetId;
+	/** Messages sent while a turn runs; the next one starts when the run settles (see `dispatchQueued`). */
+	private readonly queue = new MessageQueue(() => this.emit({ type: "queue", ...this.queueState() }));
+	/** The images of the kernel's pending steering messages, which it lists as text only. */
+	private readonly steeringImages = new SteeringImages();
+	/** Set by `interrupt`: the run it stops settles without starting the next queued message. */
+	private holdQueue = false;
+	/** The last run ended in an error or abort; its settle leaves the queue for the user. */
+	private lastRunFailed = false;
+	/** The kernel's retry of a failed model request, while one is scheduled or running. */
+	private readonly retry = new RetryTracker();
 
 	private constructor(
 		id: string,
@@ -466,7 +530,12 @@ export class WebSession {
 	private readonly sessionManager: ReturnType<typeof createStepSessionManager>;
 	private readonly writerOwnerId: string;
 
-	static async create(options: { cwd: string; sessionId?: string; sessionPath?: string }): Promise<WebSession> {
+	static async create(options: {
+		cwd: string;
+		sessionId?: string;
+		sessionPath?: string;
+		index?: SessionIndexSink;
+	}): Promise<WebSession> {
 		const agentDir = resolveStepAgentDir();
 		const cwd = options.cwd;
 		const authPath = getStepAuthPath();
@@ -491,6 +560,7 @@ export class WebSession {
 						agentDir,
 						newSession: options.sessionId ? { id: options.sessionId } : undefined,
 					});
+			if (options.index) attachSessionIndex(sessionManager, options.index);
 			const instance = new WebSession(
 				sessionManager.getSessionId(),
 				cwd,
@@ -499,6 +569,7 @@ export class WebSession {
 				sessionManager,
 				writerOwnerId,
 			);
+			instance.index = options.index;
 			instance.releaseWriterLease = releaseWriterLease;
 			instance.writerLeasePath = options.sessionPath ? resolve(options.sessionPath) : undefined;
 			await instance.start();
@@ -578,7 +649,9 @@ export class WebSession {
 				cwd: this.cwd,
 				agentDir: this.agentDir,
 				sessionManager: this.sessionManager,
-				sessionManagerFactory: createStepSessionManagerFactory(this.agentDir),
+				sessionManagerFactory: this.index
+					? withSessionIndex(createStepSessionManagerFactory(this.agentDir), this.index)
+					: createStepSessionManagerFactory(this.agentDir),
 			});
 			this.bindSession(this.runtime.session);
 			this.unsubscribeRuntimeSessionChange = this.runtime.onSessionChange((session) => this.bindSession(session));
@@ -615,19 +688,51 @@ export class WebSession {
 		}
 		this.unsubscribeSession?.();
 		this.session = session;
+		this.retry.clear();
 		void this.adoptFallbackModel(session);
+		const thinkingClock = new ThinkingClock();
 		this.unsubscribeSession = session.subscribe((event) => {
-			if (event.type === "agent_start") this.setStatus("running");
+			const thinkingTimings = thinkingClock.observe(event);
+			if (event.type === "message_end" || event.type === "agent_end" || event.type === "agent_settled") {
+				const observation = thinkingClock.completed();
+				if (observation) {
+					try {
+						session.sessionManager.appendCustomEntry(THINKING_TIMING_TYPE, observation);
+					} catch (error) {
+						// Diagnostic metadata must not prevent canonical message persistence.
+						this.emit({
+							type: "error",
+							message: `Could not save thinking elapsed time: ${error instanceof Error ? error.message : String(error)}`,
+						});
+					}
+				}
+			}
+			if (event.type === "agent_start") {
+				this.setStatus("running");
+				this.holdQueue = false;
+				this.lastRunFailed = false;
+			}
 			if (event.type === "agent_settled") this.setStatus("completed", true);
-			if (
-				event.type === "agent_end" &&
-				event.messages.some(
-					(message: { role: string; stopReason?: string }) =>
-						message.role === "assistant" && message.stopReason === "error",
-				)
-			)
-				this.setStatus("failed", true);
-			this.emit({ type: "agent", event });
+			if (event.type === "agent_end") {
+				const stops = event.messages.flatMap((message) =>
+					message.role === "assistant" ? [message.stopReason] : [],
+				);
+				// A failure the kernel is about to retry is not the run's outcome: the
+				// session keeps running through the backoff (`auto_retry_start` follows).
+				if (stops.includes("error") && !event.willRetry) this.setStatus("failed", true);
+				this.lastRunFailed = stops.includes("error") || stops.includes("aborted");
+			}
+			this.retry.apply(event);
+			if (event.type === "auto_retry_start" && this.status !== "running") this.setStatus("running", false);
+			if (event.type === "queue_update") this.emit({ type: "queue", ...this.queueState() });
+			this.emit({ type: "agent", event, ...(thinkingTimings ? { thinkingTimings } : {}) });
+			if (event.type === "agent_settled") {
+				const hold = this.holdQueue || this.lastRunFailed;
+				this.holdQueue = false;
+				// Deferred: the kernel finishes settling after its listeners return,
+				// and an extension may have started a follow-up run in the meantime.
+				if (!hold) setImmediate(() => this.dispatchQueued());
+			}
 		});
 		void session.bindExtensions({
 			mode: "rpc",
@@ -706,20 +811,127 @@ export class WebSession {
 		return this.reverter.isBusy();
 	}
 
-	async send(text: string, attachments: readonly WebAttachment[] = []): Promise<void> {
+	/**
+	 * Start a turn with `text`. `followUp` is for queued messages: should a run
+	 * have started since the caller looked, the kernel queues the message after
+	 * it instead of rejecting it.
+	 */
+	async send(text: string, attachments: readonly WebAttachment[] = [], followUp = false): Promise<void> {
 		if (this.isReverting()) throw new Error("Wait for the revert to finish");
 		this.unread = false;
-		const images = attachments
-			.filter((attachment) => attachment.kind === "image")
-			.map((attachment) => ({ type: "image" as const, data: attachment.data, mimeType: attachment.mimeType }));
+		const images = imagesOf(attachments);
 		await this.session.prompt(withTextAttachments(text, attachments), {
 			source: "rpc",
 			...(images.length ? { images } : {}),
+			...(followUp ? { streamingBehavior: "followUp" as const } : {}),
 		});
 	}
 
-	async steer(text: string): Promise<void> {
-		await this.session.steer(text);
+	/** Hand `text` to the running turn, read before its next model call; refused for extension commands. */
+	async steer(text: string, attachments: readonly WebAttachment[] = []): Promise<void> {
+		const images = imagesOf(attachments);
+		await this.session.steer(withTextAttachments(text, attachments), images.length ? images : undefined);
+		const queued = this.session.getSteeringMessages().at(-1);
+		if (queued === undefined || !images.length) return;
+		// The kernel published the steer before its images were recorded here.
+		this.steeringImages.record(
+			queued,
+			attachments.filter((attachment) => attachment.kind === "image"),
+		);
+		this.emit({ type: "queue", ...this.queueState() });
+	}
+
+	queueState(): WebQueueState {
+		return { queued: this.queue.views(), steering: this.steeringViews() };
+	}
+
+	private steeringViews(): SteeringMessageView[] {
+		return this.steeringImages.match(this.session.getSteeringMessages()).map(({ text, images }) => ({
+			text,
+			images: images.map(({ mimeType, data }) => ({ mimeType, data })),
+		}));
+	}
+
+	/** Whether a message sent now has to wait: a run is active or the session waits on the user. */
+	private mustQueue(): boolean {
+		return this.session.isStreaming || this.status === "waiting" || this.isReverting();
+	}
+
+	/**
+	 * Accept a message sent while a turn runs. It waits in the queue, editable,
+	 * until the run settles. When nothing runs (the turn ended while the request
+	 * was in flight) and nothing is queued before it, it starts at once.
+	 */
+	enqueue(input: { text: string; attachments: readonly WebAttachment[]; files: readonly QueuedFile[] }): void {
+		const item = this.queue.add(input);
+		if (!this.mustQueue() && this.queue.size === 1) this.dispatchQueued(item.id);
+	}
+
+	editQueued(id: string, text: string): boolean {
+		return this.queue.edit(id, text);
+	}
+
+	removeQueued(id: string): boolean {
+		return this.queue.take(id) !== undefined;
+	}
+
+	/**
+	 * Start the next queued message (or `id`) as a new turn, unless one must
+	 * still wait. Its run's settle dispatches the one after it.
+	 */
+	private dispatchQueued(id?: string): boolean {
+		if (this.mustQueue()) return false;
+		const item = id ? this.queue.take(id) : this.queue.shift();
+		if (!item) return false;
+		void this.sendQueued(item).catch((caught: unknown) => {
+			this.publishError(caught instanceof Error ? caught.message : String(caught));
+		});
+		return true;
+	}
+
+	private async sendQueued(item: QueuedMessage): Promise<void> {
+		const text = await withUploadedFiles(
+			item.text,
+			item.files.map((file) => file.id),
+		);
+		await this.send(text, item.attachments, true);
+	}
+
+	/**
+	 * "Steer" queued messages (`ids`, or all of them): hand each to the running
+	 * turn, which reads it before its next model call. With no run active the
+	 * first one starts a new turn instead and the rest keep waiting. A message
+	 * the kernel refuses to steer (an extension command) stays queued and its
+	 * error is thrown after the others were handed over.
+	 */
+	async steerQueued(ids?: readonly string[]): Promise<boolean> {
+		const known = new Set(this.queue.views().map((item) => item.id));
+		const targets = ids ? ids.filter((id) => known.has(id)) : [...known];
+		if (!targets.length) return false;
+		if (!this.session.isStreaming) {
+			if (this.status === "waiting" || this.isReverting())
+				throw new Error("The session is waiting; try again later");
+			return this.dispatchQueued(targets[0]);
+		}
+		const refused: QueuedMessage[] = [];
+		let failure: unknown;
+		for (const id of targets) {
+			const item = this.queue.take(id);
+			if (!item) continue;
+			try {
+				const text = await withUploadedFiles(
+					item.text,
+					item.files.map((file) => file.id),
+				);
+				await this.steer(text, item.attachments);
+			} catch (caught) {
+				refused.push(item);
+				failure ??= caught;
+			}
+		}
+		this.queue.restore(refused);
+		if (failure) throw failure;
+		return true;
 	}
 
 	async rename(name: string): Promise<void> {
@@ -866,9 +1078,22 @@ export class WebSession {
 		return decided;
 	}
 
+	/**
+	 * Stop the running turn. Queued messages stay queued; steering messages the
+	 * kernel had not delivered yet move back to the front of the queue with their
+	 * images, so stopping never drops what the user sent.
+	 */
 	async interrupt(): Promise<void> {
 		this.clarifications.clear();
+		this.holdQueue = true;
 		await this.session.abort();
+		const pending = this.session.clearQueue();
+		const steering = this.steeringImages.match(pending.steering);
+		this.steeringImages.clear();
+		this.queue.prepend([
+			...steering.map(({ text, images }) => ({ text, attachments: images })),
+			...pending.followUp.map((text) => ({ text, attachments: [] })),
+		]);
 		this.setStatus("idle");
 	}
 
@@ -925,10 +1150,13 @@ export class WebSession {
 			sessionFile: manager.getSessionFile(),
 			archived: this.archived,
 			revertedTurns: revertedTurnIds(manager.getBranch()),
-			entries: manager.getBranch().map(projectEntry),
+			entries: projectEntries(manager.getBranch()),
 			pendingApprovals: this.broker.pendingRequests(),
 			pendingClarifications: this.clarifications.pendingRequests(),
 			pendingSelections: this.selections.pendingRequests(),
+			queuedMessages: this.queue.views(),
+			steeringMessages: this.steeringViews(),
+			retry: this.retry.view(),
 			model: this.session.model ? { provider: this.session.model.provider, id: this.session.model.id } : undefined,
 			permissionPreset:
 				this.livePermission ??
@@ -943,6 +1171,18 @@ export class WebSession {
 
 	sessionFile(): string | undefined {
 		return this.session.sessionManager.getSessionFile();
+	}
+
+	inspector(): Record<string, unknown> {
+		const stats = this.session.getSessionStats();
+		return {
+			sessionId: this.id,
+			...projectInspectorTasks(this.session.sessionManager.getBranch()),
+			stats: { tokens: stats.tokens, cost: stats.cost, contextUsage: stats.contextUsage },
+			skillCount: this.skills().length,
+			mcpScope: "process",
+			mcp: mcpStatuses().map(({ name, status }) => ({ name, status })),
+		};
 	}
 
 	/** Skills of this session's resource loader (plugin skills included), unless skill commands are off. */
@@ -1048,6 +1288,11 @@ class WebSessionMetadataStore {
 	}
 }
 
+/** Where session managers report their file writes (the host's session index). */
+export type SessionIndexSink = Pick<SessionIndex, "notifyPersisted">;
+
+export type WebSessionInfo = Omit<SessionInfo, "allMessagesText"> & { archived: boolean; cwdAvailable: boolean };
+
 /**
  * Forget every idle session in `sessions` and close it.
  *
@@ -1065,6 +1310,12 @@ export function releaseIdleSessions<T extends Pick<WebSession, "isBusy" | "close
 }
 
 export class WebSessionStore {
+	private readonly index?: SessionIndexSink;
+
+	constructor(options: { index?: SessionIndexSink } = {}) {
+		this.index = options.index;
+	}
+
 	private readonly sessions = new Map<string, WebSession>();
 	private readonly openings = new Map<string, Promise<WebSession>>();
 	private readonly metadata = new WebSessionMetadataStore(resolveStepAgentDir());
@@ -1076,7 +1327,7 @@ export class WebSessionStore {
 
 	async create(cwd: string): Promise<WebSession> {
 		await this.metadata.load();
-		const session = await WebSession.create({ cwd });
+		const session = await WebSession.create({ cwd, index: this.index });
 		this.sessions.set(session.id, session);
 		return session;
 	}
@@ -1121,7 +1372,7 @@ export class WebSessionStore {
 			const unsavedCwd = this.unsaved.get(id);
 			if (!info && unsavedCwd !== undefined) {
 				this.unsaved.delete(id);
-				const recreated = await WebSession.create({ cwd: unsavedCwd, sessionId: id });
+				const recreated = await WebSession.create({ cwd: unsavedCwd, sessionId: id, index: this.index });
 				this.sessions.set(recreated.id, recreated);
 				return recreated;
 			}
@@ -1130,6 +1381,7 @@ export class WebSessionStore {
 				cwd: info.cwdAvailable ? info.cwd : defaultWorkspace(),
 				sessionPath: info.path,
 				sessionId: info.id,
+				index: this.index,
 			});
 			opened.setArchived(this.metadata.isArchived(opened.id));
 			this.sessions.set(opened.id, opened);
@@ -1143,19 +1395,24 @@ export class WebSessionStore {
 		}
 	}
 
-	async list(): Promise<Array<SessionInfo & { archived: boolean; cwdAvailable: boolean }>> {
+	async list(): Promise<Array<WebSessionInfo>> {
 		await this.metadata.load();
 		const sessions = await listAllStepSessions({ agentDir: resolveStepAgentDir(), recursive: true });
 		return Promise.all(
-			sessions.map(async (session) => {
-				let cwdAvailable = false;
-				try {
-					cwdAvailable = session.cwd ? (await stat(session.cwd)).isDirectory() : false;
-				} catch {
-					// A session with a removed cwd remains readable and appears under Recent.
-				}
-				return { ...session, archived: this.metadata.isArchived(session.id), cwdAvailable };
-			}),
+			// Child-agent sessions share the parent's folder but belong to its tool calls, as in the CLI's resume picker.
+			sessions
+				.filter((session) => !isChildAgentSession(session))
+				.map(async (session) => {
+					let cwdAvailable = false;
+					try {
+						cwdAvailable = session.cwd ? (await stat(session.cwd)).isDirectory() : false;
+					} catch {
+						// A session with a removed cwd remains readable and appears under Recent.
+					}
+					// Full message text is for searching only; the session index serves search now.
+					const { allMessagesText: _allMessagesText, ...summary } = session;
+					return { ...summary, archived: this.metadata.isArchived(session.id), cwdAvailable };
+				}),
 		);
 	}
 

@@ -11,6 +11,7 @@ import { renderMarkdown } from "../../lib/markdown";
 import { copyText } from "../../state/session";
 import { type PreviewTab, useAppStore } from "../../state/store";
 import { MarkdownView } from "../../ui";
+import { openFileReference } from "./actions";
 import { codeViewHtml, isMarkdownPath, PREVIEW_LINE_LIMIT } from "./highlight";
 
 /** The tab the preview shows, or undefined when there are no tabs. */
@@ -86,14 +87,20 @@ function PreviewContent({ tab }: { readonly tab: PreviewTab }) {
 		return (
 			<MarkdownView
 				className="preview-markdown message-body"
-				html={renderMarkdown(file.content, { code: t("code"), copy: t("copy") })}
+				html={renderMarkdown(
+					file.content,
+					{ code: t("code"), copy: t("copy"), table: t("markdownTable") },
+					{ localFiles: true },
+				)}
 				onCopyCode={(code) => void copyText(code)}
+				onFileReference={(path) => void openFileReference(tab.cwd, path, tab.path)}
 			/>
 		);
 	return <CodeView content={file.content} path={file.path} />;
 }
 
 export function PreviewBody({ hidden = false }: { readonly hidden?: boolean }) {
+	const t = useT();
 	const tabs = useAppStore((state) => state.preview.tabs);
 	const active = useAppStore((state) => state.preview.active);
 	const tab = tabs[active];
@@ -107,7 +114,7 @@ export function PreviewBody({ hidden = false }: { readonly hidden?: boolean }) {
 
 	return (
 		<div className="preview-body" id="previewBody" ref={bodyRef} hidden={hidden}>
-			{tab ? <PreviewContent tab={tab} /> : null}
+			{tab ? <PreviewContent tab={tab} /> : <PreviewMessage>{t("rightNoFiles")}</PreviewMessage>}
 		</div>
 	);
 }

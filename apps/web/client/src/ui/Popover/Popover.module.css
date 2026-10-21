@@ -7,3 +7,45 @@
 	background: var(--surface);
 	box-shadow: 0 16px 42px var(--shadow);
 }
+
+/*
+ * Placed against the trigger's anchor, `--popover-gap` away, flipped to the
+ * other side when the viewport has no room (the margins flip with it), and
+ * hidden while the trigger is scrolled out of view.
+ */
+.panel {
+	position: fixed;
+	inset: auto;
+	margin: 0;
+	position-try-fallbacks: flip-block;
+	position-visibility: anchors-visible;
+}
+/*
+ * Centred: `center` lines the panel's middle up with the trigger's and shifts
+ * it sideways only when a viewport edge leaves no room (8px margin), as
+ * `Tooltip` does.
+ */
+.bottom {
+	position-area: bottom center;
+	margin: var(--popover-gap, 4px) 8px 0;
+}
+.top {
+	position-area: top center;
+	margin: 0 8px var(--popover-gap, 4px);
+}
+.bottomStart {
+	position-area: bottom span-right;
+	margin-top: var(--popover-gap, 4px);
+}
+.bottomEnd {
+	position-area: bottom span-left;
+	margin-top: var(--popover-gap, 4px);
+}
+.topStart {
+	position-area: top span-right;
+	margin-bottom: var(--popover-gap, 4px);
+}
+.topEnd {
+	position-area: top span-left;
+	margin-bottom: var(--popover-gap, 4px);
+}

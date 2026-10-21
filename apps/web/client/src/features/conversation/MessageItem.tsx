@@ -1,35 +1,74 @@
 import { memo, useMemo, useRef, useState } from "react";
 import { formatRelativeTime, useT } from "../../i18n";
-import { formatTokens } from "../../lib/format";
-import { renderMarkdown, skillInvocation } from "../../lib/markdown";
+import { type AttachedFile, FILE_MARKER, markAttachedFiles, splitAttachedFiles } from "../../lib/attached-files";
+import { formatBytes, formatTokens } from "../../lib/format";
+import { escapeHtml, pluginInstallInvocation, renderMarkdown, skillInvocation } from "../../lib/markdown";
 import { copyText } from "../../state/session";
+import { setUi, useAppStore } from "../../state/store";
 import type { MessageTimelineItem } from "../../state/types";
 import { Icon, LEGACY_ICONS, MarkdownView } from "../../ui";
+import { openFileReference } from "../files/actions";
 import { forkAtEntry } from "./actions";
 import { openFeedback, type Sentiment } from "./feedback";
 import { useFadeIn, useSmoothText } from "./streaming";
 import { ThinkingIndicator } from "./ThinkingIndicator";
 
+/** Same markup as the composer's chip (`prompt-editor.ts` `createChip`), so a sent message reads like its draft. */
+function fileChipHtml(file: AttachedFile | undefined): string {
+	if (!file) return "";
+	const title = escapeHtml(`${file.path} · ${formatBytes(file.bytes)}`);
+	return `<span class="message-file" title="${title}"><svg class="icon icon--xs" aria-hidden="true"><use href="#i-fileText"></use></svg><span>${escapeHtml(file.name)}</span></span>`;
+}
+
 /**
  * One chat message (legacy `renderTimeline` message branch, app.js 2253-2261).
  * `data-content` and `data-entry-id` are kept from the legacy markup.
  */
-export const MessageItem = memo(function MessageItem({ item }: { readonly item: MessageTimelineItem }) {
+export const MessageItem = memo(function MessageItem({
+	item,
+	files: pendingFiles,
+	fileCwd,
+}: {
+	readonly item: MessageTimelineItem;
+	/** The pending bubble's files: the host has not echoed the message (and its file blocks) yet. */
+	readonly files?: readonly AttachedFile[];
+	/** Read-only child transcripts resolve references against their own workspace. */
+	readonly fileCwd?: string;
+}) {
 	const t = useT();
 	const role = item.role === "user" ? "user" : "assistant";
-	const live = item.itemId === "message-live";
+	const currentCwd = useAppStore((state) => state.current?.cwd ?? "");
+	const cwd = fileCwd ?? currentCwd;
+	const live = item.itemId.startsWith("message-live");
 	const codeLabel = t("code");
 	const copyLabel = t("copy");
+	const tableLabel = t("markdownTable");
 	const bodyRef = useRef<HTMLDivElement>(null);
-	const skill = role === "user" ? skillInvocation(item.content) : null;
-	const text = useSmoothText(skill ? skill.request : item.content, live);
-	// A user message can be images only; it still opens a turn, so it gets a row.
-	const content = text || (role === "user" && item.images ? t("imageMessage", { count: item.images }) : text);
-	// Memoised: a streaming turn re-renders the timeline per frame, and parsing every earlier message each time made long sessions crawl.
-	const html = useMemo(
-		() => renderMarkdown(content, { code: codeLabel, copy: copyLabel }),
-		[content, codeLabel, copyLabel],
+	// Pasted or dropped files arrive as blocks after the user's text; the bubble shows them as inline chips where the user put them.
+	const attached = useMemo(
+		() => (role === "user" ? splitAttachedFiles(item.content) : { text: item.content, files: [] }),
+		[role, item.content],
 	);
+	const skill = role === "user" ? skillInvocation(attached.text) : null;
+	/** The install command a plugin pick chip sent; badge only, no body change. */
+	const pluginInstall = role === "user" && !skill ? pluginInstallInvocation(attached.text) : null;
+	const content = useSmoothText(skill ? skill.request : attached.text, live);
+	const images = role === "user" ? (item.images ?? []) : [];
+	// Memoised: a streaming turn re-renders the timeline per frame, and parsing every earlier message each time made long sessions crawl.
+	const files = pendingFiles ?? attached.files;
+	const html = useMemo(() => {
+		if (!files.length)
+			return renderMarkdown(
+				content,
+				{ code: codeLabel, copy: copyLabel, table: tableLabel },
+				{ localFiles: role === "assistant" && Boolean(cwd) },
+			);
+		return renderMarkdown(markAttachedFiles(content, files), {
+			code: codeLabel,
+			copy: copyLabel,
+			table: tableLabel,
+		}).replace(FILE_MARKER, (_match, index: string) => fileChipHtml(files[Number(index)]));
+	}, [content, files, codeLabel, copyLabel, tableLabel, role, cwd]);
 	useFadeIn(bodyRef, html, live);
 	if (item.error) return <MessageError entryId={item.entryId} error={item.error} />;
 	// The live turn before its first text (reasoning, or waiting on the first token).
@@ -37,23 +76,55 @@ export const MessageItem = memo(function MessageItem({ item }: { readonly item: 
 	return (
 		<article className={`message ${role}`} data-content={item.content || ""} data-entry-id={item.entryId}>
 			{skill ? (
-				<span className="message-skill" title={skill.name}>
-					<Icon name="cube" size="xs" />
+				<span className="message-skill message-skill--skill" title={skill.name}>
+					<Icon name="wrench" size="xs" />
 					{skill.name}
 				</span>
 			) : null}
+			{pluginInstall ? (
+				<span className="message-skill message-skill--plugin" title={pluginInstall.name}>
+					<Icon name="puzzle" size="xs" />
+					{pluginInstall.name}
+				</span>
+			) : null}
+			{/* A user message can be images only; it still opens a turn, so it gets a row. */}
+			{images.length ? <MessageImages images={images} /> : null}
 			{content ? (
 				<MarkdownView
 					ref={bodyRef}
 					className="message-body"
 					html={html}
 					onCopyCode={(code) => void copyText(code)}
+					onFileReference={(path) => void openFileReference(cwd, path)}
 				/>
 			) : null}
-			{item.role === "assistant" ? <MessageActions item={item} /> : null}
 		</article>
 	);
 });
+
+/** A user message's images as thumbnails; clicking one opens `#imagePreview`. */
+function MessageImages({ images }: { readonly images: readonly string[] }) {
+	const t = useT();
+	return (
+		<div className="message-images">
+			{images.map((src, index) => {
+				const name = t("imageNumbered", { index: index + 1 });
+				return (
+					<button
+						// biome-ignore lint/suspicious/noArrayIndexKey: a message's images never reorder.
+						key={index}
+						type="button"
+						className="message-image"
+						aria-label={t("previewImageNamed", { name })}
+						onClick={() => setUi({ imagePreview: { src, name } })}
+					>
+						<img src={src} alt="" />
+					</button>
+				);
+			})}
+		</div>
+	);
+}
 
 /** `403: {"message": "..."}` -> the status and the provider's message; anything else unchanged. */
 function errorDetail(error: string): { readonly status: string; readonly message: string } {
@@ -97,28 +168,34 @@ function MessageError({ entryId, error }: { readonly entryId?: string; readonly 
 
 /**
  * The row under an assistant turn: copy, vote, fork, then what the turn cost and
- * when it happened (legacy `messageActions` + `wireMessageActions`, 2206-2302).
+ * when it happened. The stream mounts it only after the entire turn settles.
  *
  * Voting opens the feedback dialog rather than firing a silent request — a
  * thumbs-down with no detail is much less useful than one with a topic.
  */
-function MessageActions({ item }: { readonly item: MessageTimelineItem }) {
+export function MessageActions({ messages }: { readonly messages: readonly MessageTimelineItem[] }) {
 	const t = useT();
 	const [vote, setVote] = useState<Sentiment | null>(null);
-	const tokens = item.usage ? item.usage.input + item.usage.output : 0;
+	const tokens = messages.reduce((sum, item) => sum + (item.usage ? item.usage.input + item.usage.output : 0), 0);
+	const content = messages
+		.filter((item) => !item.error && item.content)
+		.map((item) => item.content)
+		.join("\n\n");
+	const last = messages.at(-1);
+	const entryId = messages.reduce<string | undefined>((previous, item) => item.entryId ?? previous, undefined);
 	const onVote = (sentiment: Sentiment) => {
 		// One vote visible at a time; clicking the active one clears it.
 		setVote((already) => (already === sentiment ? null : sentiment));
 		openFeedback(sentiment);
 	};
 	return (
-		<div className="message-actions">
+		<div className="message-actions turn-actions">
 			<button
 				className="message-action copy-message"
 				type="button"
 				title={t("copy")}
 				aria-label={t("copy")}
-				onClick={() => void copyText(item.content || "")}
+				onClick={() => void copyText(content)}
 			>
 				<Icon {...LEGACY_ICONS.copy} />
 			</button>
@@ -147,7 +224,7 @@ function MessageActions({ item }: { readonly item: MessageTimelineItem }) {
 				type="button"
 				title={t("forkHere")}
 				aria-label={t("forkHere")}
-				onClick={() => void forkAtEntry(item.entryId)}
+				onClick={() => void forkAtEntry(entryId)}
 			>
 				<Icon name="fork" size="sm" />
 			</button>
@@ -157,7 +234,7 @@ function MessageActions({ item }: { readonly item: MessageTimelineItem }) {
 					{`${t("usage")} ${formatTokens(tokens)} tok`}
 				</span>
 			) : null}
-			{item.timestamp ? <span className="message-time">{formatRelativeTime(item.timestamp)}</span> : null}
+			{last?.timestamp ? <span className="message-time">{formatRelativeTime(last.timestamp)}</span> : null}
 		</div>
 	);
 }

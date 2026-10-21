@@ -2,7 +2,7 @@ import { useT } from "../../i18n";
 import { isMacPlatform } from "../../lib/format";
 import { activeCwd, startDraft } from "../../state/session";
 import { shallowEqual, useAppStore } from "../../state/store";
-import { Icon, IconButton, Kbd, SegmentedControl } from "../../ui";
+import { Icon, IconButton, Kbd, SegmentedControl, Tooltip } from "../../ui";
 import { openMidView } from "../market";
 import { chooseWorkspaceFolder } from "../workspace/actions";
 import { applyTagFilter, openSearch, switchConversationView, toggleArchived, toggleSidebar } from "./actions";
@@ -137,28 +137,32 @@ export function ConversationList() {
 					]}
 				/>
 				<div className="list-header-actions">
-					<IconButton
-						className="list-mode-button list-action"
-						id="addWorkspace"
-						data-tooltip={`${t("addWorkspace")} ${chord("O")}`}
-						aria-label={t("addWorkspace")}
-						aria-keyshortcuts="Alt+Meta+O"
-						aria-busy={view.pickingFolder ? "true" : undefined}
-						onClick={() => void chooseWorkspaceFolder()}
-					>
-						<Icon name="folderPlus" size="sm" />
-					</IconButton>
-					<IconButton
-						className={view.showArchived ? "list-mode-button list-action active" : "list-mode-button list-action"}
-						id="archiveToggle"
-						data-tooltip={view.showArchived ? t("archiveClose") : t("archivedTooltip")}
-						aria-label={view.showArchived ? t("archiveClose") : t("archivedTooltip")}
-						aria-pressed={view.showArchived}
-						onClick={toggleArchived}
-					>
-						{/* While the archive is shown, the same button closes it. */}
-						<Icon name={view.showArchived ? "close" : "archive"} size="sm" />
-					</IconButton>
+					<Tooltip content={`${t("addWorkspace")} ${chord("O")}`}>
+						<IconButton
+							className="list-mode-button list-action"
+							id="addWorkspace"
+							aria-label={t("addWorkspace")}
+							aria-keyshortcuts="Alt+Meta+O"
+							aria-busy={view.pickingFolder ? "true" : undefined}
+							onClick={() => void chooseWorkspaceFolder()}
+						>
+							<Icon name="folderPlus" size="sm" />
+						</IconButton>
+					</Tooltip>
+					<Tooltip content={view.showArchived ? t("archiveClose") : t("archivedTooltip")}>
+						<IconButton
+							className={
+								view.showArchived ? "list-mode-button list-action active" : "list-mode-button list-action"
+							}
+							id="archiveToggle"
+							aria-label={view.showArchived ? t("archiveClose") : t("archivedTooltip")}
+							aria-pressed={view.showArchived}
+							onClick={toggleArchived}
+						>
+							{/* While the archive is shown, the same button closes it. */}
+							<Icon name={view.showArchived ? "close" : "archive"} size="sm" />
+						</IconButton>
+					</Tooltip>
 				</div>
 			</div>
 			<TagFilter />

@@ -42,17 +42,24 @@ export type {
 	StepCliLoginFailureReason,
 	StepCliLoginInit,
 	StepCliLoginPoll,
+	StepCliLoginState,
 } from "./login-client.ts";
 export {
 	defaultStepCliClientInfo,
 	initStepCliLogin,
 	isRetryableStepCliLoginError,
+	parseStepCliLoginState,
+	parseStepLoginState,
 	pollStepCliLogin,
 	STEP_CLI_LOGIN_PATH_PREFIX,
 	StepCliLoginRequestError,
 } from "./login-client.ts";
 export type { StepCliLoginReady, WaitForStepCliLoginInput } from "./login-polling.ts";
 export { MIN_STEP_POLL_INTERVAL_MS, waitForStepCliLogin } from "./login-polling.ts";
+export type { RefreshStepLoginStateInput } from "./login-refresh.ts";
+export { refreshStepLoginState, StepLoginRefreshError } from "./login-refresh.ts";
+export type { FetchStepUserInfoInput, StepUserInfo, StepUserInfoFailure } from "./user-info.ts";
+export { fetchStepUserInfo, StepUserInfoError } from "./user-info.ts";
 
 /** Provider id used by the default Step extension. */
 export const STEP_PROVIDER_ID = "step";
@@ -310,6 +317,10 @@ export async function loginStepOAuth(
 				refresh: STEP_STATIC_REFRESH_TOKEN,
 				expires: Number.MAX_SAFE_INTEGER,
 				...(ready.uid ? { uid: ready.uid } : {}),
+				// Rides along as extra fields: the API key stays the credential, and
+				// hosts that need an identity read these beside it.
+				...(ready.login ? { login: ready.login } : {}),
+				...(ready.loginError ? { loginError: ready.loginError } : {}),
 			};
 		},
 	);

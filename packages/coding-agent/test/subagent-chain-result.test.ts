@@ -75,10 +75,12 @@ async function run(
 	peakActive: number;
 	result: AgentToolResult<StepSubagentDetails>;
 	tasks: string[];
+	sessionIds: Array<string | undefined>;
 	partialModes: StepSubagentDetails["mode"][];
 	partialStatuses: string[][];
 }> {
 	const tasks: string[] = [];
+	const sessionIds: Array<string | undefined> = [];
 	const partialModes: StepSubagentDetails["mode"][] = [];
 	const partialStatuses: string[][] = [];
 	let active = 0;
@@ -102,6 +104,7 @@ async function run(
 			runner: async (input) => {
 				const index = tasks.length;
 				tasks.push(input.task);
+				sessionIds.push(input.sessionId);
 				const partial = runResult({ text: "" });
 				input.onUpdate?.({ ...partial, exitCode: -1, messages: [] });
 				active++;
@@ -115,7 +118,7 @@ async function run(
 			},
 		},
 	);
-	return { result, tasks, partialModes, partialStatuses, peakActive };
+	return { result, tasks, sessionIds, partialModes, partialStatuses, peakActive };
 }
 
 function contentText(result: AgentToolResult<StepSubagentDetails>): string {
@@ -144,6 +147,13 @@ test("a completed chain returns the last step's output with a per-step summary",
 	expect(result.details?.mode).toBe("chain");
 	expect(result.details?.results.map((record) => record.status)).toEqual(["completed", "completed", "completed"]);
 	expect(new Set(partialModes)).toEqual(new Set(["chain"]));
+});
+
+test("each step records the session id its child ran under", async () => {
+	const { result, sessionIds } = await run(threeSteps, () => ({ text: "ok" }));
+	expect(sessionIds.every((id) => id?.startsWith("subagent-"))).toBe(true);
+	expect(new Set(sessionIds).size).toBe(3);
+	expect(result.details?.results.map((record) => record.sessionId)).toEqual(sessionIds);
 });
 
 test("a failed step surfaces its error in content and marks later steps skipped", async () => {

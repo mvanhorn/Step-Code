@@ -1,21 +1,37 @@
-/* Legacy styles.css 1278-1296 (`.error-toast`). */
+/*
+ * The app's transient message (legacy styles.css 1278-1296, `.error-toast`).
+ * Fixed at the top centre of the window, so it shows above every view and
+ * dialog and stays clear of the composer in the bottom-right corner; on the
+ * macOS desktop host it also clears the title strip (`--titlebar-inset`).
+ */
 .root {
-	position: absolute;
-	right: 20px;
-	bottom: 20px;
-	z-index: 40;
-	max-width: 390px;
-	padding: 10px 13px;
+	position: fixed;
+	top: calc(var(--titlebar-inset, 0px) + 16px);
+	left: 50%;
+	z-index: 120;
+	width: max-content;
+	max-width: min(390px, calc(100vw - 32px));
+	padding: 8px 14px;
+	transform: translateX(-50%);
 	border: 1px solid color-mix(in srgb, var(--danger) 38%, var(--line));
 	border-radius: var(--radius-surface);
 	background: var(--danger-surface);
 	color: var(--danger);
 	box-shadow: 0 8px 24px rgb(0 0 0 / 9%);
 	font-size: 12px;
+	text-align: center;
+	animation: enter 160ms ease-out;
 }
 
 .root[data-tone="neutral"] {
 	border-color: var(--line);
 	background: var(--surface);
 	color: var(--ink-2);
+}
+
+@keyframes enter {
+	from {
+		opacity: 0;
+		transform: translate(-50%, -6px);
+	}
 }

@@ -1,8 +1,11 @@
 import { useRef, useSyncExternalStore } from "react";
 import type { Locale, TagColor } from "../i18n/messages";
+import type { AttachedFile } from "../lib/attached-files";
 import { readStorage, STORAGE_KEYS } from "../lib/storage";
 import { isDesktopHost } from "../platform/host";
+import type { PerformanceRun } from "./performance";
 import type {
+	AccountReport,
 	Attachment,
 	DirectoryListing,
 	DraftModels,
@@ -69,6 +72,7 @@ export type ThemeChoice = "system" | "light" | "dark";
 export type ConversationView = "project" | "group";
 export type ModeId = "goal" | "plan" | "ultraloop";
 export type DirectoryPickerMode = "native" | "browse";
+export type RightPanelId = "summary" | "context" | "changes" | "files" | "subagent" | "browser";
 
 /** Lazy file tree of one workspace (legacy `state.tree`). */
 export interface TreeState {
@@ -116,7 +120,7 @@ export interface PreviewState {
 }
 
 /** Pages of the settings view, in menu order. */
-export type SettingsPage = "general" | "appearance" | "models" | "plugins" | "mcp" | "skills";
+export type SettingsPage = "general" | "account" | "appearance" | "models" | "plugins" | "mcp" | "skills";
 
 /**
  * What a settings editor edits. `mcp` with a name edits that server, without one
@@ -133,6 +137,11 @@ export type SettingsEditor =
  * any feature (or the shell's Escape chain) can flip them.
  */
 export interface UiState {
+	readonly rightPanel: RightPanelId | null;
+	readonly rightPanelExpanded: boolean;
+	readonly rightPanelMenu: boolean;
+	/** `#terminalDock` below the conversation; independent of the right panel. Never restored on reload. */
+	readonly terminalOpen: boolean;
 	/** `.app.sidebar-hidden` */
 	readonly sidebarHidden: boolean;
 	/** Inline `--sidebar-width` on `.app` in px; null leaves the CSS default. */
@@ -147,6 +156,8 @@ export interface UiState {
 	readonly searchOpen: boolean;
 	/** `#workspacePopover` visible */
 	readonly workspacePopoverOpen: boolean;
+	/** `#accountMenu`: the sidebar footer's account popover */
+	readonly accountMenuOpen: boolean;
 	/** `#workspaceBrowserModal` visible */
 	readonly workspaceBrowserOpen: boolean;
 	readonly workspaceRemoval: { readonly path: string; readonly pending: boolean } | null;
@@ -156,21 +167,18 @@ export interface UiState {
 	readonly settingsEditor: SettingsEditor | null;
 	/** Dialog above the settings view: add a marketplace, import a skill folder. */
 	readonly settingsDialog: "marketplace" | "skillImport" | null;
-	/** `#sessionMenu` (session context menu) at viewport coordinates. */
-	readonly sessionMenu: { readonly sessionId: string; readonly x: number; readonly y: number } | null;
-	/**
-	 * `#tagPicker`, anchored to the bottom-right corner of the button that opened
-	 * it (legacy `positionTagPicker`). `sessionId` is the legacy `state.tagTarget`.
-	 */
-	readonly tagPicker: {
-		readonly sessionId: string;
-		readonly anchorRight: number;
-		readonly anchorBottom: number;
-	} | null;
+	/** `#workspaceMenu`, open below the overflow button of the project in `cwd`. */
+	readonly workspaceMenu: { readonly cwd: string } | null;
+	/** `#sessionMenu`, open below the more button of a session row. */
+	readonly sessionMenu: { readonly sessionId: string } | null;
+	/** `#tagPicker`, open below the tag button of a session row. `sessionId` is the legacy `state.tagTarget`. */
+	readonly tagPicker: { readonly sessionId: string } | null;
 	/** `#authBanner` visible (a request returned 401). */
 	readonly authExpired: boolean;
 	/** `#loggedOutOverlay` visible. */
 	readonly loggedOut: boolean;
+	/** `#logoutDialog`: confirming Log out; `pending` while `/auth/logout` runs. */
+	readonly logoutConfirm: { readonly pending: boolean } | null;
 	/** `#loginGate` visible: Desktop has no Step credential yet, and the app waits behind it. */
 	readonly loginRequired: boolean;
 	/** Incremented to ask the composer to focus `#prompt` (legacy `$("#prompt").focus()`). */
@@ -181,6 +189,33 @@ export interface UiState {
 	readonly changesMenu: string | null;
 	/** The composer's slash menu: matching commands, or the MCP server list picked from it. */
 	readonly slashMenu: "commands" | "mcp" | null;
+	/**
+	 * A search hit to scroll to once its session is shown; cleared when done.
+	 * `behavior`/`block` let a caller ask for a smooth scroll or a top-aligned
+	 * one (the stream locator); the instant centred jump stays as it was.
+	 */
+	readonly revealEntry: {
+		readonly sessionId: string;
+		readonly entryId: string;
+		readonly behavior?: ScrollBehavior;
+		readonly block?: ScrollLogicalPosition;
+	} | null;
+	/** `#childAgentView`: a child agent's read-only transcript covering the conversation of `parentId`. */
+	readonly childView: ChildView | null;
+	/** `#imagePreview`: a staged image attachment shown enlarged; `src` is its data URL. */
+	readonly imagePreview: { readonly src: string; readonly name: string } | null;
+}
+
+export interface ChildView {
+	readonly parentId: string;
+	/** The child shown; null until a workflow run's agent list has loaded. */
+	readonly childId: string | null;
+	/** Set when opened from a workflow call: the view lists that run's agents. */
+	readonly workflowRun?: string;
+	readonly label: string;
+	/** Stable selection into the parent's live task projection, including tasks without a child session yet. */
+	readonly toolItemId?: string;
+	readonly taskIndex?: number;
 }
 
 export interface ToastState {
@@ -192,6 +227,10 @@ export interface ToastState {
 
 export interface PendingTurn {
 	readonly text: string;
+	/** Files the message names; the host appends their content, so the echoed message has them too. */
+	readonly files?: readonly AttachedFile[];
+	/** Data URLs of the message's images, shown before the host echoes the message. */
+	readonly images?: readonly string[];
 	/** User messages in the timeline when it was sent; one more means the host has recorded it. */
 	readonly userCount: number;
 }
@@ -199,6 +238,8 @@ export interface PendingTurn {
 export interface AppState {
 	readonly sessions: readonly SessionSummary[];
 	readonly current: SessionSnapshot | null;
+	/** Current selection's locally observed run; cleared on replacement or stream interruption. */
+	readonly performanceRun: PerformanceRun | null;
 	readonly timelineItems: readonly TimelineItem[];
 	/**
 	 * A message sent but not yet in the session entries. The composer sets it on
@@ -241,6 +282,8 @@ export interface AppState {
 	readonly currentView: ConversationView;
 	readonly currentFilter: TagColor | null;
 	readonly login: LoginReport | null;
+	/** The signed-in account's name and avatar; null until the host answers. */
+	readonly account: AccountReport | null;
 	/** The in-page workspace browser (legacy workspaceBrowserPath/Parent, workspaceDirectories). */
 	readonly workspaceBrowser: DirectoryListing;
 	readonly directoryPicker: DirectoryPickerMode;
@@ -254,7 +297,6 @@ export interface AppState {
 	readonly showArchived: boolean;
 	readonly policiesCache: readonly PolicyPreset[];
 	readonly modes: Readonly<Record<ModeId, boolean>>;
-	readonly goalDraft: string;
 	readonly attachments: readonly Attachment[];
 	readonly theme: ThemeChoice;
 	readonly locale: Locale;
@@ -297,6 +339,7 @@ export function createInitialState(): AppState {
 	return {
 		sessions: [],
 		current: null,
+		performanceRun: null,
 		timelineItems: [],
 		pendingTurn: null,
 		bootstrapCwd: "",
@@ -316,6 +359,7 @@ export function createInitialState(): AppState {
 		currentView: "project",
 		currentFilter: null,
 		login: null,
+		account: null,
 		workspaceBrowser: { path: "", parent: "", directories: [] },
 		directoryPicker: "browse",
 		pickingFolder: false,
@@ -333,11 +377,14 @@ export function createInitialState(): AppState {
 		showArchived: false,
 		policiesCache: [],
 		modes: { goal: false, plan: false, ultraloop: false },
-		goalDraft: "",
 		attachments: [],
 		theme: initialTheme(),
 		locale: initialLocale(),
 		ui: {
+			rightPanel: typeof window !== "undefined" && window.innerWidth > 1200 ? "summary" : null,
+			rightPanelExpanded: false,
+			rightPanelMenu: false,
+			terminalOpen: false,
 			// `?sb=0` starts with the sidebar collapsed (legacy bootstrap).
 			sidebarHidden: typeof location !== "undefined" && location.search.includes("sb=0"),
 			sidebarWidth: null,
@@ -346,20 +393,26 @@ export function createInitialState(): AppState {
 			fileTreeOpen: false,
 			searchOpen: false,
 			workspacePopoverOpen: false,
+			accountMenuOpen: false,
 			workspaceBrowserOpen: false,
 			workspaceRemoval: null,
 			settingsPage: null,
 			settingsEditor: null,
 			settingsDialog: null,
+			workspaceMenu: null,
 			sessionMenu: null,
 			tagPicker: null,
 			authExpired: false,
 			loggedOut: false,
+			logoutConfirm: null,
 			loginRequired: false,
 			promptFocusRequest: 0,
 			midView: null,
 			changesMenu: null,
 			slashMenu: null,
+			revealEntry: null,
+			childView: null,
+			imagePreview: null,
 		},
 		toast: null,
 	};

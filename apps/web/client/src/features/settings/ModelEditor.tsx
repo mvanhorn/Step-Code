@@ -18,7 +18,7 @@ import { apiSend, errorMessage } from "../../lib/api";
 import { showError } from "../../state/session";
 import type { SettingsEditor } from "../../state/store";
 import type { DiscoveredModelEntry, SettingsModelProvider } from "../../state/types";
-import { Icon, IconButton, Modal, SearchInput, Spinner } from "../../ui";
+import { Icon, IconButton, Modal, SearchInput, Spinner, Tooltip } from "../../ui";
 import { SettingsSelect } from "./parts";
 
 const MODELS_PATH = "/api/v1/settings/models";
@@ -27,10 +27,30 @@ const MODELS_PATH = "/api/v1/settings/models";
  * The protocols the form offers, by the identifier `models.json` stores, with the
  * path each protocol's client appends to the stored address.
  */
-const API_CHOICES: ReadonlyArray<{ readonly value: string; readonly label: string; readonly requestPath: string }> = [
-	{ value: "openai-completions", label: "OpenAI Chat Completions", requestPath: "/chat/completions" },
-	{ value: "openai-responses", label: "OpenAI Responses", requestPath: "/responses" },
-	{ value: "anthropic-messages", label: "Anthropic Messages", requestPath: "/v1/messages" },
+const API_CHOICES: ReadonlyArray<{
+	readonly value: string;
+	readonly label: string;
+	readonly placeholder: string;
+	readonly requestPath: string;
+}> = [
+	{
+		value: "anthropic-messages",
+		label: "Anthropic Messages",
+		placeholder: "https://gateway.example",
+		requestPath: "/v1/messages",
+	},
+	{
+		value: "openai-responses",
+		label: "OpenAI Responses",
+		placeholder: "https://gateway.example/v1",
+		requestPath: "/responses",
+	},
+	{
+		value: "openai-completions",
+		label: "OpenAI Chat Completions",
+		placeholder: "https://gateway.example/v1",
+		requestPath: "/chat/completions",
+	},
 ];
 
 /**
@@ -102,7 +122,7 @@ const EMPTY_FORM: FormState = {
 	id: "",
 	name: "",
 	baseUrl: "",
-	api: API_CHOICES[0]?.value ?? "openai-completions",
+	api: API_CHOICES[0]?.value ?? "anthropic-messages",
 	apiKey: "",
 	models: [],
 };
@@ -570,21 +590,6 @@ export function ModelEditor({
 								update({ apiKey: event.target.value });
 							}}
 						/>
-						{editing && existing?.credential === "stored" ? (
-							<small className="settings-field-hint">
-								<label className="settings-inline-check">
-									<input
-										type="checkbox"
-										checked={removeKey}
-										onChange={(event) => {
-											setRemoveKey(event.target.checked);
-											if (event.target.checked) update({ apiKey: "" });
-										}}
-									/>
-									{t("settingsModelsApiKeyRemove")}
-								</label>
-							</small>
-						) : null}
 					</label>
 
 					<hr className="settings-divider" />
@@ -652,17 +657,18 @@ export function ModelEditor({
 											{t("settingsModelsImageInput")}
 										</label>
 									</div>
-									<button
-										type="button"
-										className="settings-icon-action danger"
-										aria-label={t("settingsDelete")}
-										data-tooltip={t("settingsDelete")}
-										onClick={() =>
-											update({ models: form.models.filter((candidate) => candidate.key !== row.key) })
-										}
-									>
-										<Icon name="trash" size="xs" />
-									</button>
+									<Tooltip content={t("settingsDelete")}>
+										<button
+											type="button"
+											className="settings-icon-action danger"
+											aria-label={t("settingsDelete")}
+											onClick={() =>
+												update({ models: form.models.filter((candidate) => candidate.key !== row.key) })
+											}
+										>
+											<Icon name="trash" size="xs" />
+										</button>
+									</Tooltip>
 								</li>
 							))}
 						</ul>

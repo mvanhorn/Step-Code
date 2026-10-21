@@ -12,6 +12,7 @@ import {
 	FULL_ACCESS_RISK_CANCEL,
 } from "../../lib/permissions";
 import {
+	applyQueueState,
 	countUserMessages,
 	createSessionIfNeeded,
 	forgetSelection,
@@ -23,9 +24,14 @@ import type {
 	Attachment,
 	ClarificationReply,
 	ClarificationRequest,
+	QueueState,
 	SelectionRequest,
 	SessionSnapshot,
+	SteeringMessage,
+	TimelineItem,
+	UploadedFile,
 } from "../../state/types";
+import type { PromptFile } from "./prompt-editor";
 
 export async function replyToClarification(
 	request: ClarificationRequest,
@@ -164,40 +170,79 @@ export async function selectEffort(level: string): Promise<boolean> {
 	}
 }
 
-/* ── Session modes (legacy toggleMode, 2879-2903) ─────────────────────────── */
+/* ── Session modes ────────────────────────────────────────────────────────── */
 
-function setMode(id: ModeId, enabled: boolean): void {
-	setState((state) => ({ modes: { ...state.modes, [id]: enabled } }));
+/** The command line a mode maps to, matching what the host's `setMode` runs. */
+function modeCommandLine(id: ModeId, enabled: boolean): string {
+	if (id === "plan") return "/plan";
+	if (id === "ultraloop") return enabled ? "/ultraloop on" : "/ultraloop off";
+	return enabled ? "/goal " : "/goal clear";
 }
 
 /**
- * Flip one mode. Returns whether the mode panel should close: switching goal
- * on keeps it open so the goal can be typed, and sends nothing yet.
+ * Single-select: `id` becomes the only mode on, or turns off when already on.
+ * Returns the command line to stage in the composer — the mode activates when
+ * that line is sent, so what runs is always visible in the input.
  */
-export function toggleMode(id: ModeId): boolean {
-	const next = !getState().modes[id];
-	setMode(id, next);
-	if (id === "goal" && next) return false;
-	void sendModeToggle(id, next);
-	return true;
+export function chooseMode(id: ModeId): string {
+	const enabled = !getState().modes[id];
+	setState({ modes: { goal: false, plan: false, ultraloop: false, [id]: enabled } });
+	return modeCommandLine(id, enabled);
 }
 
-async function sendModeToggle(id: ModeId, next: boolean): Promise<void> {
-	const current = getState().current;
-	if (!current) return;
-	try {
-		// The server accepts the toggle and runs the slash command in the
-		// background, so there is no snapshot to render from the response.
-		await apiSend(`/api/v1/sessions/${current.id}/mode`, "PATCH", {
-			mode: id,
-			enabled: next,
-			goal: getState().goalDraft,
-		});
-		if (id === "goal" && next) setState({ goalDraft: "" });
-	} catch (error) {
-		setMode(id, !next);
-		showError(errorMessage(error));
+/* ── Other-session context ────────────────────────────────────────────────── */
+
+/**
+ * A skill or plugin picked from `#plusMenu`, staged as one light-purple icon
+ * chip above `#prompt` (ZCode-style): `prefix` commands lead the next message
+ * (one slash command per message, so a command pick replaces the previous
+ * one), `note` picks ride at its tail.
+ */
+export interface StagedPick {
+	readonly kind: "skill" | "plugin";
+	readonly name: string;
+	readonly icon: "wrench" | "puzzle";
+	readonly prefix?: string;
+	readonly note?: string;
+}
+
+/**
+ * A picked other-session context: shown as one chip above `#prompt`, and its
+ * packaged block rides at the tail of the next sent message.
+ */
+export interface ContextPackage {
+	readonly sessionId: string;
+	readonly title: string;
+	readonly block: string;
+}
+
+/** Caps the packaged transcript, ZCode's selection limits shrunk to one pick. */
+const SESSION_CONTEXT_MAX_CHARS = 4000;
+const SESSION_CONTEXT_MAX_MESSAGES = 20;
+
+/**
+ * Package another session's conversation as a prompt tail block (ZCode's
+ * `# userselect:` pattern): a heading naming the source session and a fenced
+ * transcript of its user/assistant messages, oldest first, capped. The block
+ * is ordinary prompt text — editable before sending, visible in the composer.
+ */
+export function packageSessionContext(title: string, entries: readonly TimelineItem[]): string {
+	const messages = entries
+		.filter(
+			(entry): entry is Extract<TimelineItem, { kind: "message" }> =>
+				entry.kind === "message" &&
+				(entry.role === "user" || entry.role === "assistant") &&
+				Boolean(entry.content?.trim()) &&
+				!entry.error,
+		)
+		.slice(-SESSION_CONTEXT_MAX_MESSAGES);
+	let transcript = messages
+		.map((message) => `${message.role === "user" ? "用户" : "助手"}: ${message.content.trim()}`)
+		.join("\n\n");
+	if (transcript.length > SESSION_CONTEXT_MAX_CHARS) {
+		transcript = `${transcript.slice(0, SESSION_CONTEXT_MAX_CHARS)}\n…（超出部分已截断）`;
 	}
+	return `# 引用会话「${title}」的上下文\n\`\`\`session-context\n${transcript}\n\`\`\``;
 }
 
 /* ── Attachments (legacy 2919-2985) ──────────────────────────────────────── */
@@ -238,37 +283,150 @@ export async function addAttachments(files: readonly File[]): Promise<void> {
 	}
 }
 
+/**
+ * Copy a pasted or dropped file to the host, which answers with the path the
+ * message will name. The browser never sees the file's original path.
+ */
+export function uploadFile(file: File): Promise<UploadedFile> {
+	return api<UploadedFile>(`/api/v1/uploads?${new URLSearchParams({ name: file.name })}`, {
+		method: "POST",
+		body: file,
+		headers: { "content-type": "application/octet-stream" },
+	});
+}
+
 export function removeAttachment(index: number): void {
 	setState((state) => ({ attachments: state.attachments.filter((_, position) => position !== index) }));
 }
 
 /* ── Sending (legacy `#composer` submit, 3523-3549) ──────────────────────── */
 
+/** A turn is in progress (running or waiting on the user), so a new message has to wait for it. */
+export function turnActive(state: AppState): boolean {
+	return state.current?.status === "running" || state.current?.status === "waiting";
+}
+
 /**
  * Send `text` with the staged attachments, creating the session first when
- * this is a draft. The caller has already cleared the prompt; on failure the
- * attachments are restored here and false is returned so the caller can put
- * the text back.
+ * this is a draft. During a turn the message is queued on the host and shown
+ * in the queue dock until the turn ends; `steer` instead hands it to the
+ * running turn, which reads it before its next model call. The caller has
+ * already cleared the prompt; on failure the attachments are restored here and
+ * false is returned so the caller can put the text back.
  */
-export async function sendMessage(text: string): Promise<boolean> {
+export async function sendMessage(text: string, files: readonly PromptFile[] = [], steer = false): Promise<boolean> {
 	// Attachments are sent with the message and dropped afterwards, so a failed
 	// send has to put both back.
-	const { attachments, current, timelineItems } = getState();
-	// A message steered into a running turn waits for the current step, so only
-	// a new turn gets the immediate message and thinking indicator.
-	const pendingTurn = current?.status === "running" ? null : { text, userCount: countUserMessages(timelineItems) };
+	const state = getState();
+	const { attachments, timelineItems } = state;
+	const active = turnActive(state);
+	// A queued or steered message waits for the turn, so only a new turn gets
+	// the immediate message and thinking indicator.
+	const images = attachments.filter((attachment) => attachment.kind === "image");
+	const pendingTurn = active
+		? null
+		: {
+				text,
+				files,
+				images: images.map((image) => `data:${image.mimeType};base64,${image.data}`),
+				userCount: countUserMessages(timelineItems),
+			};
 	setState({ attachments: [], pendingTurn });
+	// A steered message is shown in the conversation now, though the kernel reads it only after the current tool call.
+	const steering = active && steer && state.current ? (state.current.steeringMessages ?? []) : null;
+	if (steering && state.current)
+		setSteering(state.current.id, [
+			...steering,
+			{ text, images: images.map(({ mimeType, data }) => ({ mimeType, data })) },
+		]);
 	try {
 		const session = await createSessionIfNeeded();
-		const endpoint = session.status === "running" ? "steer" : "messages";
-		await api(`/api/v1/sessions/${session.id}/${endpoint}`, {
+		const endpoint = !active ? "messages" : steer ? "steer" : "queue";
+		// `files`: upload ids of the prompt's file chips; the host adds their content.
+		const body = JSON.stringify({ text, attachments, files: files.map((file) => file.id) });
+		const result = await api<QueueState | { ok: true }>(`/api/v1/sessions/${session.id}/${endpoint}`, {
 			method: "POST",
-			body: JSON.stringify({ text, attachments }),
+			body,
 		});
+		if ("queued" in result) applyQueueState(session.id, result);
 		return true;
 	} catch (error) {
 		setState({ attachments, pendingTurn: null });
+		if (steering && state.current) setSteering(state.current.id, steering);
 		showError(errorMessage(error));
+		return false;
+	}
+}
+
+function setSteering(sessionId: string, steering: readonly SteeringMessage[]): void {
+	const current = getState().current;
+	if (current?.id === sessionId)
+		applyQueueState(sessionId, { queued: current.queuedMessages ?? [], steering: [...steering] });
+}
+
+/* ── Queued messages (the dock above the composer) ───────────────────────── */
+
+/**
+ * Change one queued message: edit its text, remove it, or steer it into the
+ * running turn (`id` undefined with "steer": every queued message). Resolves
+ * false when the host refused, e.g. the message has started meanwhile.
+ */
+export async function updateQueued(
+	action: { kind: "edit"; id: string; text: string } | { kind: "remove"; id: string } | { kind: "steer"; id?: string },
+): Promise<boolean> {
+	if (action.kind === "steer") return steerQueued(action.id);
+	const current = getState().current;
+	if (!current) return false;
+	const base = `/api/v1/sessions/${current.id}/queue`;
+	try {
+		const result =
+			action.kind === "edit"
+				? await apiSend<QueueState>(`${base}/${encodeURIComponent(action.id)}`, "PATCH", { text: action.text })
+				: await apiSend<QueueState>(`${base}/${encodeURIComponent(action.id)}`, "DELETE");
+		applyQueueState(current.id, result);
+		return true;
+	} catch {
+		// It fails when the message already left the queue; the host's reason adds nothing.
+		showError(t(action.kind === "edit" ? "queueEditFailed" : "queueRemoveFailed"));
+		return false;
+	}
+}
+
+/**
+ * "立即": steer queued messages (`id`, or all of them) into the running turn.
+ * The kernel reads them only after the current tool call, but they leave the
+ * dock and show in the conversation before the request returns (the host's
+ * queue state replaces this guess when it arrives). With no turn running the
+ * host starts the first one as a new turn, so that one becomes the pending turn.
+ */
+async function steerQueued(id?: string): Promise<boolean> {
+	const state = getState();
+	const current = state.current;
+	if (!current) return false;
+	const queued = current.queuedMessages ?? [];
+	const steering = current.steeringMessages ?? [];
+	const targets = id ? queued.filter((item) => item.id === id) : queued;
+	const [first] = targets;
+	if (!first) return false;
+	const active = turnActive(state);
+	const moved = active ? targets : [first];
+	applyQueueState(current.id, {
+		queued: queued.filter((item) => !moved.includes(item)),
+		// The queue view has no image bytes; the host's response brings them.
+		steering: active ? [...steering, ...moved.map((item) => ({ text: item.text, images: [] }))] : steering,
+	});
+	if (!active) setState({ pendingTurn: { text: first.text, userCount: countUserMessages(state.timelineItems) } });
+	const base = `/api/v1/sessions/${current.id}/queue`;
+	try {
+		applyQueueState(
+			current.id,
+			await apiSend<QueueState>(id ? `${base}/${encodeURIComponent(id)}/steer` : `${base}/steer`, "POST"),
+		);
+		return true;
+	} catch (error) {
+		applyQueueState(current.id, { queued, steering });
+		if (!active) setState({ pendingTurn: null });
+		showError(`${t("queueSteerFailed")} ${errorMessage(error)}`);
 		return false;
 	}
 }

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { formatStartupBanner } from "../src/banner.ts";
+import { formatStartupBanner, resolveLaunchPort } from "../src/banner.ts";
 
 const banner = formatStartupBanner({ port: 3077, token: "abc-123_XYZ", version: "1.2.3" });
 
@@ -34,6 +34,18 @@ test("the port and version are interpolated, not hardcoded", () => {
 	const other = formatStartupBanner({ port: 58627, token: "t", version: "9.9.9" });
 	assert.match(other, /http:\/\/127\.0\.0\.1:58627\/#token=t/u);
 	assert.ok(other.split("\n").includes("  StepCode Web ready  9.9.9"));
+});
+
+test("the launch port is the host port unless a client dev server port is set", () => {
+	assert.equal(resolveLaunchPort({}, 3077), 3077);
+	assert.equal(resolveLaunchPort({ STEPCODE_WEB_CLIENT_PORT: " " }, 3077), 3077);
+	assert.equal(resolveLaunchPort({ STEPCODE_WEB_CLIENT_PORT: "5173" }, 3077), 5173);
+});
+
+test("an invalid client dev server port fails instead of falling back", () => {
+	for (const value of ["abc", "0", "65536", "51.5"]) {
+		assert.throws(() => resolveLaunchPort({ STEPCODE_WEB_CLIENT_PORT: value }, 3077), /STEPCODE_WEB_CLIENT_PORT/u);
+	}
 });
 
 test("the network row states the real binding instead of an unimplemented flag", () => {

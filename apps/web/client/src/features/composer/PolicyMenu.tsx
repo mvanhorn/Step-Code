@@ -36,7 +36,9 @@ export function PolicyMenu({ open, onOpen, onClose }: ComposerMenuProps) {
 		<ControlMenu
 			id="policyMenu"
 			triggerId="policyTrigger"
-			triggerClassName="permission-control"
+			triggerClassName={
+				current === "full-access" ? "permission-control permission-control--danger" : "permission-control"
+			}
 			title={t("policyTitle")}
 			icon={POLICY_ICONS[current] ?? "shield"}
 			labelId="policyLabel"

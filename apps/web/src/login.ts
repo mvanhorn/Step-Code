@@ -24,6 +24,8 @@ export interface LoginReport {
 	readonly provider?: string;
 	/** Login profile recorded at sign-in, e.g. `step_plan`. */
 	readonly profile?: string;
+	/** Stored OAuth UID, only when it matches the kernel's checked account. */
+	readonly userId?: string;
 	/** Where the credential lives, for a "run this in a terminal" hint. */
 	readonly path?: string;
 	/** True when a credential exists, whatever the provider says about it. */
@@ -34,8 +36,14 @@ export interface LoginReport {
 	 * when no check was possible.
 	 */
 	readonly validity?: StepLoginStatus["validity"];
-	/** The one command that changes this state. */
+	/** Terminal alternative to the page's sign-in controls. */
 	readonly loginCommand: string;
+	/**
+	 * The Step Plan page of the platform this credential belongs to, where
+	 * "Upgrade" leads: `platform.stepfun.ai` for an overseas plan or key, the
+	 * mainland platform otherwise (also when the region is unknown).
+	 */
+	readonly planUrl: string;
 }
 
 export interface LoginReportInput {
@@ -60,22 +68,55 @@ const ENVIRONMENT_KEY = "STEP_API_KEY";
  * and the next request may well succeed. Only the shape is read, never the
  * token.
  */
-function storedCredential(authPath: string, read: (path: string) => string): { profile?: string } | undefined {
+function storedCredential(
+	authPath: string,
+	read: (path: string) => string,
+): { profile?: string; userId?: string } | undefined {
 	try {
 		const parsed: unknown = JSON.parse(read(authPath));
-		const entry = (
-			parsed as Record<string, { type?: unknown; access?: unknown; key?: unknown; profile?: unknown } | null>
-		)?.step;
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || !("step" in parsed)) return undefined;
+		const entry = parsed.step;
+		if (!entry || typeof entry !== "object" || Array.isArray(entry) || !("type" in entry)) return undefined;
 		if (!entry || (entry.type !== "oauth" && entry.type !== "api_key")) return undefined;
-		const secret = entry.type === "oauth" ? entry.access : entry.key;
+		const secret =
+			entry.type === "oauth"
+				? "access" in entry
+					? entry.access
+					: undefined
+				: "key" in entry
+					? entry.key
+					: undefined;
 		if (typeof secret !== "string" || !secret.trim()) return undefined;
-		const profile = typeof entry.profile === "string" && entry.profile.trim() ? entry.profile.trim() : undefined;
-		return { ...(profile ? { profile } : {}) };
+		const profile =
+			"profile" in entry && typeof entry.profile === "string" && entry.profile.trim()
+				? entry.profile.trim()
+				: undefined;
+		const userId =
+			entry.type === "oauth" &&
+			"uid" in entry &&
+			typeof entry.uid === "string" &&
+			entry.uid.trim() &&
+			entry.uid.trim().length <= 256
+				? entry.uid.trim()
+				: undefined;
+		return { ...(profile ? { profile } : {}), ...(userId ? { userId } : {}) };
 	} catch {
 		// Missing or malformed: treated as no credential, which the UI reports as
 		// "sign in from a terminal" — the same remedy either way.
 		return undefined;
 	}
+}
+
+/**
+ * The Step Plan page for a stored profile, as `step login` links it
+ * (`${authBaseUrl}/step-plan`). An environment key or a key stored without a
+ * profile has no recorded region; the mainland platform is the default there,
+ * as it is for the provider itself.
+ */
+function stepPlanUrl(profile: string | undefined, env: Record<string, string | undefined>): string {
+	const profiles = resolveStepLoginProfiles(env);
+	const match = profiles.find((candidate) => candidate.id === profile) ?? profiles.find((p) => p.id === "step_plan");
+	return `${match?.authBaseUrl ?? "https://platform.stepfun.com"}/step-plan`;
 }
 
 /**
@@ -98,6 +139,12 @@ export function buildLoginReport(input: LoginReportInput): LoginReport {
 		source: !configured ? "none" : viaEnvironment ? "environment" : "auth.json",
 		...(configured ? { provider: "step" } : {}),
 		...(configured && profile ? { profile } : {}),
+		...(stored?.userId &&
+		input.status.loggedIn &&
+		input.status.validity === "valid" &&
+		input.status.account === stored.userId
+			? { userId: stored.userId }
+			: {}),
 		// The path is worth naming only when it is the thing to go and look at.
 		...(configured && !viaEnvironment && exists(input.authPath) ? { path: input.authPath } : {}),
 		configured,
@@ -105,6 +152,7 @@ export function buildLoginReport(input: LoginReportInput): LoginReport {
 		// provider reports "unavailable", not a failure of the credential.
 		...(configured ? { validity: input.status.validity } : {}),
 		loginCommand: "step login",
+		planUrl: stepPlanUrl(configured ? profile : undefined, env),
 	};
 }
 

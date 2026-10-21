@@ -14,7 +14,9 @@ import { Text } from "@step-harness/pi-tui";
 import { type Message, type ProviderErrorKind, StringEnum, type Usage } from "@step-harness/providers";
 import { type Static, Type } from "typebox";
 import { CONFIG_DIR_NAME } from "../config.ts";
+import { CHILD_SESSION_ORIGIN } from "../core/child-session.ts";
 import type { ExtensionAPI, ExtensionContext, ExtensionFactory, InlineExtension } from "../core/extensions/types.ts";
+import type { NewSessionOptions } from "../core/session-manager.ts";
 import { resolveStepAgentDir, resolveStepConfigDir } from "../step/environment.ts";
 import type { StepTelemetryReporter } from "../step/telemetry.ts";
 import { formatBuiltinAgentGuidance, type StepAgentConfig, type StepAgentScope } from "./step-subagent-agents.ts";
@@ -74,6 +76,19 @@ const MAX_PARALLEL_TASKS = 1000;
 export const MAX_JSON_LINE_BYTES = 2 * 1024 * 1024;
 const MAX_MESSAGES = 256;
 export const CHILD_MARKER = "STEPCODE_SUBAGENT_CHILD";
+
+/**
+ * Header fields a child agent process stamps on the session it creates, so the
+ * session is recognisable as a child's without relying on its id. Empty outside
+ * a child process. The env comes from `buildSubagentChildEnv`.
+ */
+export function childSessionHeader(
+	env: NodeJS.ProcessEnv = process.env,
+): Pick<NewSessionOptions, "origin" | "parentSessionId"> {
+	if (env[CHILD_MARKER] !== "1") return {};
+	const parentSessionId = env.STEPCODE_USAGE_PARENT_SESSION_ID?.trim();
+	return { origin: CHILD_SESSION_ORIGIN, ...(parentSessionId ? { parentSessionId } : {}) };
+}
 
 export interface StepSubagentUsage {
 	input: number;
@@ -144,6 +159,12 @@ export interface StepSubagentRunInput {
 		readOnly?: string[];
 		writable?: string[];
 	};
+	/**
+	 * Step CLI entry script for the child. Defaults to the current process's
+	 * `argv[1]`, which is right for the CLI but not for a host such as the Web
+	 * server, whose own entry does not accept `--mode rpc`.
+	 */
+	cliPath?: string;
 }
 
 /** Injectable runner used by embedders and tests. The default runner launches
@@ -174,6 +195,8 @@ export interface StepSubagentResultRecord extends StepSubagentRunResult {
 	step?: number;
 	worktreePath?: string;
 	worktreeBranch?: string;
+	/** Session id of the child process; its transcript is a read-only child session. */
+	sessionId?: string;
 }
 
 export interface StepSubagentDetails {
@@ -204,6 +227,8 @@ export interface StepSubagentExtensionOptions {
 	worktreeManager?: StepWorktreeManager;
 	/** Optional child runner, primarily useful for embedded hosts/tests. */
 	runner?: StepSubagentRunner;
+	/** CLI entry the default runner launches; see `StepSubagentRunInput.cliPath`. Ignored with a custom runner. */
+	cliPath?: string;
 	/** Optional process reporter; telemetry never owns child execution. */
 	telemetry?: StepTelemetryReporter;
 }
@@ -562,7 +587,11 @@ export function createStepSubagentExtension(options: StepSubagentExtensionOption
 		worktreeManager: options.worktreeManager ?? {
 			allocate: allocateStepWorktree,
 		},
-		runner: options.runner ?? runStepSubagentProcess,
+		runner:
+			options.runner ??
+			(options.cliPath === undefined
+				? runStepSubagentProcess
+				: (input: StepSubagentRunInput) => runStepSubagentProcess({ ...input, cliPath: options.cliPath })),
 	};
 	return (pi: ExtensionAPI): void => {
 		// The child process inherits this marker. It still gets Step's provider and

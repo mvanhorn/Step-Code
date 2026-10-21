@@ -56,20 +56,79 @@
 .stream-inner > .message.user:not(:first-child) {
 	margin-top: 18px;
 }
-/* A message that invoked a skill shows the skill as a chip instead of its expanded instructions. */
+/*
+ * A message that invoked a skill or a plugin install shows it as a kind chip
+ * instead of the raw command — the same hues the composer's pick chips use:
+ * the wrench (skills) is light blue, the puzzle (plugins) light purple.
+ */
 .message-skill {
+	--message-kind-accent: var(--ink-2);
 	display: inline-flex;
 	align-items: center;
 	gap: 5px;
 	max-width: 100%;
 	margin-bottom: 6px;
 	padding: 3px 9px;
-	border: 1px solid var(--line);
+	border: 1px solid color-mix(in srgb, var(--message-kind-accent) 35%, var(--line));
 	border-radius: var(--radius-pill);
-	background: var(--surface);
-	color: var(--ink-2);
+	background: color-mix(in srgb, var(--message-kind-accent) 10%, var(--surface));
+	color: var(--message-kind-accent);
 	font-size: 12px;
 	font-weight: 500;
+}
+.message-skill--skill {
+	--message-kind-accent: #3b82f6;
+}
+.message-skill--plugin {
+	--message-kind-accent: #8b5cf6;
+}
+/* A user message's images, above its text, right-aligned like the bubble. */
+.message-images {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	gap: 6px;
+	max-width: min(100%, 420px);
+	margin-bottom: 6px;
+}
+.message-image {
+	display: block;
+	width: 96px;
+	height: 96px;
+	overflow: hidden;
+	padding: 0;
+	border: 1px solid var(--line);
+	border-radius: var(--radius-bubble);
+	background: var(--surface-soft);
+	cursor: zoom-in;
+}
+.message-image:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 1px;
+}
+.message-image img {
+	display: block;
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+}
+/* A file pasted or dropped into the prompt, inline where the user put it (same look as the composer's `.prompt-file`). */
+.message-file {
+	display: inline-flex;
+	align-items: center;
+	gap: 3px;
+	max-width: 260px;
+	margin: 0 2px;
+	vertical-align: baseline;
+	color: var(--accent);
+	white-space: nowrap;
+}
+.message-file > span {
+	/* Only the name takes part in baseline alignment, so the chip's baseline is the text's,
+	   not the icon's bottom edge, and the chip lines up with the words around it on every line. */
+	align-self: baseline;
+	overflow: hidden;
+	text-overflow: ellipsis;
 }
 /* Stream text is a size smaller than shared Markdown and a touch heavier. */
 .message .message-body {
@@ -98,6 +157,82 @@
 	font-size: 14px;
 	font-weight: 500;
 	line-height: 1.75;
+}
+
+/* Thinking shares the tool label treatment, but is not a tool call. */
+.thinking {
+	min-width: 0;
+	color: var(--ink-2);
+	font-size: 13px;
+}
+.thinking .thinking-summary {
+	width: 100%;
+	flex-wrap: nowrap;
+	border: 0;
+	background: transparent;
+	cursor: pointer;
+}
+.thinking-summary > .icon,
+.thinking-summary > .tool-verb {
+	flex: none;
+}
+.thinking-summary:hover {
+	color: var(--ink);
+}
+.thinking-preview {
+	min-width: 0;
+	overflow: hidden;
+	color: var(--ink-3);
+	font-size: 12px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.thinking-elapsed {
+	flex: none;
+	color: var(--ink-3);
+	font-size: 11px;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+.thinking-chevron {
+	transform: rotate(-90deg);
+	transition: transform 240ms cubic-bezier(.215, .61, .355, 1);
+}
+.thinking[data-expanded="true"] .thinking-chevron {
+	transform: rotate(0deg);
+}
+.thinking-disclosure,
+.tool-disclosure {
+	display: grid;
+	grid-template-rows: 0fr;
+	opacity: 0;
+	visibility: hidden;
+	transition: grid-template-rows 240ms cubic-bezier(.215, .61, .355, 1), opacity 200ms ease, visibility 240ms;
+}
+.thinking-disclosure.expanded,
+.tool-disclosure.expanded {
+	grid-template-rows: 1fr;
+	opacity: 1;
+	visibility: visible;
+}
+.thinking-body,
+.tool-disclosure-body {
+	min-height: 0;
+	overflow: hidden;
+}
+.thinking-body > .message-body {
+	padding: 6px 0 6px 22px;
+	color: var(--ink-2);
+	font-size: 13px;
+}
+@media (prefers-reduced-motion: reduce) {
+	.thinking-disclosure,
+	.tool-disclosure,
+	.thinking-chevron,
+	.thinking .stream-fade {
+		transition: none;
+		animation: none;
+	}
 }
 
 /* Text the live reply just added fades in (features/conversation/streaming.ts sets a negative delay per chunk). */
@@ -139,76 +274,530 @@
 	background: var(--surface-soft);
 }
 
-/* Tool rows and approval cards (legacy styles.css 728-753). */
+/* A tool call: the row names it, the card below shows what it did. */
+.tool-call {
+	display: flex;
+	flex-direction: column;
+	gap: 0;
+	min-width: 0;
+}
+.tool-call > .tool-children,
+.tool-call > .subagent-lanes {
+	margin-top: 6px;
+}
+.retry-call {
+	gap: 6px;
+}
+.tool-disclosure-body > .tool-cx {
+	margin-top: 6px;
+}
+/* Consecutive calls read as one block, as in the terminal: 28px per row. */
+.tool-call + .tool-call {
+	margin-top: -4px;
+}
 .tool-row {
+	position: relative;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+	max-width: 100%;
+	min-height: 24px;
+	padding: 0;
+	border-radius: var(--radius-chip);
+	color: var(--ink-2);
+	font-size: 13px;
+	line-height: 20px;
+	text-align: left;
+}
+/* Reserve a readable heading before giving the optional argument summary space. */
+.tool-heading {
+	position: relative;
 	display: inline-flex;
 	align-items: center;
-	align-self: flex-start;
-	gap: 7px;
+	flex: none;
+	gap: 6px;
+	min-width: 0;
 	max-width: 100%;
-	padding: 5px 8px;
-	border-radius: var(--radius-control);
-	color: var(--ink-2);
-	font: 11px / 1.5 var(--mono);
+	pointer-events: none;
 }
-.tool-row {
+.tool-detail {
+	display: flex;
+	align-items: center;
+	flex: 1 1 80px;
+	gap: 6px;
+	min-width: 0;
+	pointer-events: none;
+}
+/* The toggle is an invisible layer under the row: it takes the clicks the subject does not. */
+.tool-toggle {
+	position: absolute;
+	inset: 0;
+	padding: 0;
 	border: 0;
 	background: transparent;
-	text-align: left;
 	cursor: pointer;
 }
-/* Consecutive tool calls read as one block. */
-.tool-row + .tool-row {
-	margin-top: -8px;
-}
-.tool-row:hover {
-	background: var(--surface-soft);
-}
-.tool-row:focus-visible {
+.tool-toggle:focus-visible {
+	border-radius: var(--radius-chip);
 	outline: 2px solid var(--focus-border);
 	outline-offset: 1px;
 }
-.tool-row > svg {
-	flex: none;
-	transition: transform 120ms ease;
-}
-.tool-row.open > svg {
-	transform: rotate(90deg);
-}
-.tool-row .tool-name {
-	flex: none;
-	color: var(--ink);
-}
-.tool-detail {
+/* The kind icon stays separate from the trailing disclosure in every process row. */
+.tool-glyph {
+	position: relative;
 	display: grid;
-	gap: 4px;
-	margin: -2px 0 4px 22px;
-	padding: 10px 12px;
-	border: 1px solid var(--line);
-	border-radius: var(--radius-control);
-	background: var(--surface-soft);
-	font: 11px / 1.5 var(--mono);
-}
-.tool-detail-label {
+	flex: none;
+	place-items: center;
+	width: 16px;
+	height: 16px;
 	color: var(--ink-3);
-	font-weight: 600;
+	pointer-events: none;
 }
-.tool-detail pre {
-	max-height: 320px;
-	margin: 0 0 6px;
-	overflow: auto;
+.tool-glyph > .icon {
+	grid-area: 1 / 1;
+}
+.tool-twisty {
+	position: relative;
+	flex: none;
+	transform: rotate(-90deg);
+	transition: transform 240ms cubic-bezier(.215, .61, .355, 1);
+	pointer-events: none;
+}
+.tool-row.open .tool-twisty {
+	transform: rotate(0deg);
+}
+.tool-verb {
+	position: relative;
+	flex: 0 1 auto;
+	min-width: 0;
 	color: var(--ink);
-	font-family: var(--mono);
-	white-space: pre-wrap;
-	word-break: break-word;
+	font-weight: 500;
+	overflow-wrap: anywhere;
+	transform: skewX(0deg);
+	transform-origin: bottom left;
+	transition: transform 320ms cubic-bezier(.22, 1, .36, 1), color 320ms ease;
+	pointer-events: none;
 }
-.tool-row.failed .tool-name {
+.tool-row.pending .tool-verb {
+	transform: skewX(-8deg);
+}
+.tool-row.failed .tool-verb,
+.tool-row.failed .tool-glyph {
 	color: var(--danger);
 }
-.tool-row span {
+.tool-dot {
+	position: relative;
+	flex: none;
+	color: var(--ink-3);
+	pointer-events: none;
+}
+/* The base label stays readable; only this decorative copy sweeps over it. */
+.tool-pending {
+	position: absolute;
+	inset: 0;
+	opacity: 0;
+	transition: opacity 320ms ease;
+	pointer-events: none;
+}
+.tool-pending::before {
+	display: block;
+	content: attr(data-label);
+	background: linear-gradient(100deg, transparent 35%, var(--ink) 50%, transparent 65%);
+	background-clip: text;
+	background-size: 260% 100%;
+	color: transparent;
+	animation: tool-shimmer 1.9s linear infinite;
+	animation-play-state: paused;
+}
+.tool-row.pending .tool-pending {
+	opacity: .8;
+}
+.tool-row.pending .tool-pending::before {
+	animation-play-state: running;
+}
+@keyframes tool-shimmer {
+	from {
+		background-position: 100% 0;
+	}
+	to {
+		background-position: 0% 0;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.tool-verb,
+	.tool-pending,
+	.tool-twisty,
+	.tool-call .tool-cx-input > summary > .icon {
+		transition: none;
+	}
+	.tool-row.pending .tool-verb {
+		transform: none;
+	}
+	.tool-row.pending .tool-pending {
+		opacity: 0;
+	}
+	.tool-pending::before,
+	.tool-call .tool-cx-state.pending {
+		animation: none;
+	}
+}
+.tool-failed {
+	position: relative;
+	flex: none;
+	padding: 0 5px;
+	border-radius: var(--radius-chip);
+	background: color-mix(in srgb, var(--danger) 12%, transparent);
+	color: var(--danger);
+	font-size: 11px;
+	line-height: 16px;
+}
+.tool-subject {
+	position: relative;
+	flex: 0 1 auto;
 	overflow: hidden;
+	min-width: 0;
+	color: var(--ink-3);
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+.tool-call[data-kind="bash"] .tool-subject {
+	font-family: var(--mono);
+	font-size: 12px;
+}
+.tool-subject-link {
+	pointer-events: auto;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: var(--ink-2);
+	font: inherit;
+	text-decoration: underline;
+	text-decoration-color: var(--line-strong);
+	text-decoration-style: dashed;
+	text-underline-offset: 3px;
+	cursor: pointer;
+}
+.tool-subject-link:hover {
+	color: var(--ink);
+	text-decoration-color: var(--ink-3);
+}
+.tool-stat {
+	position: relative;
+	flex: none;
+	font-family: var(--mono);
+	font-size: 11px;
+}
+
+/* The expanded card. */
+/* No overflow clip: the header's action tooltips open above their icons. */
+.tool-cx {
+	min-width: 0;
+	margin: 0 0 4px 22px;
+	border: 1px solid var(--line);
+	border-radius: var(--radius-input);
+	background: var(--code-surface);
+}
+.tool-cx-input {
+	border-bottom: 1px solid var(--line);
+}
+.tool-cx-input > summary {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-height: 30px;
+	padding: 4px 10px;
+	list-style: none;
+	color: var(--ink-2);
+	font-size: 12px;
+	cursor: pointer;
+}
+.tool-cx-input > summary > code {
+	min-width: 0;
+	margin-left: auto;
+	overflow-wrap: anywhere;
+	color: var(--ink-3);
+}
+.tool-cx-input > summary > .icon {
+	flex: none;
+	transition: transform var(--fast) ease;
+}
+.tool-cx-input[open] > summary > .icon {
+	transform: rotate(90deg);
+}
+.tool-cx-section {
+	padding: 6px 12px 0;
+	color: var(--ink-2);
+	font-size: 11px;
+}
+.tool-cx-status {
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: 4px;
+	padding: 6px 12px;
+	border-top: 1px solid var(--line);
+	color: var(--ink-2);
+	font-size: 11px;
+}
+.tool-cx-status.failed {
+	color: var(--danger);
+}
+.tool-cx-head {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-height: 32px;
+	padding: 0 8px 0 10px;
+	border-bottom: 1px solid var(--line);
+}
+.tool-cx-summary {
+	overflow: hidden;
+	min-width: 0;
+	flex: 1;
+	color: var(--ink-2);
+	font: 12px / 20px var(--mono);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.tool-cx-state {
+	flex: none;
+	width: 6px;
+	height: 6px;
+	border-radius: var(--radius-pill);
+	background: var(--ink-3);
+}
+.tool-cx-state.completed {
+	background: var(--success);
+}
+.tool-cx-state.failed {
+	background: var(--danger);
+}
+.tool-cx-state.pending {
+	background: var(--attention);
+	animation: tool-pulse 1.2s ease-in-out infinite;
+}
+@keyframes tool-pulse {
+	50% {
+		opacity: 0.35;
+	}
+}
+.tool-cx-action {
+	display: grid;
+	flex: none;
+	place-items: center;
+	width: 22px;
+	height: 22px;
+	border: 0;
+	border-radius: var(--radius-chip);
+	background: transparent;
+	color: var(--ink-3);
+	cursor: pointer;
+}
+.tool-cx-action:hover,
+.tool-cx-action.active {
+	background: var(--hover);
+	color: var(--ink);
+}
+.tool-cx-pre {
+	max-height: 320px;
+	margin: 0;
+	padding: 8px 12px;
+	overflow: auto;
+	color: var(--ink);
+	font: 12px / 1.6 var(--mono);
+	white-space: pre;
+	tab-size: 4;
+}
+.tool-cx-pre.wrap,
+.tool-cx-code.wrap .code-line {
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+.tool-cx-empty {
+	margin: 0;
+	padding: 8px 12px;
+	color: var(--ink-3);
+	font-size: 12px;
+}
+/* A file excerpt: highlighted, line-numbered, with the folded middle between head and tail. */
+.tool-cx-code {
+	max-height: 520px;
+	padding: 6px 0;
+	overflow: auto;
+	font: 12px / 1.7 var(--mono);
+	tab-size: 4;
+}
+/* Numbers come from a counter, so the rows are plain divs and the code keeps its own whitespace. */
+.tool-cx-code .code-line {
+	position: relative;
+	padding: 0 12px 0 calc(var(--line-digits, 3) * 1ch + 26px);
+	white-space: pre;
+}
+.tool-cx-code .code-line::before {
+	position: absolute;
+	left: 0;
+	width: calc(var(--line-digits, 3) * 1ch + 14px);
+	color: var(--ink-3);
+	content: counter(line);
+	counter-increment: line;
+	text-align: right;
+	user-select: none;
+}
+.tool-cx-more {
+	display: block;
+	width: calc(100% - 24px);
+	margin: 4px 12px;
+	padding: 3px 8px;
+	border: 1px dashed var(--line-strong);
+	border-radius: var(--radius-chip);
+	background: transparent;
+	color: var(--ink-3);
+	font: 11px / 18px var(--sans);
+	text-align: left;
+	cursor: pointer;
+}
+.tool-cx-more:hover {
+	background: var(--hover);
+	color: var(--ink-2);
+}
+/* Diff rows of an edit or write card. */
+.tool-cx-diff {
+	max-height: 380px;
+	padding: 6px 0;
+	overflow: auto;
+	font: 12px / 1.7 var(--mono);
+	tab-size: 4;
+}
+.tool-cx-diff-line {
+	display: flex;
+	gap: 10px;
+	padding: 0 12px;
+	white-space: pre;
+}
+.tool-cx-diff-number {
+	flex: none;
+	width: calc(var(--line-digits, 3) * 1ch);
+	color: var(--ink-3);
+	text-align: right;
+	user-select: none;
+}
+.tool-cx-diff-code {
+	min-width: 0;
+}
+.tool-cx-diff-line.add {
+	background: color-mix(in srgb, var(--success) 12%, transparent);
+}
+.tool-cx-diff-line.del {
+	background: color-mix(in srgb, var(--danger) 11%, transparent);
+}
+.tool-cx-diff-line.hunk {
+	height: 20px;
+	margin: 4px 0;
+	overflow: hidden;
+	color: var(--ink-3);
+}
+
+/* DFSC Simple folds consecutive thoughts and ordinary tools into one process range. */
+.process-tool-group {
+	min-width: 0;
+	margin: 4px 0;
+}
+.tool-group-trigger {
+	width: 100%;
+	min-height: 34px;
+	flex-wrap: nowrap;
+	padding: 3px 0;
+	border: 0;
+	background: transparent;
+	color: var(--ink-2);
+	cursor: pointer;
+}
+.tool-group-trigger:hover {
+	color: var(--ink);
+}
+.tool-group-trigger > .tool-verb {
+	color: inherit;
+	font-weight: 400;
+}
+.tool-group-chevron {
+	flex: none;
+	transform: rotate(-90deg);
+	transition: transform 240ms cubic-bezier(.215, .61, .355, 1);
+}
+.tool-group-trigger[aria-expanded="true"] > .tool-group-chevron {
+	transform: rotate(0deg);
+}
+.thinking-chevron,
+.tool-twisty,
+.tool-group-chevron {
+	opacity: 0;
+}
+.tool-row:is(:hover, :focus-visible, :has(:focus-visible)) .thinking-chevron,
+.tool-row:is(:hover, :focus-visible, :has(:focus-visible)) .tool-twisty,
+.tool-row:is(:hover, :focus-visible, :has(:focus-visible)) .tool-group-chevron {
+	opacity: 1;
+}
+@media (hover: none) {
+	.thinking-chevron,
+	.tool-twisty,
+	.tool-group-chevron {
+		opacity: 1;
+	}
+}
+.process-group-preview {
+	flex: 1 4 0;
+	min-width: 0;
+	padding-left: 9px;
+	overflow: hidden;
+	border-left: 1px solid var(--line);
+	color: var(--ink-2);
+	font-size: 12px;
+	font-weight: 400;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.tool-group-disclosure {
+	display: grid;
+	grid-template-rows: 0fr;
+	opacity: 0;
+	visibility: hidden;
+	transition: grid-template-rows 240ms cubic-bezier(.215, .61, .355, 1), opacity 200ms ease, visibility 240ms;
+}
+.tool-group-disclosure.expanded {
+	grid-template-rows: 1fr;
+	opacity: 1;
+	visibility: visible;
+}
+.tool-group-body {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	min-width: 0;
+	min-height: 0;
+	overflow: hidden;
+	padding-left: 18px;
+}
+.process-tool-group[data-single="true"] > .tool-group-disclosure {
+	transition: none;
+}
+.process-tool-group[data-single="true"] > .tool-group-disclosure > .tool-group-body {
+	padding-left: 0;
+}
+.compact-process .tool-row:not(.tool-group-trigger) {
+	min-height: 30px;
+}
+.compact-process .tool-cx {
+	margin-left: 0;
+}
+.compact-process .tool-verb {
+	color: inherit;
+}
+@media (prefers-reduced-motion: reduce) {
+	.tool-group-disclosure,
+	.tool-group-chevron {
+		transition: none;
+	}
 }
 .approval {
 	padding: 16px;
@@ -454,7 +1043,7 @@
 	color: var(--ink-3);
 	font-size: 12px;
 }
-/* Full path on hover, like the sidebar's data-tooltip; above the row, since the card clips what overflows it. */
+/* Full path on hover, above the row, since the card clips what overflows it. */
 .turn-change-file[data-tooltip] {
 	position: relative;
 }
@@ -481,12 +1070,6 @@
 .turn-change-file[data-tooltip]:hover::after,
 .turn-change-file[data-tooltip]:focus-visible::after {
 	display: block;
-}
-.turn-changes-note {
-	padding: 8px 12px;
-	border-top: 1px solid var(--line);
-	color: var(--ink-3);
-	font-size: 12px;
 }
 .turn-changes-more {
 	gap: 6px;
@@ -529,4 +1112,23 @@
 }
 .message-error-text a {
 	color: var(--accent);
+}
+
+/* Failed model requests the kernel retried (RetryRow.tsx); the row reuses the tool row's layout. */
+.retry-timer {
+	position: relative;
+	flex: none;
+	color: var(--ink-3);
+	font-variant-numeric: tabular-nums;
+	pointer-events: none;
+}
+.retry-error-list {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	margin: 0;
+	padding: 8px 10px 8px 28px;
+	color: var(--ink-2);
+	font: 12px / 18px var(--mono);
+	overflow-wrap: anywhere;
 }

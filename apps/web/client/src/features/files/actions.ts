@@ -7,9 +7,13 @@
  * `updateExpanded` keeps both in step.
  */
 
+import { t } from "../../i18n";
 import { api, errorMessage, workspaceApi } from "../../lib/api";
+import { workspaceFileReference } from "../../lib/file-references";
 import { ancestorPaths } from "../../lib/format";
 import { readStoredInt, STORAGE_KEYS, writeStorage } from "../../lib/storage";
+import { collectTurnChanges } from "../../lib/turn-changes";
+import { activeRightPanel, closeRightPanel, openRightPanel } from "../../state/right-panel";
 import { copyText, showError } from "../../state/session";
 import {
 	emptyTree,
@@ -218,7 +222,8 @@ function updateTab(cwd: string, path: string, update: (tab: PreviewTab) => Previ
 
 /** Show or hide the preview panel; tabs are kept (legacy `setPreviewOpen`, 1717-1722). */
 export function setPreviewOpen(open: boolean): void {
-	setPreview((preview) => ({ ...preview, open }));
+	if (open) openRightPanel(getState().preview.mode);
+	else closeRightPanel();
 }
 
 /** (Re)read one tab's file from disk (legacy `loadPreviewTab`, 1746-1758). */
@@ -235,18 +240,43 @@ export async function loadPreviewTab(cwd: string, path: string): Promise<void> {
 }
 
 /** Open a workspace file in a preview tab, reusing an open tab (legacy `openFile`, 1724-1744). */
-export async function openFile(cwd: string, path: string): Promise<void> {
+export async function openFile(cwd: string, path: string, rendered?: boolean): Promise<void> {
+	openRightPanel("files");
 	setPreview((preview) => {
 		let index = preview.tabs.findIndex((candidate) => sameTab(candidate, cwd, path));
 		let tabs = preview.tabs;
 		if (index < 0) {
-			tabs = [...tabs, { cwd, path, file: null, error: "", loading: false, rendered: false }];
+			tabs = [...tabs, { cwd, path, file: null, error: "", loading: false, rendered: rendered ?? false }];
 			index = tabs.length - 1;
+		} else if (rendered !== undefined) {
+			tabs = tabs.map((tab, position) => (position === index ? { ...tab, rendered } : tab));
 		}
 		return { ...preview, tabs, active: index, open: true, mode: "files" };
 	});
 	const preview = getState().preview;
 	if (!preview.tabs[preview.active]?.file) await loadPreviewTab(cwd, path);
+}
+
+/** Message references never navigate the browser or widen the host's workspace access. */
+export async function openFileReference(cwd: string, reference: string, sourcePath = ""): Promise<void> {
+	const path = workspaceFileReference(cwd, reference, sourcePath);
+	if (!path) {
+		showError(t("fileReferenceOutside"));
+		return;
+	}
+	await openFile(cwd, path, /\.mdx?$/i.test(path));
+}
+
+/** Delivery triggers toggle only their own visible file; retained tabs survive closing. */
+export async function toggleDeliveryFile(cwd: string, path: string): Promise<void> {
+	const state = getState();
+	const tab = state.preview.tabs[state.preview.active];
+	if (activeRightPanel(state) === "files" && tab && sameTab(tab, cwd, path)) {
+		// Keep focus on the conversation trigger instead of moving it to the rail toolbar.
+		openRightPanel(null);
+		return;
+	}
+	await openFile(cwd, path, /\.mdx?$/i.test(path));
 }
 
 /* ── Turn changes ────────────────────────────────────────────────────────── */
@@ -256,6 +286,7 @@ export async function openFile(cwd: string, path: string): Promise<void> {
  * is unfolded and scrolled to.
  */
 export function openTurnChanges(turnId: string, path?: string): void {
+	openRightPanel("changes");
 	setPreview((preview) => {
 		const previous = preview.changes?.turnId === turnId ? preview.changes : null;
 		return {
@@ -274,37 +305,47 @@ export function openTurnChanges(turnId: string, path?: string): void {
 
 /** Fold or unfold one file's diff in the changes view. */
 export function toggleChangedFile(path: string, expand?: boolean): void {
-	setPreview((preview) =>
-		preview.changes
-			? { ...preview, changes: { ...preview.changes, expanded: setToggled(preview.changes.expanded, path, expand) } }
-			: preview,
-	);
+	updateChangesExpansion((expanded) => setToggled(expanded, path, expand));
 }
 
 /** Unfold every listed file, or fold them all. */
 export function setChangedFilesExpanded(paths: readonly string[]): void {
-	setPreview((preview) =>
-		preview.changes ? { ...preview, changes: { ...preview.changes, expanded: new Set(paths) } } : preview,
-	);
+	updateChangesExpansion(() => new Set(paths));
+}
+
+/** A rail open can show the latest turn before an explicit turn has been selected. */
+function updateChangesExpansion(update: (expanded: ReadonlySet<string>) => ReadonlySet<string>): void {
+	setState((state) => {
+		const turns = collectTurnChanges(state.timelineItems, state.current?.cwd ?? "");
+		const turn = turns.find((candidate) => candidate.turnId === state.preview.changes?.turnId) ?? turns.at(-1);
+		if (!turn) return {};
+		const changes =
+			state.preview.changes?.turnId === turn.turnId
+				? state.preview.changes
+				: { turnId: turn.turnId, expanded: new Set<string>(), focus: null, focusSeq: 0 };
+		return { preview: { ...state.preview, changes: { ...changes, expanded: update(changes.expanded) } } };
+	});
 }
 
 /** Back to the file tabs from the changes view. */
 export function showPreviewFiles(): void {
-	setPreview((preview) => ({ ...preview, mode: "files", open: preview.tabs.length > 0 }));
+	openRightPanel("files");
 }
 
 /** Close one tab; closing the last one hides the panel (legacy `closePreviewTab`, 1760-1769). */
 export function closePreviewTab(index: number): void {
+	const wasShowingFiles = getState().preview.open && getState().preview.mode === "files";
 	setPreview((preview) => {
 		const tabs = preview.tabs.filter((_tab, position) => position !== index);
 		let active = preview.active >= index ? Math.max(0, preview.active - 1) : preview.active;
 		let open = preview.open;
 		if (!tabs.length) {
 			active = -1;
-			open = false;
+			if (preview.mode === "files") open = false;
 		}
 		return { ...preview, tabs, active, open };
 	});
+	if (wasShowingFiles && !getState().preview.tabs.length) closeRightPanel();
 }
 
 /** Focus an open tab (legacy tab click / Enter). */
@@ -343,7 +384,7 @@ export function copyActivePreview(): void {
 /* ── Preview width (legacy 1875-1888) ────────────────────────────────────── */
 
 export const PREVIEW_MIN = 320;
-export const PREVIEW_DEFAULT = 560;
+export const PREVIEW_DEFAULT = 420;
 
 export function previewMaxWidth(): number {
 	return Math.max(PREVIEW_MIN, Math.round(window.innerWidth * 0.6));

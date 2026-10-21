@@ -17,7 +17,7 @@ import {
 } from "../../lib/turn-changes";
 import { copyText } from "../../state/session";
 import { setUi, useAppStore } from "../../state/store";
-import { DiffStat, Icon, IconButton, Menu, MenuItem, Popover } from "../../ui";
+import { DiffStat, Icon, IconButton, Menu, MenuItem, Popover, Tooltip } from "../../ui";
 import {
 	openFile,
 	openTurnChanges,
@@ -104,7 +104,6 @@ function FileRow({
 	readonly menuOpen: boolean;
 }) {
 	const t = useT();
-	const moreRef = useRef<HTMLButtonElement>(null);
 	const [directory, name] = splitPath(file.path);
 	// The preview reads workspace-relative paths only.
 	const inWorkspace = !/^([\\/]|[A-Za-z]:)/.test(file.path) && !file.path.startsWith("..");
@@ -128,53 +127,56 @@ function FileRow({
 					</span>
 					<DiffStat additions={file.additions} deletions={file.deletions} />
 				</button>
-				<IconButton
-					className="changes-file-action list-action"
-					icon="openExternal"
-					iconSize="xs"
-					data-tooltip={t("openFile")}
-					aria-label={t("openFile")}
-					disabled={!inWorkspace || !cwd}
-					onClick={() => void openFile(cwd, file.path)}
-				/>
-				<IconButton
-					ref={moreRef}
-					className="changes-file-action list-action"
-					icon="more"
-					iconSize="xs"
-					data-tooltip={t("moreActions")}
-					aria-label={t("moreActions")}
-					aria-haspopup="menu"
-					aria-expanded={menuOpen}
-					onClick={() => setUi({ changesMenu: menuOpen ? null : menuKey })}
-				/>
+				<Tooltip content={t("openFile")}>
+					<IconButton
+						className="changes-file-action"
+						icon="openExternal"
+						iconSize="xs"
+						aria-label={t("openFile")}
+						disabled={!inWorkspace || !cwd}
+						onClick={() => void openFile(cwd, file.path)}
+					/>
+				</Tooltip>
 				<Popover
 					className="changes-menu changes-file-menu"
+					placement="bottom-end"
 					open={menuOpen}
 					closeOnEscape={false}
-					ignoreRefs={[moreRef]}
 					onClose={() => setUi({ changesMenu: null })}
+					content={
+						<Menu role="menu">
+							<MenuItem
+								role="menuitem"
+								onClick={() => {
+									setUi({ changesMenu: null });
+									void copyText(file.path);
+								}}
+							>
+								{t("copyPath")}
+							</MenuItem>
+							<MenuItem
+								role="menuitem"
+								onClick={() => {
+									setUi({ changesMenu: null });
+									void copyText(file.patches.join("\n"));
+								}}
+							>
+								{t("copyDiff")}
+							</MenuItem>
+						</Menu>
+					}
 				>
-					<Menu role="menu">
-						<MenuItem
-							role="menuitem"
-							onClick={() => {
-								setUi({ changesMenu: null });
-								void copyText(file.path);
-							}}
-						>
-							{t("copyPath")}
-						</MenuItem>
-						<MenuItem
-							role="menuitem"
-							onClick={() => {
-								setUi({ changesMenu: null });
-								void copyText(file.patches.join("\n"));
-							}}
-						>
-							{t("copyDiff")}
-						</MenuItem>
-					</Menu>
+					<Tooltip content={t("moreActions")}>
+						<IconButton
+							className="changes-file-action"
+							icon="more"
+							iconSize="xs"
+							aria-label={t("moreActions")}
+							aria-haspopup="menu"
+							aria-expanded={menuOpen}
+							onClick={() => setUi({ changesMenu: menuOpen ? null : menuKey })}
+						/>
+					</Tooltip>
 				</Popover>
 			</div>
 			{expanded ? (
@@ -191,15 +193,13 @@ function turnLabel(turn: TurnChanges, t: ReturnType<typeof useT>): string {
 	return turn.latest ? t("lastTurn") : t("turnNumber", { count: turn.ordinal });
 }
 
-export function ChangesView({ hidden }: { readonly hidden: boolean }) {
+export function ChangesView({ hidden, embedded = false }: { readonly hidden: boolean; readonly embedded?: boolean }) {
 	const t = useT();
 	const items = useAppStore((state) => state.timelineItems);
 	const cwd = useAppStore((state) => state.current?.cwd ?? "");
 	const view = useAppStore((state) => state.preview.changes);
 	const menu = useAppStore((state) => state.ui.changesMenu);
 	const hasTabs = useAppStore((state) => state.preview.tabs.length > 0);
-	const turnRef = useRef<HTMLButtonElement>(null);
-	const moreRef = useRef<HTMLButtonElement>(null);
 	const listRef = useRef<HTMLUListElement>(null);
 	// Grouping walks the whole timeline; skip it while the view is not shown.
 	const turns = useMemo(() => (hidden ? [] : collectTurnChanges(items, cwd)), [hidden, items, cwd]);
@@ -220,111 +220,113 @@ export function ChangesView({ hidden }: { readonly hidden: boolean }) {
 		<section className="changes-view" id="changesView" aria-label={t("turnChanges")} hidden={hidden}>
 			<div className="changes-header">
 				<div className="changes-turn">
-					<button
-						ref={turnRef}
-						type="button"
-						className="changes-pill changes-turn-button"
-						aria-haspopup="menu"
-						aria-expanded={menu === "turn"}
-						disabled={!turn}
-						onClick={() => setUi({ changesMenu: menu === "turn" ? null : "turn" })}
-					>
-						<span>{turn ? turnLabel(turn, t) : t("noTurnChanges")}</span>
-						<Icon name="chevronDown" size="xs" />
-						{turn ? <DiffStat additions={turn.additions} deletions={turn.deletions} /> : null}
-					</button>
 					<Popover
 						className="changes-menu changes-turn-menu"
 						open={menu === "turn"}
 						closeOnEscape={false}
-						ignoreRefs={[turnRef]}
 						onClose={closeMenu}
+						content={
+							<Menu role="menu">
+								{[...turns].reverse().map((candidate) => (
+									<MenuItem
+										key={candidate.turnId}
+										role="menuitemradio"
+										aria-checked={candidate.turnId === turn?.turnId}
+										trailing={<DiffStat additions={candidate.additions} deletions={candidate.deletions} />}
+										onClick={() => {
+											closeMenu();
+											openTurnChanges(candidate.turnId);
+										}}
+									>
+										{turnLabel(candidate, t)}
+									</MenuItem>
+								))}
+							</Menu>
+						}
 					>
-						<Menu role="menu">
-							{[...turns].reverse().map((candidate) => (
-								<MenuItem
-									key={candidate.turnId}
-									role="menuitemradio"
-									aria-checked={candidate.turnId === turn?.turnId}
-									trailing={<DiffStat additions={candidate.additions} deletions={candidate.deletions} />}
-									onClick={() => {
-										closeMenu();
-										openTurnChanges(candidate.turnId);
-									}}
-								>
-									{turnLabel(candidate, t)}
-								</MenuItem>
-							))}
-						</Menu>
+						<button
+							type="button"
+							className="changes-pill changes-turn-button"
+							aria-haspopup="menu"
+							aria-expanded={menu === "turn"}
+							disabled={!turn}
+							onClick={() => setUi({ changesMenu: menu === "turn" ? null : "turn" })}
+						>
+							<span>{turn ? turnLabel(turn, t) : t("noTurnChanges")}</span>
+							<Icon name="chevronDown" size="xs" />
+							{turn ? <DiffStat additions={turn.additions} deletions={turn.deletions} /> : null}
+						</button>
 					</Popover>
 				</div>
 				<div className="changes-pill changes-tools">
-					<IconButton
-						ref={moreRef}
-						className="list-action"
-						icon="more"
-						iconSize="sm"
-						data-tooltip={t("moreActions")}
-						aria-label={t("moreActions")}
-						aria-haspopup="menu"
-						aria-expanded={menu === "more"}
-						disabled={!turn}
-						onClick={() => setUi({ changesMenu: menu === "more" ? null : "more" })}
-					/>
 					<Popover
 						className="changes-menu changes-more-menu"
+						placement="bottom-end"
 						open={menu === "more"}
 						closeOnEscape={false}
-						ignoreRefs={[moreRef]}
 						onClose={closeMenu}
+						content={
+							<Menu role="menu">
+								<MenuItem
+									role="menuitem"
+									onClick={() => {
+										closeMenu();
+										if (turn) setChangedFilesExpanded(turn.files.map((file) => file.path));
+									}}
+								>
+									{t("expandAllFiles")}
+								</MenuItem>
+								<MenuItem
+									role="menuitem"
+									onClick={() => {
+										closeMenu();
+										setChangedFilesExpanded([]);
+									}}
+								>
+									{t("collapseAllFiles")}
+								</MenuItem>
+								<MenuItem
+									role="menuitem"
+									onClick={() => {
+										closeMenu();
+										if (turn) void copyText(turn.files.flatMap((file) => file.patches).join("\n"));
+									}}
+								>
+									{t("copyDiff")}
+								</MenuItem>
+							</Menu>
+						}
 					>
-						<Menu role="menu">
-							<MenuItem
-								role="menuitem"
-								onClick={() => {
-									closeMenu();
-									if (turn) setChangedFilesExpanded(turn.files.map((file) => file.path));
-								}}
-							>
-								{t("expandAllFiles")}
-							</MenuItem>
-							<MenuItem
-								role="menuitem"
-								onClick={() => {
-									closeMenu();
-									setChangedFilesExpanded([]);
-								}}
-							>
-								{t("collapseAllFiles")}
-							</MenuItem>
-							<MenuItem
-								role="menuitem"
-								onClick={() => {
-									closeMenu();
-									if (turn) void copyText(turn.files.flatMap((file) => file.patches).join("\n"));
-								}}
-							>
-								{t("copyDiff")}
-							</MenuItem>
-						</Menu>
+						<Tooltip content={t("moreActions")}>
+							<IconButton
+								icon="more"
+								iconSize="sm"
+								aria-label={t("moreActions")}
+								aria-haspopup="menu"
+								aria-expanded={menu === "more"}
+								disabled={!turn}
+								onClick={() => setUi({ changesMenu: menu === "more" ? null : "more" })}
+							/>
+						</Tooltip>
 					</Popover>
-					<IconButton
-						className="list-action"
-						icon="fileSearch"
-						iconSize="sm"
-						data-tooltip={t("showOpenFiles")}
-						aria-label={t("showOpenFiles")}
-						disabled={!hasTabs}
-						onClick={showPreviewFiles}
-					/>
-					<IconButton
-						className="list-action"
-						icon="panelRight"
-						iconSize="sm"
-						data-tooltip={t("closePreview")}
-						aria-label={t("closePreview")}
-						onClick={() => setPreviewOpen(false)}
-					/>
+					<Tooltip content={t("showOpenFiles")}>
+						<IconButton
+							icon="fileSearch"
+							iconSize="sm"
+							aria-label={t("showOpenFiles")}
+							disabled={!hasTabs}
+							onClick={showPreviewFiles}
+						/>
+					</Tooltip>
+					<Tooltip content={t("closePreview")}>
+						<IconButton
+							icon="panelRight"
+							iconSize="sm"
+							aria-label={t("closePreview")}
+							hidden={embedded}
+							onClick={() => setPreviewOpen(false)}
+						/>
+					</Tooltip>
 				</div>
 			</div>
 			{turn ? (
