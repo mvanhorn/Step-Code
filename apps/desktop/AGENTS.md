@@ -36,6 +36,8 @@ apps/desktop/
   package.json           main: dist/main.js
   tsconfig.json
   scripts/build.mjs      esbuild bundle; --ensure-web builds @step-harness/web if its output is missing
+  scripts/icons.mjs      regenerate resources/icon.{png,icns,ico} from resources/icon.svg (macOS)
+  resources/             app icons; icon.svg is the source
   src/
     main.ts              app lifecycle, single-instance lock, wiring, smoke mode
     server-host.ts       resolve server entry, pick a free loopback port, spawn, parse the #token banner, log, stop
@@ -127,5 +129,5 @@ changes).
 
 ## Not in scope yet
 
-Packaging (installers, signing, notarization), auto-update, app icons and a dedicated bundle id. Ask before starting
-any of them; they need decisions from the user (identity, update channel).
+Packaging (installers, signing, notarization), auto-update and a dedicated bundle id. Ask before starting any of
+them; they need decisions from the user (identity, update channel). App icons exist (`resources/`).

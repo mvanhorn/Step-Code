@@ -46,6 +46,8 @@ function positiveInteger(value: string | undefined): number | undefined {
 async function main(): Promise<void> {
 	const here = dirname(fileURLToPath(import.meta.url));
 	const preload = join(here, "preload.cjs");
+	// resources/ sits beside dist/ both in the source tree and in the packaged app.
+	const icon = join(here, "..", "resources", "icon.png");
 	const state = new DesktopStateStore(join(app.getPath("userData"), "desktop-state.json"));
 	const logPath = join(app.getPath("logs"), "web-server.log");
 	// Started before `ready` so the shell probe overlaps Electron's own startup.
@@ -158,6 +160,7 @@ async function main(): Promise<void> {
 	const openWindow = (): BrowserWindow => {
 		const created = createMainWindow({
 			preload,
+			icon,
 			version: app.getVersion(),
 			state,
 			getServerOrigin: () => server?.origin,
@@ -207,6 +210,8 @@ async function main(): Promise<void> {
 	});
 
 	await app.whenReady();
+	// A packaged app shows the bundle's icon.icns; `electron .` would show Electron's own icon.
+	if (!app.isPackaged && existsSync(icon)) app.dock?.setIcon(icon);
 	installDesktopIpc({
 		getWindow: () => window,
 		getServerOrigin: () => server?.origin,

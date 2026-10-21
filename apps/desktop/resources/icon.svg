@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+	<!-- The login page's brand tile (features/login: .login-logo + StepCodeMark), laid out on the
+	     macOS icon grid: an 824px tile centred in 1024px, the mark at the login tile's 46/76 scale. -->
+	<rect x="100" y="100" width="824" height="824" rx="185" fill="#15161b" />
+	<rect x="101.5" y="101.5" width="821" height="821" rx="183.5" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="3" />
+	<g transform="translate(512 512) scale(10.4) translate(-24 -24)">
+		<path d="M34.6 13.4A15 15 0 1 0 34.6 34.6" fill="none" stroke="#8f7cff" stroke-width="7" stroke-linecap="round" />
+		<path d="m21 17.5 6.5 6.5-6.5 6.5" fill="none" stroke="#f6b73c" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round" />
+	</g>
+</svg>

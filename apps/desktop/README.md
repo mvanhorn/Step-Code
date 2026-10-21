@@ -76,7 +76,13 @@ The client marks `<html data-host="desktop" data-platform="darwin|win32|linux">`
 the window uses `titleBarStyle: "hiddenInset"` with the traffic lights at `{ x: 16, y: 16 }`; the client reserves the
 top-left strip of the sidebar for them and marks it `-webkit-app-region: drag`.
 
+## Icons
+
+`resources/icon.svg` is the source: the login page's brand tile (`features/login`, `.login-logo` + `StepCodeMark`)
+on the macOS icon grid. `pnpm --filter @step-harness/desktop icons` (macOS; uses Chrome, `sips`, `iconutil`)
+regenerates the committed `icon.png` (window / Dock icon at run time), `icon.icns` (macOS bundle) and `icon.ico`
+(Windows executable and installer). `electron .` sets the Dock icon from `icon.png`; a packaged app uses the bundle's.
+
 ## Not included yet
 
-Packaging (installers, code signing, notarization), auto-update and app icons. `electron .` runs the app from the
-workspace only.
+Packaging (installers, code signing, notarization) and auto-update. `electron .` runs the app from the workspace only.

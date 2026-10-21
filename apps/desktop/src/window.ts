@@ -32,6 +32,8 @@ export interface MainWindowOptions {
 	readonly preload: string;
 	readonly version: string;
 	readonly state: DesktopStateStore;
+	/** Window / taskbar icon (Windows, Linux). macOS takes the app icon from the bundle or the Dock. */
+	readonly icon: string;
 	/** Origin the window may navigate within; undefined while the server is down. */
 	readonly getServerOrigin: () => string | undefined;
 }
@@ -132,6 +134,7 @@ export function createMainWindow(options: MainWindowOptions): BrowserWindow {
 		minHeight: MIN_SIZE.height,
 		show: false,
 		title: "StepCode",
+		...(darwin ? {} : { icon: options.icon }),
 		backgroundColor: canvasColor(nativeTheme.shouldUseDarkColors),
 		...(darwin ? { titleBarStyle: "hiddenInset" as const, trafficLightPosition: TRAFFIC_LIGHT_POSITION } : {}),
 		webPreferences: {
