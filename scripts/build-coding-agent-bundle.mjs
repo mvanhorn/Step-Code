@@ -19,8 +19,13 @@ const aiDir = join(repoRoot, "packages", "providers");
 const codingAgentDistDir = join(codingAgentDir, "dist");
 const bundleDir = join(codingAgentDistDir, "bundle");
 const stepBuildDefines = readStepBuildDefines();
+// The bundle is ESM, where CommonJS's `require` and `__dirname` do not exist.
+// Bundled CommonJS dependencies (e.g. @larksuiteoapi/node-sdk reads
+// `__dirname` while it loads) get them from this banner; `__dirname` is mapped
+// through `define` to a uniquely named binding so it cannot collide with a
+// dependency's own top-level declaration.
 const banner = {
-	js: 'import { createRequire as __piCreateRequire } from "node:module"; const require = __piCreateRequire(import.meta.url);',
+	js: 'import { createRequire as __piCreateRequire } from "node:module"; const require = __piCreateRequire(import.meta.url); const __stepBundleDirname = import.meta.dirname; const __stepBundleFilename = import.meta.filename;',
 };
 const allowedExternalPackages = new Set([
 	"@silvia-odwyer/photon-node",
@@ -85,7 +90,12 @@ function commonBuildOptions() {
 		absWorkingDir: repoRoot,
 		banner,
 		bundle: true,
-		define: { STEP_BUNDLED_NODE: "true", ...stepBuildDefines },
+		define: {
+			STEP_BUNDLED_NODE: "true",
+			__dirname: "__stepBundleDirname",
+			__filename: "__stepBundleFilename",
+			...stepBuildDefines,
+		},
 		external: ["@silvia-odwyer/photon-node"],
 		format: "esm",
 		legalComments: "none",
