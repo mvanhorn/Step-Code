@@ -281,12 +281,24 @@ When to add or change one:
   a change reaches a session when that session starts (MCP servers connect at `session_start`, skills load with its
   resources), so the client says so instead of reloading sessions.
 - Account settings are separate from General and reuse `features/login/actions.ts`
-  and the existing Host sign-in routes. Keep credential presence separate from
-  validity; an unavailable check is not a rejected credential. Optional UID is
-  only a bounded stored OAuth identity matching the kernel's valid account,
-  never a profile name, key or token. Environment credentials remain read-only.
-  Cancel page-owned browser authorization on exit and ignore late callbacks.
-  Keep cookie-only `/auth/logout` unchanged; no balance/allowance placeholders.
+  and the existing Host sign-in routes. Keep credential presence (`configured`)
+  separate from validity, and both separate from the account session
+  (`step-login.json`, reported by `session`); an unavailable check is not a
+  rejected credential. Optional UID is only a bounded stored OAuth identity
+  matching the kernel's valid account, never a profile name, key or token.
+  Environment credentials remain read-only. Cancel page-owned browser
+  authorization on exit and ignore late callbacks. A Step sign-out waits for
+  every in-flight sign-in to settle (`WebLoginController.cancelAll`) before it
+  removes files.
+  `POST /api/v1/logout` is the Step sign-out (same as `step logout`: stop running
+  sessions, remove the credential and account session); `POST /auth/logout` only
+  expires the page cookie. Keep the launch cookie through a Step sign-out so
+  Desktop reloads into `#loginGate` without a new terminal link. A Step account
+  is optional: the gate opens only when no model can run (no Step credential
+  and `customModels: false`), and "Use your own models" (`#loginOwnModels`)
+  always leads past it to Settings > Models. Never remove custom providers on a
+  Step sign-out. No
+  balance/allowance placeholders.
 - Do not depend on `process.cwd()` being the workspace; the desktop starts the server elsewhere (macOS privacy
   blocks a cwd inside `~/Documents`).
 

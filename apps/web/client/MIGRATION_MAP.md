@@ -148,7 +148,6 @@ feedback modal; `errorTimer`, `stream` → module variables in `state/session.ts
 | `sessionMenu: {sessionId,x,y} \| null` | `#sessionMenu` | sidebar |
 | `tagPicker: {sessionId,anchorRight,anchorBottom} \| null` | `#tagPicker` | sidebar |
 | `authExpired` | `#authBanner` visible | shell |
-| `loggedOut` | `#loggedOutOverlay` visible | shell |
 | `promptFocusRequest` | `$("#prompt").focus()` | composer focuses `#prompt` whenever it increments |
 | `midView: "cron" \| "market" \| null` | `.market-view.open` on `#cronView` / `#marketView` (remote 4aea0f8) | market; opened from the sidebar entries, closed by Escape (shell chain) |
 
@@ -226,7 +225,7 @@ App mounts these named exports at their legacy DOM positions:
 |---|---|---|
 | sidebar | `SidebarNav` (fragment: `.brand-row`, `nav.sidebar-actions`, `section.conversation-list`), `SidebarResizer`, `SessionMenu`, `TagPicker`, `SearchModal` | inside `aside.sidebar`; `#sidebarResizer`; in `main`; after `.app` |
 | files | `FileTreePanel`, `PreviewShowButton`, `PreviewPanel` | `#fileTree` (in sidebar); `#previewShow`; `aside#previewPanel` |
-| shell | `UserArea`, `SidebarShowButton`, `ErrorToast`, `AuthBanner`, `LoggedOutOverlay`, `ShellEffects` | `.user-area`; `#sidebarShow`; `#errorToast`; `#authBanner`; `#loggedOutOverlay`; document listeners |
+| shell | `UserArea`, `SidebarShowButton`, `ErrorToast`, `AuthBanner`, `ShellEffects` | `.user-area`; `#sidebarShow`; `#errorToast`; `#authBanner`; document listeners |
 | conversation | `TaskBanner`, `ConversationStream`, `FeedbackModal` | `#taskBanner`; `#stream`; `#feedbackModal` |
 | composer | `Composer({ workspaceControl })` | `form#composer` inside `.composer-zone` (App renders the zone) |
 | market | `CronView`, `MarketView` | `#cronView`, `#marketView` in `main`, after `#taskBanner` |

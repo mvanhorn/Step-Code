@@ -14,8 +14,9 @@ actions back through the runtime. The browser never receives credentials.
 
 Authentication is a one-time launch token exchanged for a signed, HttpOnly,
 SameSite cookie. API requests require the cookie and a local Origin. The
-server binds to `127.0.0.1` by default. Logging out expires the browser cookie;
-re-entry requires a fresh terminal launch link.
+server binds to `127.0.0.1` by default. `POST /auth/logout` expires the page
+cookie; re-entry then requires a fresh terminal launch link. That is page access
+only; the Step sign-out is `POST /api/v1/logout` (see Account below).
 
 The credential lives in `~/.stepcode/auth.json` (`STEPCODE_AUTH_PATH` overrides
 it). It is written by `step login` in a terminal or by the sign-in dialog of
@@ -55,22 +56,47 @@ page cancels its browser authorization and prevents late client updates. API-key
 submissions cannot be undone after the Host saves them. An environment credential
 is read-only here because it takes precedence over a saved credential; change it
 in the launch environment and restart instead. Switching is disabled while the
-page knows of running/waiting sessions. Existing Host credential reload behavior
-is unchanged. Account retains the upgrade link and cookie-only logout: logout
-does not remove Step credentials or terminate the Host's Agent sessions.
+page knows of running/waiting sessions. Account retains the upgrade link.
 
-Presence and reachability are reported separately: `getStepLoginStatus` treats an
-unreachable provider as "not logged in", but the credential is still on disk and
-the next request may succeed, so `configured` reflects the stored credential and
-`validity` reports what the provider said (`valid`, `invalid`, `unavailable`).
+Account (and the sidebar account menu) logs out of Step through
+`POST /api/v1/logout`, which performs the same sign-out as `step logout`: it
+cancels the page sign-ins still in flight and waits for them to settle (so a
+late credential write cannot outlive the sign-out), stops the Host's running
+sessions, then removes the stored `step`
+credential, the legacy copies and `step-login.json`, and invalidates the cached
+login and account reports. Only Step is removed: custom `models.json`
+providers and their keys stay. The launch cookie is kept on purpose, so Desktop
+reloads into `#loginGate` without a new link; plain Web opens the same gate for
+this explicit sign-out (a first visit still signs in from Account). When a
+custom model is still usable (`customModels: true` in the reply), neither host
+shows the gate: the page reloads into the app and says it continues on custom
+models. When `STEP_API_KEY`
+supplies requests, the host cannot remove it
+and answers `remainingSource: environment`; the stored credential and account
+session are still removed.
+
+Presence, reachability, and the account session are reported separately.
+`configured` reflects the stored credential, `validity` reports what the provider
+said (`valid`, `invalid`, `unavailable`), and `session` reports
+`step-login.json` (`ready`, `expiring`, `expired`, `missing`). An API-key sign-in
+has no account session and is still configured; an expired session only loses
+the account name and avatar, never model requests.
 
 ### Sign-in dialog
 
 When the bootstrap report says `configured: false` (no `auth.json`, an empty
-one, or no `step` entry, and no `STEP_API_KEY`), bootstrap stops before it opens
-any session and shows `#loginGate`, a dialog with no close control; Escape and
-global shortcuts are ignored while it is open. This startup gate is currently
-enabled only for Desktop; plain Web can sign in from Account settings.
+one, or no `step` entry, and no `STEP_API_KEY`) and `customModels: false` (no
+custom `models.json` model with a usable key, checked offline by the kernel's
+availability rules), bootstrap stops before it opens any session and shows
+`#loginGate`, a dialog with no close control; Escape and global shortcuts are
+ignored while it is open. The gate is enabled for Desktop, and for plain Web
+after an explicit Step sign-out; a first plain-Web visit can still sign in from
+Account settings.
+
+A Step account is not required. The gate's "Use your own models" link
+(`#loginOwnModels`) closes it, lets bootstrap continue, and opens Settings >
+Models, where a custom endpoint and key are configured (bring your own key).
+Once such a model is usable, later starts skip the gate.
 
 A session fixes its model catalog and provider endpoint when it is built, so
 one opened before the credential existed (another tab, or a page loaded before
