@@ -258,7 +258,11 @@ export function Composer({ workspaceControl }: ComposerProps) {
 					<div className="attachment-list" id="contextChipList">
 						{stagedPicks.map((pick) => (
 							<span
-								className="attachment-chip pick-chip"
+								className={
+									pick.kind === "skill"
+										? "attachment-chip pick-chip pick-chip--skill"
+										: "attachment-chip pick-chip"
+								}
 								key={`${pick.kind}:${pick.name}`}
 								title={pick.note ?? pick.prefix ?? pick.name}
 							>

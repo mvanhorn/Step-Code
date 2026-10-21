@@ -892,14 +892,18 @@
 }
 
 /*
- * Skill and plugin picks (ZCode-style): light-purple icon chips — the wrench
- * marks a skill, the puzzle a plugin. Built on the attachment chip's shape.
+ * Skill and plugin picks (ZCode-style): kind-tinted icon chips — the puzzle
+ * marks a plugin (light purple), the wrench a skill (light blue). Built on the
+ * attachment chip's shape.
  */
 .pick-chip {
 	--pick-accent: #8b5cf6;
 	border-color: color-mix(in srgb, var(--pick-accent) 35%, var(--line));
 	background: color-mix(in srgb, var(--pick-accent) 10%, var(--surface));
 	color: var(--pick-accent);
+}
+.pick-chip--skill {
+	--pick-accent: #3b82f6;
 }
 .pick-chip > span {
 	color: var(--ink-2);
@@ -997,13 +1001,13 @@
 .plus-sub-row:hover {
 	background: var(--hover);
 }
-/* 行首类型标记：与暂存芯片同色的浅紫（扳手=技能、拼图=插件）。 */
+/* 行首类型标记：与暂存芯片同色（拼图=插件·浅紫，扳手=技能·浅蓝）。 */
 .plus-sub-kind {
 	flex: none;
-	color: var(--pick-accent, #8b5cf6);
+	color: #8b5cf6;
 }
-.plus-sub-row .plus-sub-kind + .plus-sub-body {
-	/* 与无图标行对齐时图标占位的宽距保持一致 */ 
+.plus-sub-kind--wrench {
+	color: #3b82f6;
 }
 .plus-sub-row--faded {
 	opacity: 0.55;
