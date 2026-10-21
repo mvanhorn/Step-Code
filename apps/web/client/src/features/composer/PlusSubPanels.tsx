@@ -6,7 +6,7 @@
  * conversation into a context chip.
  */
 
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { formatRelativeTime, useT } from "../../i18n";
 import { api, errorMessage } from "../../lib/api";
 import { sessionTitle } from "../../state/session";
@@ -61,37 +61,62 @@ function cachedRequest<P, T extends readonly unknown[]>(path: string, pick: (pay
 	return pending;
 }
 
+/**
+ * A hung request (a busy host moment, a dropped connection) never settles, and
+ * because `requestCache` holds the promise itself, every later open would
+ * replay the same dead request and show 加载中 until a page reload. Race the
+ * load with this timeout, and on expiry drop the cache so the next open — or
+ * the retry row — starts a fresh request.
+ */
+const REQUEST_TIMEOUT_MS = 8000;
+
+const PANEL_PATHS = ["/api/v1/settings/plugins", "/api/v1/settings/skills"] as const;
+
+function loadWithTimeout<T>(load: () => Promise<readonly T[]>): Promise<readonly T[]> {
+	const timeout = new Promise<never>((_, reject) => {
+		setTimeout(() => reject(new Error("panel request timed out")), REQUEST_TIMEOUT_MS);
+	});
+	return Promise.race([load(), timeout]).catch((error: unknown) => {
+		for (const path of PANEL_PATHS) requestCache.delete(path);
+		throw error;
+	});
+}
+
 const loadPlugins = () =>
-	cachedRequest(
-		"/api/v1/settings/plugins",
-		(catalog: {
-			installed?: readonly InstalledPlugin[];
-			available?: readonly AvailablePlugin[];
-		}): readonly PluginRow[] => [
-			...(catalog.installed ?? []).map(
-				(plugin): PluginRow => ({
-					kind: "installed",
-					key: plugin.id,
-					name: plugin.name,
-					hint: plugin.version,
-					description: plugin.description,
-				}),
-			),
-			...(catalog.available ?? [])
-				.filter((plugin) => !plugin.installed)
-				.map(
+	loadWithTimeout(() =>
+		cachedRequest(
+			"/api/v1/settings/plugins",
+			(catalog: {
+				installed?: readonly InstalledPlugin[];
+				available?: readonly AvailablePlugin[];
+			}): readonly PluginRow[] => [
+				...(catalog.installed ?? []).map(
 					(plugin): PluginRow => ({
-						kind: "available",
-						key: `available:${plugin.name}`,
+						kind: "installed",
+						key: plugin.id,
 						name: plugin.name,
-						hint: plugin.marketplace,
+						hint: plugin.version,
 						description: plugin.description,
 					}),
 				),
-		],
+				...(catalog.available ?? [])
+					.filter((plugin) => !plugin.installed)
+					.map(
+						(plugin): PluginRow => ({
+							kind: "available",
+							key: `available:${plugin.name}`,
+							name: plugin.name,
+							hint: plugin.marketplace,
+							description: plugin.description,
+						}),
+					),
+			],
+		),
 	);
 const loadSkills = () =>
-	cachedRequest("/api/v1/settings/skills", (result: { skills?: readonly SettingsSkill[] }) => result.skills ?? []);
+	loadWithTimeout(() =>
+		cachedRequest("/api/v1/settings/skills", (result: { skills?: readonly SettingsSkill[] }) => result.skills ?? []),
+	);
 
 /**
  * Shared frame: search field, a scrollable list, one footer action. The search
@@ -141,7 +166,7 @@ function SubRow({
 }) {
 	return (
 		<button type="button" className={faded ? "plus-sub-row plus-sub-row--faded" : "plus-sub-row"} onClick={onClick}>
-			{icon ? <Icon className="plus-sub-kind" name={icon} size="xs" /> : null}
+			{icon ? <Icon className={`plus-sub-kind plus-sub-kind--${icon}`} name={icon} size="xs" /> : null}
 			<span className="plus-sub-body">
 				<span className="plus-sub-name">
 					{name}
@@ -185,13 +210,25 @@ function PickerPanel<T>({
 	const t = useT();
 	const [entries, setEntries] = useState<readonly T[] | null>(null);
 	const [error, setError] = useState<string | null>(null);
-	useEffect(() => {
+	const run = useCallback(() => {
 		load().then(setEntries, (caught) => setError(errorMessage(caught)));
 	}, [load]);
+	useEffect(() => run(), [run]);
+	const retry = () => {
+		setEntries(null);
+		setError(null);
+		run();
+	};
 	return (
 		<SubPanelFrame placeholder={placeholder} footer={footer}>
 			{(query) => {
-				if (error) return <div className="plus-sub-empty">{t("plusLoadFailed")}</div>;
+				if (error) {
+					return (
+						<button type="button" className="plus-sub-empty plus-sub-retry" onClick={retry}>
+							{t("plusLoadFailed")} · {t("plusRetry")}
+						</button>
+					);
+				}
 				if (!entries) return <div className="plus-sub-empty">{t("plusLoading")}</div>;
 				const hits = entries
 					.map(item)

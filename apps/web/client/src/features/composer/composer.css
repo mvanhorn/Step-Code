@@ -1071,3 +1071,11 @@
 	color: var(--ink-3);
 	text-align: center;
 }
+.plus-sub-retry {
+	border: 0;
+	background: none;
+	cursor: pointer;
+}
+.plus-sub-retry:hover {
+	color: var(--ink);
+}

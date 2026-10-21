@@ -153,6 +153,7 @@ const zhCN = {
 	plusSessionContextHint: "选中的会话压缩成上下文芯片，随下条消息发送",
 	plusLoading: "加载中…",
 	plusLoadFailed: "加载失败",
+	plusRetry: "重试",
 	otherSessionContext: "其他会话的上下文",
 	removeSessionContext: "移除会话上下文",
 	removePick: "移除",
@@ -731,6 +732,7 @@ const enUS: Record<MessageKey, string> = {
 	plusSessionContextHint: "The picked session rides along as context with your next message",
 	plusLoading: "Loading…",
 	plusLoadFailed: "Failed to load",
+	plusRetry: "Retry",
 	otherSessionContext: "Context from other sessions",
 
 	removeSessionContext: "Remove session context",
