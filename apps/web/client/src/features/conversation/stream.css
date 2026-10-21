@@ -56,20 +56,31 @@
 .stream-inner > .message.user:not(:first-child) {
 	margin-top: 18px;
 }
-/* A message that invoked a skill shows the skill as a chip instead of its expanded instructions. */
+/*
+ * A message that invoked a skill or a plugin install shows it as a kind chip
+ * instead of the raw command — the same hues the composer's pick chips use:
+ * the wrench (skills) is light blue, the puzzle (plugins) light purple.
+ */
 .message-skill {
+	--message-kind-accent: var(--ink-2);
 	display: inline-flex;
 	align-items: center;
 	gap: 5px;
 	max-width: 100%;
 	margin-bottom: 6px;
 	padding: 3px 9px;
-	border: 1px solid var(--line);
+	border: 1px solid color-mix(in srgb, var(--message-kind-accent) 35%, var(--line));
 	border-radius: var(--radius-pill);
-	background: var(--surface);
-	color: var(--ink-2);
+	background: color-mix(in srgb, var(--message-kind-accent) 10%, var(--surface));
+	color: var(--message-kind-accent);
 	font-size: 12px;
 	font-weight: 500;
+}
+.message-skill--skill {
+	--message-kind-accent: #3b82f6;
+}
+.message-skill--plugin {
+	--message-kind-accent: #8b5cf6;
 }
 /* A user message's images, above its text, right-aligned like the bubble. */
 .message-images {

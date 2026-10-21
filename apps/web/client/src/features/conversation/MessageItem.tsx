@@ -2,7 +2,7 @@ import { memo, useMemo, useRef, useState } from "react";
 import { formatRelativeTime, useT } from "../../i18n";
 import { type AttachedFile, FILE_MARKER, markAttachedFiles, splitAttachedFiles } from "../../lib/attached-files";
 import { formatBytes, formatTokens } from "../../lib/format";
-import { escapeHtml, renderMarkdown, skillInvocation } from "../../lib/markdown";
+import { escapeHtml, pluginInstallInvocation, renderMarkdown, skillInvocation } from "../../lib/markdown";
 import { copyText } from "../../state/session";
 import { setUi } from "../../state/store";
 import type { MessageTimelineItem } from "../../state/types";
@@ -46,6 +46,8 @@ export const MessageItem = memo(function MessageItem({
 		[role, item.content],
 	);
 	const skill = role === "user" ? skillInvocation(attached.text) : null;
+	/** The install command a plugin pick chip sent; badge only, no body change. */
+	const pluginInstall = role === "user" && !skill ? pluginInstallInvocation(attached.text) : null;
 	const content = useSmoothText(skill ? skill.request : attached.text, live);
 	const images = role === "user" ? (item.images ?? []) : [];
 	// Memoised: a streaming turn re-renders the timeline per frame, and parsing every earlier message each time made long sessions crawl.
@@ -64,9 +66,15 @@ export const MessageItem = memo(function MessageItem({
 	return (
 		<article className={`message ${role}`} data-content={item.content || ""} data-entry-id={item.entryId}>
 			{skill ? (
-				<span className="message-skill" title={skill.name}>
-					<Icon name="cube" size="xs" />
+				<span className="message-skill message-skill--skill" title={skill.name}>
+					<Icon name="wrench" size="xs" />
 					{skill.name}
+				</span>
+			) : null}
+			{pluginInstall ? (
+				<span className="message-skill message-skill--plugin" title={pluginInstall.name}>
+					<Icon name="puzzle" size="xs" />
+					{pluginInstall.name}
 				</span>
 			) : null}
 			{/* A user message can be images only; it still opens a turn, so it gets a row. */}

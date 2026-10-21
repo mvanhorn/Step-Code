@@ -184,3 +184,9 @@ export function skillInvocation(text: string): SkillInvocation | null {
 	const command = /^\/skill:(\S+)(?:\s+([\s\S]*))?$/.exec(text);
 	return command ? { name: command[1], request: command[2]?.trim() ?? "" } : null;
 }
+
+/** A plugin install sent from the composer's pick chip: `/plugin install <name>`. */
+export function pluginInstallInvocation(text: string): SkillInvocation | null {
+	const command = /^\/plugin install (\S+)(?:\s+([\s\S]*))?$/.exec(text);
+	return command ? { name: command[1], request: command[2]?.trim() ?? "" } : null;
+}
