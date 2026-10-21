@@ -1,12 +1,11 @@
-/** Staged attachments: `#attachButton`, `#attachInput`, `#attachmentList` (legacy app.js 2919-2985). */
+/** Staged attachments: `#attachmentList` (legacy app.js 2919-2985). */
 
-import { type ChangeEvent, useRef } from "react";
 import { useT } from "../../i18n";
 import { cx } from "../../lib/format";
 import { setUi, useAppStore } from "../../state/store";
 import type { Attachment } from "../../state/types";
-import { Icon, IconButton } from "../../ui";
-import { addAttachments, removeAttachment } from "./actions";
+import { Icon } from "../../ui";
+import { removeAttachment } from "./actions";
 
 /**
  * Attachments carry no id (the API body is exactly the legacy shape), but the
@@ -71,28 +70,5 @@ export function AttachmentList() {
 				</span>
 			))}
 		</div>
-	);
-}
-
-/** `#attachButton` (hard-coded 添加附件, as legacy) and its hidden `#attachInput`. */
-export function AttachControls() {
-	const input = useRef<HTMLInputElement | null>(null);
-	const onChange = (event: ChangeEvent<HTMLInputElement>) => {
-		const files = [...(event.target.files ?? [])];
-		// Reset so choosing the same file again still fires `change`.
-		event.target.value = "";
-		if (files.length) void addAttachments(files);
-	};
-	return (
-		<>
-			<IconButton
-				id="attachButton"
-				title="添加附件"
-				aria-label="添加附件"
-				icon="paperclip"
-				onClick={() => input.current?.click()}
-			/>
-			<input type="file" id="attachInput" multiple hidden ref={input} onChange={onChange} />
-		</>
 	);
 }

@@ -28,7 +28,12 @@ export default defineConfig({
 	plugins: [react()],
 	build: {
 		outDir: "../dist/public",
-		emptyOutDir: true,
+		// Keep previous content-hashed assets: a host serving dist while a rebuild
+		// runs must never 404 a hash an open tab still references (and `no-store`
+		// on index.html alone does not help a tab that never reloads). The stale
+		// generations cost a few hundred KB each; `pnpm --filter @step-harness/web
+		// build` (the full script, with its `rm -rf dist`) still cleans up.
+		emptyOutDir: false,
 	},
 	server: {
 		proxy: {

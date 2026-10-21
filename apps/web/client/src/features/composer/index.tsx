@@ -8,15 +8,25 @@ import "./composer.css";
 
 import { type FormEvent, type ReactNode, useCallback, useRef, useState } from "react";
 import { useT } from "../../i18n";
-import { interruptCurrent } from "../../state/session";
-import { getState, setUi, useAppStore } from "../../state/store";
+import { api, errorMessage } from "../../lib/api";
+import { interruptCurrent, sessionTitle, showError, timelineFromEntries } from "../../state/session";
+import { getState, type ModeId, setUi, useAppStore } from "../../state/store";
+import type { SessionSnapshot } from "../../state/types";
 import { Icon } from "../../ui";
-import { AttachControls, AttachmentList } from "./Attachments";
-import { sendMessage, turnActive, updateQueued } from "./actions";
+import { AttachmentList } from "./Attachments";
+import {
+	type ContextPackage,
+	chooseMode,
+	packageSessionContext,
+	type StagedPick,
+	sendMessage,
+	turnActive,
+	updateQueued,
+} from "./actions";
 import { ClarificationPanel } from "./ClarificationPanel";
 import { ModelMenu } from "./ModelMenu";
-import { ModeMenu } from "./ModeMenu";
 import { PerformanceBar } from "./PerformanceBar";
+import { PlusMenu } from "./PlusMenu";
 import { PolicyMenu } from "./PolicyMenu";
 import { PromptInput } from "./PromptInput";
 import {
@@ -30,7 +40,6 @@ import {
 } from "./prompt-editor";
 import { QueueDock } from "./QueueDock";
 import { type SlashItem, SlashMenu, type SlashMenuHandle, slashQuery } from "./SlashMenu";
-import { UsageMenu } from "./UsageMenu";
 
 export { ImagePreview } from "./ImagePreview";
 export { SelectionDialog } from "./SelectionDialog";
@@ -45,7 +54,7 @@ export interface ComposerProps {
 }
 
 /** The three listbox popovers; only one is open at a time (legacy `setupPopover` `open()`). */
-type ComposerMenu = "policy" | "mode" | "model";
+type ComposerMenu = "policy" | "plus" | "model";
 
 export function Composer({ workspaceControl }: ComposerProps) {
 	const t = useT();
@@ -65,6 +74,10 @@ export function Composer({ workspaceControl }: ComposerProps) {
 	 * (`setPromptText`, `restorePrompt`) call `syncHasText` themselves.
 	 */
 	const [hasText, setHasText] = useState(false);
+	/** Picked other-session contexts, one removable chip each, sent with the next message. */
+	const [contextPackages, setContextPackages] = useState<readonly ContextPackage[]>([]);
+	/** Picked skills and plugins, one light-purple icon chip each, sent with the next message. */
+	const [stagedPicks, setStagedPicks] = useState<readonly StagedPick[]>([]);
 	const syncHasText = () => setHasText(Boolean(prompt.current && promptText(prompt.current).trim()));
 	const stopMode = status === "running" && !hasText;
 
@@ -115,14 +128,29 @@ export function Composer({ workspaceControl }: ComposerProps) {
 			const text = promptText(editor).trim();
 			const files = promptFiles(editor);
 			if (!text) return;
+			/*
+			 * Staged chips shape the outgoing message: one command pick may lead
+			 * it (the kernel runs a single slash command per message, and only
+			 * when it starts with `/`), and note picks plus session-context
+			 * blocks ride at the tail (ZCode's prompt-tail pattern).
+			 */
+			const lead = stagedPicks.find((pick) => pick.prefix);
+			const tail = [
+				...stagedPicks.filter((pick) => pick.note).map((pick) => pick.note),
+				...contextPackages.map((item) => item.block),
+			].join("\n\n");
+			const outgoing = `${lead ? `${lead.prefix} ` : ""}${text}${tail ? `\n\n${tail}` : ""}`;
 			setQuery(null);
 			setUi({ slashMenu: null });
 			const draft = snapshotPrompt(editor);
 			setPromptText(editor, "");
 			setHasText(false);
-			if (!(await sendMessage(text, files, steer))) {
+			if (!(await sendMessage(outgoing, files, steer))) {
 				restorePrompt(editor, draft);
 				syncHasText();
+			} else {
+				setContextPackages([]);
+				setStagedPicks([]);
 			}
 		} finally {
 			sending.current = false;
@@ -133,6 +161,77 @@ export function Composer({ workspaceControl }: ComposerProps) {
 		event.preventDefault();
 		void submit(false);
 	};
+
+	/**
+	 * Stages a command line in `#prompt` for the mode picks: replace the text,
+	 * focus, caret at the end so the request can be typed straight away.
+	 */
+	const stageLine = useCallback((line: string) => {
+		const editor = prompt.current;
+		if (!editor) return;
+		setPromptText(editor, line);
+		setHasText(true);
+		editor.focus();
+		placeCaretAtEnd(editor);
+	}, []);
+
+	/** A mode picked in `#plusMenu`: stage its command line in the prompt, single-select. */
+	const pickMode = useCallback((id: ModeId) => stageLine(chooseMode(id)), [stageLine]);
+
+	/**
+	 * A skill or plugin picked in `#plusMenu`: staged as one light-purple icon
+	 * chip. A command pick (skill, plugin install) replaces the previous command
+	 * pick — one slash command per message; a use-note pick (installed plugin)
+	 * stacks as a tail note.
+	 */
+	const stagePick = useCallback((pick: StagedPick) => {
+		setStagedPicks((picks) => [
+			// A command pick replaces every command pick; a note pick only its twin.
+			...picks.filter((item) =>
+				pick.prefix ? !item.prefix : !(item.kind === pick.kind && item.name === pick.name),
+			),
+			pick,
+		]);
+		prompt.current?.focus();
+	}, []);
+
+	/** A skill picked in `#plusMenu`: the kernel expands `/skill:<name>` on send. */
+	const pickSkill = useCallback(
+		(name: string) => stagePick({ kind: "skill", name, icon: "wrench", prefix: `/skill:${name}` }),
+		[stagePick],
+	);
+
+	/** A plugin picked in `#plusMenu`: installable ones lead with the install command, installed ones ride as a note. */
+	const pickPlugin = useCallback(
+		(name: string, installed: boolean) =>
+			stagePick(
+				installed
+					? {
+							kind: "plugin",
+							name,
+							icon: "puzzle",
+							note: `（使用插件「${name}」提供的 MCP 服务器与技能完成本次任务。）`,
+						}
+					: { kind: "plugin", name, icon: "puzzle", prefix: `/plugin install ${name}` },
+			),
+		[stagePick],
+	);
+
+	/** A session picked in `#plusMenu`: package its context into a chip above the prompt. */
+	const pickSession = useCallback(async (id: string) => {
+		try {
+			const snapshot = await api<SessionSnapshot>(`/api/v1/sessions/${id}`);
+			const title = sessionTitle(snapshot);
+			setContextPackages((packages) => [
+				// One chip per session: picking again replaces, not stacks.
+				...packages.filter((item) => item.sessionId !== id),
+				{ sessionId: id, title, block: packageSessionContext(title, timelineFromEntries(snapshot.entries)) },
+			]);
+			prompt.current?.focus();
+		} catch (error) {
+			showError(errorMessage(error));
+		}
+	}, []);
 
 	/** Cmd/Ctrl+Enter during a turn: steer the typed text, or with an empty prompt every queued message. */
 	const steer = () => {
@@ -156,6 +255,56 @@ export function Composer({ workspaceControl }: ComposerProps) {
 			<QueueDock />
 			<div className="composer-card">
 				<AttachmentList />
+				{contextPackages.length || stagedPicks.length ? (
+					<div className="attachment-list" id="contextChipList">
+						{stagedPicks.map((pick) => (
+							<span
+								className={
+									pick.kind === "skill"
+										? "attachment-chip pick-chip pick-chip--skill"
+										: "attachment-chip pick-chip"
+								}
+								key={`${pick.kind}:${pick.name}`}
+								title={pick.note ?? pick.prefix ?? pick.name}
+							>
+								<Icon name={pick.icon} size="xs" />
+								<span>{pick.name}</span>
+								<button
+									type="button"
+									className="attachment-remove"
+									title={t("removePick")}
+									aria-label={t("removePick")}
+									onClick={() =>
+										setStagedPicks((picks) =>
+											picks.filter((item) => !(item.kind === pick.kind && item.name === pick.name)),
+										)
+									}
+								>
+									<Icon name="close-sm" size="xs" />
+								</button>
+							</span>
+						))}
+						{contextPackages.map((item) => (
+							<span className="attachment-chip context-chip" key={item.sessionId}>
+								<Icon name="file" size="xs" />
+								<span title={item.title}>{item.title}</span>
+								<button
+									type="button"
+									className="attachment-remove"
+									title={t("removeSessionContext")}
+									aria-label={t("removeSessionContext")}
+									onClick={() =>
+										setContextPackages((packages) =>
+											packages.filter((entry) => entry.sessionId !== item.sessionId),
+										)
+									}
+								>
+									<Icon name="close-sm" size="xs" />
+								</button>
+							</span>
+						))}
+					</div>
+				) : null}
 				<PromptInput
 					promptRef={prompt}
 					disabled={waiting}
@@ -168,11 +317,15 @@ export function Composer({ workspaceControl }: ComposerProps) {
 					onMenuKey={(key) => slash.current?.key(key) ?? false}
 				/>
 				<div className="composer-controls">
-					<AttachControls />
+					<PlusMenu
+						{...menu("plus")}
+						onPickMode={pickMode}
+						onPickSkill={pickSkill}
+						onPickPlugin={pickPlugin}
+						onPickSession={(id) => void pickSession(id)}
+					/>
 					<PolicyMenu {...menu("policy")} />
-					<ModeMenu {...menu("mode")} />
 					<div className="composer-right">
-						<UsageMenu />
 						<ModelMenu {...menu("model")} />
 						{stopMode ? (
 							<button

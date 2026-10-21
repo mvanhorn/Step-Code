@@ -1970,6 +1970,70 @@ test("conversation search finds message content written outside the page and ope
   assert.deepEqual(listed, [sessionId])
 })
 
+test("the conversation locator rail jumps to a query and follows the viewport", { skip }, async () => {
+  const sessionId = "e2e-nav-session"
+  const now = new Date().toISOString()
+  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }
+  const filler = "A conversation tall enough for the stream to scroll, so the locator rail has somewhere to jump. ".repeat(6)
+  const user = (n) => ({
+    type: "message", id: `e2e-nav-user-${n}`, parentId: n === 1 ? null : `e2e-nav-answer-${n - 1}`, timestamp: now,
+    message: { role: "user", content: `question ${n}: ${filler}`, timestamp: Date.now() },
+  })
+  const answer = (n) => ({
+    type: "message", id: `e2e-nav-answer-${n}`, parentId: `e2e-nav-user-${n}`, timestamp: now,
+    message: {
+      role: "assistant", content: [{ type: "text", text: `answer ${n}: ${filler}` }],
+      api: "openai-completions", provider: "e2e", model: "e2e", usage, stopReason: "stop", timestamp: Date.now(),
+    },
+  })
+  const lines = [{ type: "session", version: 3, id: sessionId, timestamp: now, cwd: workspace }]
+  for (let n = 1; n <= 5; n++) {
+    lines.push(user(n))
+    lines.push(answer(n))
+  }
+  const dir = join(base, "agent", "sessions", "--e2e-nav--")
+  await mkdir(dir, { recursive: true })
+  await writeFile(join(dir, `${sessionId}.jsonl`), lines.map((line) => JSON.stringify(line)).join("\n") + "\n")
+
+  await browser.goto(`${origin}/`)
+  const located = await browser.run(`
+    const row = await until(() => $('.session-row[data-session-id="${sessionId}"]'), "session row");
+    row.click();
+    await until(() => $("#stream .message.user"), "messages to draw");
+    // With the sidebar shown at 1440px, the docked Summary (open by default on wide windows)
+    // narrows the middle column below the rail's minimum, so the ticks would cover the messages.
+    // Closing it brings the rail back; earlier tests may already have changed either panel.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    if (!$(".stream-nav") && $(".app").classList.contains("summary-docked")) $("[data-right-panel='summary']").click();
+    const rail = await until(() => $(".stream-nav"), "locator rail");
+    const stream = $("#stream");
+    // Opening a session pins the bottom; back to the top the first tick is the active one.
+    stream.scrollTop = 0;
+    await until(() => {
+      // A late projection after the session opens can pin the bottom again.
+      if (stream.scrollTop > 0) stream.scrollTop = 0;
+      return $('.stream-nav-tick[data-active="true"]')?.dataset.index === "0";
+    }, "first tick active at the top");
+    // Clicking the second tick centres that query and the active tick follows.
+    $('.stream-nav-tick[data-index="1"]').click();
+    await until(() => {
+      const message = $('#streamInner [data-entry-id="e2e-nav-user-2"]');
+      const box = message.getBoundingClientRect();
+      const view = stream.getBoundingClientRect();
+      return box.bottom > view.top && box.top < view.bottom
+        && $('.stream-nav-tick[data-active="true"]')?.dataset.index === "1";
+    }, "second query centred and its tick active");
+    return {
+      ticks: $$(".stream-nav-tick").length,
+      label: rail.getAttribute("aria-label"),
+      jump: $(".stream-nav-tick").getAttribute("aria-label"),
+    };
+  `)
+  assert.equal(located.ticks, 5)
+  assert.equal(located.label, "对话定位")
+  assert.equal(located.jump, "跳转到第 1 条提问")
+})
+
 test("a subagent or workflow call opens its child agents' transcripts read-only over the conversation", { skip }, async () => {
   const now = new Date().toISOString()
   const stamp = now.replace(/[:.]/g, "-")
@@ -2055,56 +2119,4 @@ test("a subagent or workflow call opens its child agents' transcripts read-only 
     return [other.status, notChild.status];
   `)
   assert.deepEqual(refused, [404, 404])
-})
-
-test("the token usage panel opens centred above its trigger without growing the composer", { skip }, async () => {
-  const now = new Date().toISOString()
-  const sessionId = "e2e-usage-session"
-  const usage = { input: 10, output: 2000, cacheRead: 0, cacheWrite: 0, totalTokens: 2010, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }
-  const lines = [
-    { type: "session", version: 3, id: sessionId, timestamp: now, cwd: workspace },
-    { type: "message", id: "u1", parentId: null, timestamp: now, message: { role: "user", content: "count the tokens", timestamp: Date.now() } },
-    {
-      type: "message", id: "a1", parentId: "u1", timestamp: now,
-      message: { role: "assistant", content: [{ type: "text", text: "Counted." }], api: "openai-completions", provider: "e2e", model: "e2e", usage, stopReason: "stop", timestamp: Date.now() },
-    },
-  ]
-  const dir = join(base, "agent", "sessions", "--e2e-usage--")
-  await mkdir(dir, { recursive: true })
-  await writeFile(join(dir, `${now.replace(/[:.]/g, "-")}_${sessionId}.jsonl`), lines.map((line) => JSON.stringify(line)).join("\n") + "\n")
-
-  await browser.goto(`${origin}/`)
-  const seen = await browser.run(`
-    (await until(() => $('.session-row[data-session-id="${sessionId}"]'), "usage session row")).click();
-    const trigger = await until(() => !$("#usageTrigger").hidden && $("#usageTrigger"), "usage trigger");
-    const composer = $(".composer-card") ?? $("#composer");
-    const before = composer.getBoundingClientRect().height;
-    const closedPanel = Boolean($("#usagePopover"));
-    trigger.click();
-    const panel = await until(() => $("#usagePopover"), "usage panel");
-    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    const box = panel.getBoundingClientRect();
-    const anchor = trigger.getBoundingClientRect();
-    const opened = {
-      closedPanel,
-      expanded: trigger.getAttribute("aria-expanded"),
-      outsideComposer: !composer.contains(panel),
-      above: box.bottom <= anchor.top,
-      centred: Math.abs(box.left + box.width / 2 - (anchor.left + anchor.width / 2)) < 2,
-      composerGrew: composer.getBoundingClientRect().height !== before,
-      total: panel.querySelector(".usage-total b").textContent,
-    };
-    document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
-    await until(() => !$("#usagePopover"), "usage panel to close");
-    return opened;
-  `)
-  assert.deepEqual(seen, {
-    closedPanel: false,
-    expanded: "true",
-    outsideComposer: true,
-    above: true,
-    centred: true,
-    composerGrew: false,
-    total: "2.0K",
-  })
 })

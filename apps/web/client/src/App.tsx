@@ -1,6 +1,6 @@
 import { type CSSProperties, useLayoutEffect, useRef, useState } from "react";
 import { Composer, ImagePreview, SelectionDialog } from "./features/composer";
-import { ConversationStream, FeedbackModal } from "./features/conversation";
+import { ConversationStream, FeedbackModal, StreamNav } from "./features/conversation";
 import { FileTreePanel } from "./features/files";
 import { RightPanel, RightToolRail } from "./features/inspector";
 import { LoginGate } from "./features/login";
@@ -34,6 +34,7 @@ import { IconSprite } from "./ui";
  *     #sidebarResizer    sidebar
  *     main.main          shell show button | files show button | market cron/market views
  *                        | conversation stream
+ *                        | conversation stream-nav (locator rail over the stream's right edge)
  *                        | .composer-zone > composer form (workspace pill above the card)
  *                        | #terminalDock (terminal: resizable bottom dock with workspace tabs)
  *                        | shell toast + auth banner
@@ -106,6 +107,7 @@ export function App() {
 					<CronView />
 					<MarketView />
 					<ConversationStream />
+					<StreamNav />
 					<div className="composer-zone">
 						<Composer workspaceControl={<WorkspaceControl />} />
 					</div>

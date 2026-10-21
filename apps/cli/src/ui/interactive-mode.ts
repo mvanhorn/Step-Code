@@ -1271,13 +1271,13 @@ export class InteractiveMode {
 	}
 
 	/**
-	 * Update terminal title with session name and cwd.
+	 * Show the session name, or product and cwd when unnamed.
 	 */
 	updateTerminalTitle(): void {
 		const cwdBasename = path.basename(this.sessionManager.getCwd());
 		const sessionName = this.sessionManager.getSessionName();
 		if (sessionName) {
-			this.ui.terminal.setTitle(`${APP_TITLE} - ${sessionName} - ${cwdBasename}`);
+			this.ui.terminal.setTitle(sessionName);
 		} else {
 			this.ui.terminal.setTitle(`${APP_TITLE} - ${cwdBasename}`);
 		}
@@ -4796,6 +4796,7 @@ export class InteractiveMode {
 					},
 					onShowTerminalProgressChange: (enabled) => {
 						this.settingsManager.setShowTerminalProgress(enabled);
+						this.ui.terminal.setProgress(enabled && (this.session.isStreaming || this.session.isCompacting));
 					},
 					onStatusTipsChange: (enabled) => {
 						this.settingsManager.setStatusTips(enabled);
@@ -6830,9 +6831,7 @@ ${followUpRow}| \`${dequeue}\` | Restore queued messages |
 			this.hideExtensionSelector();
 			this.hideExtensionInput();
 			this.disposeActiveSelector();
-			if (this.settingsManager.getShowTerminalProgress()) {
-				this.ui.terminal.setProgress(false);
-			}
+			this.ui.terminal.setProgress(false);
 			this.themeController.disableAutoSync();
 			this.clearExtensionTerminalInputListeners();
 			this.footer.dispose();
