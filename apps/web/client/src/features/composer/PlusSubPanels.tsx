@@ -15,11 +15,27 @@ import type { SettingsSkill } from "../../state/types";
 import { SearchInput } from "../../ui";
 import { openSettings } from "../settings/actions";
 
-/** `GET /api/v1/settings/plugins` → `installed[]` (openapi.yaml "Plugin catalog"). */
+/** `GET /api/v1/settings/plugins` catalog (openapi.yaml "Plugin catalog"). */
 interface InstalledPlugin {
 	readonly id: string;
 	readonly name: string;
 	readonly version?: string;
+	readonly description?: string;
+}
+
+interface AvailablePlugin {
+	readonly name: string;
+	readonly description?: string;
+	readonly marketplace?: string;
+	readonly installed?: boolean;
+}
+
+/** One row of the plugin panel: installed first, then what the marketplaces offer. */
+interface PluginRow {
+	readonly kind: "installed" | "available";
+	readonly key: string;
+	readonly name: string;
+	readonly hint?: string;
 	readonly description?: string;
 }
 
@@ -48,7 +64,31 @@ function cachedRequest<P, T extends readonly unknown[]>(path: string, pick: (pay
 const loadPlugins = () =>
 	cachedRequest(
 		"/api/v1/settings/plugins",
-		(catalog: { installed?: readonly InstalledPlugin[] }) => catalog.installed ?? [],
+		(catalog: {
+			installed?: readonly InstalledPlugin[];
+			available?: readonly AvailablePlugin[];
+		}): readonly PluginRow[] => [
+			...(catalog.installed ?? []).map(
+				(plugin): PluginRow => ({
+					kind: "installed",
+					key: plugin.id,
+					name: plugin.name,
+					hint: plugin.version,
+					description: plugin.description,
+				}),
+			),
+			...(catalog.available ?? [])
+				.filter((plugin) => !plugin.installed)
+				.map(
+					(plugin): PluginRow => ({
+						kind: "available",
+						key: `available:${plugin.name}`,
+						name: plugin.name,
+						hint: plugin.marketplace,
+						description: plugin.description,
+					}),
+				),
+		],
 	);
 const loadSkills = () =>
 	cachedRequest("/api/v1/settings/skills", (result: { skills?: readonly SettingsSkill[] }) => result.skills ?? []);
@@ -167,31 +207,36 @@ function footerButton(label: string, onClick: () => void) {
 	);
 }
 
-/** Installed plugins; a row opens the Settings page that manages them. */
-export function PluginsPanel() {
+/**
+ * Installed plugins first, then the marketplaces' offers. An available plugin
+ * stages `/plugin install <name> ` in the composer (the kernel has no
+ * invocation command for a plugin — its MCP servers, skills and commands are
+ * what get used); an installed one opens the Settings page that manages it.
+ */
+export function PluginsPanel({ onInstall }: { readonly onInstall: (name: string) => void }) {
 	const t = useT();
 	return (
 		<PickerPanel
 			placeholder={t("settingsPluginsSearch")}
-			emptyKey="settingsPluginsEmpty"
+			emptyKey="settingsPluginsNoneAvailable"
 			footer={footerButton(t("plusManagePlugins"), () => openSettings("plugins"))}
 			load={loadPlugins}
-			item={(plugin: InstalledPlugin) => ({
-				key: plugin.id,
-				matchText: [plugin.name, plugin.description],
+			item={(row: PluginRow) => ({
+				key: row.key,
+				matchText: [row.name, row.description],
 				row: {
-					name: plugin.name,
-					hint: plugin.version,
-					description: plugin.description,
-					onClick: () => openSettings("plugins"),
+					name: row.name,
+					hint: row.kind === "available" ? `${row.hint ?? ""} · ${t("plugInstallHint")}` : row.hint,
+					description: row.description,
+					onClick: row.kind === "available" ? () => onInstall(row.name) : () => openSettings("plugins"),
 				},
 			})}
 		/>
 	);
 }
 
-/** Every skill the Settings page lists; disabled ones read faded. */
-export function SkillsPanel() {
+/** Every skill the Settings page lists; picking one stages `/skill:<name> `. */
+export function SkillsPanel({ onPick }: { readonly onPick: (name: string) => void }) {
 	const t = useT();
 	return (
 		<PickerPanel
@@ -207,7 +252,7 @@ export function SkillsPanel() {
 					hint: skill.source === "plugin" ? skill.pluginName : undefined,
 					description: skill.description,
 					faded: !skill.enabled,
-					onClick: () => openSettings("skills"),
+					onClick: () => onPick(skill.name),
 				},
 			})}
 		/>

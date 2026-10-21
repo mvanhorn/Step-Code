@@ -45,11 +45,23 @@ const SUB_ENTRIES: ReadonlyArray<{ key: SubKey; labelKey: string }> = [
 export interface PlusMenuProps extends ComposerMenuProps {
 	/** Stages the mode's command line in `#prompt` and focuses it (see `Composer`). */
 	readonly onPickMode: (id: ModeId) => void;
+	/** Stages `/skill:<name> ` in `#prompt` (see `Composer`). */
+	readonly onPickSkill: (name: string) => void;
+	/** Stages `/plugin install <name> ` in `#prompt` (see `Composer`). */
+	readonly onInstallPlugin: (name: string) => void;
 	/** Packages the picked session's context into `#prompt` (see `Composer`). */
 	readonly onPickSession: (id: string) => void;
 }
 
-export function PlusMenu({ open, onOpen, onClose, onPickMode, onPickSession }: PlusMenuProps) {
+export function PlusMenu({
+	open,
+	onOpen,
+	onClose,
+	onPickMode,
+	onPickSkill,
+	onInstallPlugin,
+	onPickSession,
+}: PlusMenuProps) {
 	const t = useT();
 	const input = useRef<HTMLInputElement | null>(null);
 	const modes = useAppStore((state) => state.modes);
@@ -178,8 +190,22 @@ export function PlusMenu({ open, onOpen, onClose, onPickMode, onPickSession }: P
 									style={{ top: `${panelTop}px` }}
 									onMouseEnter={() => setSub(sub)}
 								>
-									{sub === "plugins" ? <PluginsPanel /> : null}
-									{sub === "skills" ? <SkillsPanel /> : null}
+									{sub === "plugins" ? (
+										<PluginsPanel
+											onInstall={(name) => {
+												onInstallPlugin(name);
+												closeAll();
+											}}
+										/>
+									) : null}
+									{sub === "skills" ? (
+										<SkillsPanel
+											onPick={(name) => {
+												onPickSkill(name);
+												closeAll();
+											}}
+										/>
+									) : null}
 									{sub === "sessions" ? (
 										<SessionsPanel
 											onPick={(id) => {

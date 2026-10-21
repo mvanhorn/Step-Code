@@ -147,9 +147,12 @@ export function Composer({ workspaceControl }: ComposerProps) {
 		void submit(false);
 	};
 
-	/** A mode picked in `#plusMenu`: stage its command line in the prompt, single-select. */
-	const pickMode = useCallback((id: ModeId) => {
-		const line = chooseMode(id);
+	/**
+	 * Stages a command line in `#prompt` for every `#plusMenu` pick that becomes
+	 * a slash command (modes, skills, plugin installs): replace the text, focus,
+	 * caret at the end so the request can be typed straight away.
+	 */
+	const stageLine = useCallback((line: string) => {
 		const editor = prompt.current;
 		if (!editor) return;
 		setPromptText(editor, line);
@@ -157,6 +160,15 @@ export function Composer({ workspaceControl }: ComposerProps) {
 		editor.focus();
 		placeCaretAtEnd(editor);
 	}, []);
+
+	/** A mode picked in `#plusMenu`: stage its command line in the prompt, single-select. */
+	const pickMode = useCallback((id: ModeId) => stageLine(chooseMode(id)), [stageLine]);
+
+	/** A skill picked in `#plusMenu`: the kernel expands `/skill:<name>` on send. */
+	const pickSkill = useCallback((name: string) => stageLine(`/skill:${name} `), [stageLine]);
+
+	/** A marketplace plugin picked in `#plusMenu`: stage its install command. */
+	const installPlugin = useCallback((name: string) => stageLine(`/plugin install ${name} `), [stageLine]);
 
 	/** A session picked in `#plusMenu`: package its context into a chip above the prompt. */
 	const pickSession = useCallback(async (id: string) => {
@@ -231,7 +243,13 @@ export function Composer({ workspaceControl }: ComposerProps) {
 					onMenuKey={(key) => slash.current?.key(key) ?? false}
 				/>
 				<div className="composer-controls">
-					<PlusMenu {...menu("plus")} onPickMode={pickMode} onPickSession={(id) => void pickSession(id)} />
+					<PlusMenu
+						{...menu("plus")}
+						onPickMode={pickMode}
+						onPickSkill={pickSkill}
+						onInstallPlugin={installPlugin}
+						onPickSession={(id) => void pickSession(id)}
+					/>
 					<PolicyMenu {...menu("policy")} />
 					<div className="composer-right">
 						<ModelMenu {...menu("model")} />
