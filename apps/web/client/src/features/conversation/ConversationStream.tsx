@@ -105,7 +105,7 @@ export function ConversationStream() {
 		const target = innerRef.current?.querySelector<HTMLElement>(`[data-entry-id="${CSS.escape(reveal.entryId)}"]`);
 		if (!target) return;
 		stick.current = false;
-		target.scrollIntoView({ block: "center" });
+		target.scrollIntoView({ block: reveal.block ?? "center", behavior: reveal.behavior });
 		target.animate([{ backgroundColor: "var(--selection)" }, { backgroundColor: "transparent" }], {
 			duration: 1600,
 			easing: "ease-out",

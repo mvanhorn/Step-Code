@@ -7,6 +7,7 @@
  */
 
 import "./stream.css";
+import "./stream-nav.css";
 import "./feedback.css";
 import "./message-actions.css";
 import "./task-banner.css";
@@ -15,4 +16,5 @@ import "./child-agent.css";
 export { ChildAgentView } from "./ChildAgentView";
 export { ConversationStream } from "./ConversationStream";
 export { FeedbackModal } from "./FeedbackModal";
+export { StreamNav } from "./StreamNav";
 export { TaskBanner } from "./TaskBanner";

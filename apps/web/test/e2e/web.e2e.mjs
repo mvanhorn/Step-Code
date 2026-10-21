@@ -1934,6 +1934,65 @@ test("conversation search finds message content written outside the page and ope
   assert.deepEqual(listed, [sessionId])
 })
 
+test("the conversation locator rail jumps to a query and follows the viewport", { skip }, async () => {
+  const sessionId = "e2e-nav-session"
+  const now = new Date().toISOString()
+  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }
+  const filler = "A conversation tall enough for the stream to scroll, so the locator rail has somewhere to jump. ".repeat(6)
+  const user = (n) => ({
+    type: "message", id: `e2e-nav-user-${n}`, parentId: n === 1 ? null : `e2e-nav-answer-${n - 1}`, timestamp: now,
+    message: { role: "user", content: `question ${n}: ${filler}`, timestamp: Date.now() },
+  })
+  const answer = (n) => ({
+    type: "message", id: `e2e-nav-answer-${n}`, parentId: `e2e-nav-user-${n}`, timestamp: now,
+    message: {
+      role: "assistant", content: [{ type: "text", text: `answer ${n}: ${filler}` }],
+      api: "openai-completions", provider: "e2e", model: "e2e", usage, stopReason: "stop", timestamp: Date.now(),
+    },
+  })
+  const lines = [{ type: "session", version: 3, id: sessionId, timestamp: now, cwd: workspace }]
+  for (let n = 1; n <= 5; n++) {
+    lines.push(user(n))
+    lines.push(answer(n))
+  }
+  const dir = join(base, "agent", "sessions", "--e2e-nav--")
+  await mkdir(dir, { recursive: true })
+  await writeFile(join(dir, `${sessionId}.jsonl`), lines.map((line) => JSON.stringify(line)).join("\n") + "\n")
+
+  await browser.goto(`${origin}/`)
+  const located = await browser.run(`
+    const row = await until(() => $('.session-row[data-session-id="${sessionId}"]'), "session row");
+    row.click();
+    await until(() => $("#stream .message.user"), "messages to draw");
+    const rail = await until(() => $(".stream-nav"), "locator rail");
+    const stream = $("#stream");
+    // Opening a session pins the bottom; back to the top the first tick is the active one.
+    stream.scrollTop = 0;
+    await until(() => {
+      // A late projection after the session opens can pin the bottom again.
+      if (stream.scrollTop > 0) stream.scrollTop = 0;
+      return $('.stream-nav-tick[data-active="true"]')?.dataset.index === "0";
+    }, "first tick active at the top");
+    // Clicking the second tick centres that query and the active tick follows.
+    $('.stream-nav-tick[data-index="1"]').click();
+    await until(() => {
+      const message = $('#streamInner [data-entry-id="e2e-nav-user-2"]');
+      const box = message.getBoundingClientRect();
+      const view = stream.getBoundingClientRect();
+      return box.bottom > view.top && box.top < view.bottom
+        && $('.stream-nav-tick[data-active="true"]')?.dataset.index === "1";
+    }, "second query centred and its tick active");
+    return {
+      ticks: $$(".stream-nav-tick").length,
+      label: rail.getAttribute("aria-label"),
+      jump: $(".stream-nav-tick").getAttribute("aria-label"),
+    };
+  `)
+  assert.equal(located.ticks, 5)
+  assert.equal(located.label, "对话定位")
+  assert.equal(located.jump, "跳转到第 1 条提问")
+})
+
 test("a subagent or workflow call opens its child agents' transcripts read-only over the conversation", { skip }, async () => {
   const now = new Date().toISOString()
   const stamp = now.replace(/[:.]/g, "-")
