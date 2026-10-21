@@ -15,17 +15,16 @@ import {
 	type DiscoveredModel,
 	discoverModels,
 	getStepAuthPath,
-	importStepgoModels,
 	ModelDiscoveryError,
 	ModelRuntime,
 	normalizeProviderBaseUrl,
 	readModelsJsonProviders,
 	readStoredCredential,
 	resolveStepConfigRoot,
-	type StepgoModelImportResult,
 	updateModelsJsonProvider,
 } from "@step-harness/coding-agent";
 import { SettingsError } from "./settings.ts";
+import { importStepgoModels, type StepgoModelImportResult } from "./stepgo-import.ts";
 
 /**
  * First-start import of the providers and key a local stepgo launcher (`sc`)

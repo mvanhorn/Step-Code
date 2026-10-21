@@ -376,6 +376,34 @@ Attachments, agent-mode selection, and cron management UI remain outside the
 10/15 first release. Cron capabilities remain available through conversation
 tools.
 
+## One-time import from a local stepgo launcher
+
+The Web host (and therefore Desktop, which runs it) imports the providers a
+local stepgo launcher (`sc` / `stepgo`) injects into Step, once, before it starts
+serving. The implementation is
+[`apps/web/src/stepgo-import.ts`](../apps/web/src/stepgo-import.ts). It is
+Host code, not a kernel feature: the CLI does not run it, and it writes only
+through coding-agent's public `models.json` / `auth.json` APIs.
+
+- Sources, read-only: `~/.stepgo/config/config.json` (`apiKey`, `baseUrl`) and
+  `~/.stepgo/config/agent/managed/config.json` (one provider per API dialect with
+  its model catalog). `STEPGO_HOME` / `STEPCODE_HOME` relocate the stepgo home.
+- Each provider becomes a `models.json` declaration under its own id
+  (`tokens.maxContext` / `tokens.maxOutput` become `contextWindow` / `maxTokens`).
+  Its key becomes an `api_key` entry in `auth.json` under the same id; the
+  declaration never holds the key. The `step` account id is never written.
+- An id already declared in `models.json`, or already holding a credential in
+  `auth.json`, is left untouched.
+- A completed import writes `<agent dir>/stepgo-model-import.json`. While that
+  file exists stepgo is not read again: the imported providers are ordinary
+  custom providers the user edits or deletes on the model settings page. Delete
+  the marker to import again. Without stepgo installed, or when a provider fails
+  to write, no marker is written and the next start retries.
+- `STEPCODE_STEPGO_IMPORT=0` (or `false` / `off` / `no`) disables the import; the
+  web e2e suite and `scripts/check-web-runtime.mjs` set it.
+- Failures never stop the host; the host logs one `[models]` line when it
+  imports something, never the key.
+
 ## Subagent presentation
 
 The Web client uses the DFSC Standard task rows: a persistent Bot icon, a

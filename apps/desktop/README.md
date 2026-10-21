@@ -55,7 +55,7 @@ The packages the server imports (`@step-harness/coding-agent` and below) must be
 | `STEPCODE_DESKTOP_NODE` | Run the server with this Node.js executable instead of Electron's (e.g. for a native-module ABI mismatch). |
 | `STEPCODE_DESKTOP_SERVER_ENTRY` | Use another `server.js` build instead of `@step-harness/web/server`. |
 | `STEPCODE_WEB_PUBLIC_DIR` | Passed through to the server: serve the client from another directory. |
-| `STEPCODE_STEPGO_IMPORT` | Passed through to the server: `0` skips the one-time import of a local stepgo launcher's models and key (see `docs/step-configuration.md`). |
+| `STEPCODE_STEPGO_IMPORT` | Passed through to the server: `0` skips the one-time import of a local stepgo launcher's models and key (see `docs/stepcode-web.md`). |
 | `STEPCODE_DESKTOP_PORT` | Fixed server port instead of a free one. |
 | `STEPCODE_DESKTOP_START_TIMEOUT_MS` | How long to wait for the server banner (default 30000). |
 | `STEPCODE_DESKTOP_SHELL_ENV` | `0` skips the login-shell environment read; `1` forces it even when started from a terminal. |
