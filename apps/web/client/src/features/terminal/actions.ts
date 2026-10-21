@@ -27,6 +27,9 @@ export function closeTerminal(id: string): Promise<unknown> {
 	return api(`${ROOT}/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
+/** Keeps one coalesced input request below the Host's 64 KiB limit (at most 3 UTF-8 bytes per unit). */
+const INPUT_BATCH_UNITS = 16384;
+
 /** Only the UI connection is disposable; it never owns the shell lifetime. */
 export class TerminalConnection {
 	private readonly controller = new AbortController();
@@ -34,6 +37,11 @@ export class TerminalConnection {
 	private cursor: number;
 	private queue = Promise.resolve();
 	private pending = 0;
+	/**
+	 * The queued input request that has not started yet. Keys typed or pasted while earlier requests
+	 * are in flight join it, so fast typing becomes one request instead of overflowing the queue.
+	 */
+	private batch: { data: string } | undefined;
 	private readonly receive: (snapshot: TerminalSnapshot) => Promise<void>;
 	private readonly status: (connected: boolean, error?: unknown) => void;
 	private readonly closed: () => void;
@@ -112,20 +120,30 @@ export class TerminalConnection {
 			reader.releaseLock();
 		}
 	}
-	send(action: "input" | "resize", body: unknown): void {
+	send(action: "input", body: { data: string }): void;
+	send(action: "resize", body: { cols: number; rows: number }): void;
+	send(action: "input" | "resize", body: { data: string } | { cols: number; rows: number }): void {
 		if (this.controller.signal.aborted) return;
+		if ("data" in body && this.batch && this.batch.data.length + body.data.length <= INPUT_BATCH_UNITS) {
+			this.batch.data += body.data;
+			return;
+		}
 		if (this.pending >= 64) {
 			this.status(false, new Error("Terminal input queue is full"));
 			this.close();
 			return;
 		}
+		const batch = "data" in body ? { data: body.data } : undefined;
+		// A resize keeps the order: later input must not jump ahead of it into an earlier batch.
+		this.batch = batch;
 		this.pending++;
 		this.queue = this.queue
 			.then(async () => {
+				if (this.batch === batch) this.batch = undefined;
 				if (this.controller.signal.aborted) return;
 				await api(`${ROOT}/${encodeURIComponent(this.id)}/${action}`, {
 					method: "POST",
-					body: JSON.stringify(body),
+					body: JSON.stringify(batch ?? body),
 					signal: AbortSignal.any([this.controller.signal, AbortSignal.timeout(8000)]),
 				});
 			})
