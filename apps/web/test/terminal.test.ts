@@ -192,6 +192,9 @@ test("POSIX terminals run the user's login and interactive startup files", { ski
 				input: "stepcode_rc\nexit\n",
 				env: { PATH: process.env.PATH, HOME: home, SHELL: shell },
 				encoding: "utf8",
+				// An interactive login shell takes the controlling terminal unless it leads its own
+				// session, which would hand the developer's terminal to the child and close it on exit.
+				detached: true,
 			});
 			const expected = shell.endsWith("zsh") ? "rc-zprofile" : "rc-bash_profile";
 			assert.match(`${result.stdout}`, new RegExp(expected), `${shell}: ${result.stdout}${result.stderr}`);
