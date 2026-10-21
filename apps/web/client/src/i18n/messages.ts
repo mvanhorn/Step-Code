@@ -160,6 +160,7 @@ const zhCN = {
 	streamNavRunning: "回复中…",
 	streamNavNoReply: "暂无回复",
 	removeSessionContext: "移除会话上下文",
+	removePick: "移除",
 	sendMessage: "发送",
 	stopRun: "停止",
 	queueMessage: "排队发送",
@@ -733,6 +734,7 @@ const enUS: Record<MessageKey, string> = {
 	otherSessionContext: "Context from other sessions",
 
 	removeSessionContext: "Remove session context",
+	removePick: "Remove",
 	sendMessage: "Send",
 	stopRun: "Stop",
 	queueMessage: "Queue message",

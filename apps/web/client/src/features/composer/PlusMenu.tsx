@@ -47,8 +47,8 @@ export interface PlusMenuProps extends ComposerMenuProps {
 	readonly onPickMode: (id: ModeId) => void;
 	/** Stages `/skill:<name> ` in `#prompt` (see `Composer`). */
 	readonly onPickSkill: (name: string) => void;
-	/** Stages `/plugin install <name> ` in `#prompt` (see `Composer`). */
-	readonly onInstallPlugin: (name: string) => void;
+	/** Stages a plugin pick in the composer; `installed` picks ride as a note (see `Composer`). */
+	readonly onPickPlugin: (name: string, installed: boolean) => void;
 	/** Packages the picked session's context into `#prompt` (see `Composer`). */
 	readonly onPickSession: (id: string) => void;
 }
@@ -59,7 +59,7 @@ export function PlusMenu({
 	onClose,
 	onPickMode,
 	onPickSkill,
-	onInstallPlugin,
+	onPickPlugin,
 	onPickSession,
 }: PlusMenuProps) {
 	const t = useT();
@@ -192,8 +192,8 @@ export function PlusMenu({
 								>
 									{sub === "plugins" ? (
 										<PluginsPanel
-											onInstall={(name) => {
-												onInstallPlugin(name);
+											onPick={(name, installed) => {
+												onPickPlugin(name, installed);
 												closeAll();
 											}}
 										/>

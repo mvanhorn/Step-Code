@@ -208,12 +208,13 @@ function footerButton(label: string, onClick: () => void) {
 }
 
 /**
- * Installed plugins first, then the marketplaces' offers. An available plugin
- * stages `/plugin install <name> ` in the composer (the kernel has no
- * invocation command for a plugin — its MCP servers, skills and commands are
- * what get used); an installed one opens the Settings page that manages it.
+ * Installed plugins first, then the marketplaces' offers. Every pick stages a
+ * purple puzzle chip in the composer: an available plugin leads the next
+ * message with `/plugin install <name>`, an installed one rides as a use note
+ * (the kernel has no invocation command for a plugin — its MCP servers, skills
+ * and commands are what get used).
  */
-export function PluginsPanel({ onInstall }: { readonly onInstall: (name: string) => void }) {
+export function PluginsPanel({ onPick }: { readonly onPick: (name: string, installed: boolean) => void }) {
 	const t = useT();
 	return (
 		<PickerPanel
@@ -228,7 +229,7 @@ export function PluginsPanel({ onInstall }: { readonly onInstall: (name: string)
 					name: row.name,
 					hint: row.kind === "available" ? `${row.hint ?? ""} · ${t("plugInstallHint")}` : row.hint,
 					description: row.description,
-					onClick: row.kind === "available" ? () => onInstall(row.name) : () => openSettings("plugins"),
+					onClick: () => onPick(row.name, row.kind === "installed"),
 				},
 			})}
 		/>

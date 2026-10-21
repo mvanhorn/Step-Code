@@ -193,6 +193,20 @@ export function chooseMode(id: ModeId): string {
 /* ── Other-session context ────────────────────────────────────────────────── */
 
 /**
+ * A skill or plugin picked from `#plusMenu`, staged as one light-purple icon
+ * chip above `#prompt` (ZCode-style): `prefix` commands lead the next message
+ * (one slash command per message, so a command pick replaces the previous
+ * one), `note` picks ride at its tail.
+ */
+export interface StagedPick {
+	readonly kind: "skill" | "plugin";
+	readonly name: string;
+	readonly icon: "wrench" | "puzzle";
+	readonly prefix?: string;
+	readonly note?: string;
+}
+
+/**
  * A picked other-session context: shown as one chip above `#prompt`, and its
  * packaged block rides at the tail of the next sent message.
  */
