@@ -570,7 +570,10 @@ available one. A shell starts in the workspace folder as a login, interactive
 shell, like a desktop terminal: it runs the user's startup files
 (`~/.zprofile` and `~/.zshrc`, `~/.bash_profile`, `~/.profile`), so PATH,
 aliases, history and the prompt (for example a theme showing the Git branch)
-match the user's own terminal. PowerShell still starts without a profile.
+match the user's own terminal. PowerShell likewise loads the user's `$PROFILE`
+and keeps PSReadLine history; only the console encoding is set to UTF-8 after it.
+Without a prompt module (posh-git, oh-my-posh, starship) PowerShell shows its
+default `PS <path>>` prompt, without a branch.
 Inherited startup-injection variables (`BASH_ENV`, `ENV`, Node loader options)
 are not passed on: the environment keeps an OS-variable allowlist plus the SSH
 agent socket, not the Host's API keys or Node loader configuration. The user's

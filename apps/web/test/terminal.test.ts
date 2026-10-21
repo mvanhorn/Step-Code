@@ -37,7 +37,9 @@ test("terminal policy bounds input and dimensions, excludes Host credentials and
 	assert.equal(env.BASH_ENV, undefined);
 	assert.equal(env.ENV, undefined);
 	assert.equal(env.TERM, "xterm-256color");
-	assert.ok(terminalShell("win32").args.includes("-NoProfile"));
+	// PowerShell loads the user's profile and keeps history, as a desktop terminal does.
+	assert.ok(!terminalShell("win32").args.includes("-NoProfile"));
+	assert.doesNotMatch(terminalShell("win32").args.join(" "), /HistorySaveStyle|PredictionSource/);
 	assert.ok(["bash", "sh"].includes(terminalShell("linux", { SHELL: "/definitely-missing/bash" }).title));
 });
 

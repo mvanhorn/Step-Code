@@ -91,15 +91,17 @@ export function terminalShell(
 		const file = existsSync(pwsh)
 			? pwsh
 			: join(env.SystemRoot || "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+		// Like a desktop terminal, PowerShell loads the user's $PROFILE (so posh-git, oh-my-posh or
+		// starship can show the Git branch) and keeps PSReadLine history. Only the console encoding
+		// is set, after the profile, so non-ASCII output is not garbled.
 		return {
 			file,
 			title: "PowerShell",
 			args: [
 				"-NoLogo",
-				"-NoProfile",
 				"-NoExit",
 				"-Command",
-				"[Console]::InputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(); if (Get-Module -ListAvailable PSReadLine) { Import-Module PSReadLine; Set-PSReadLineOption -HistorySaveStyle SaveNothing; if ((Get-Command Set-PSReadLineOption).Parameters.ContainsKey('PredictionSource')) { Set-PSReadLineOption -PredictionSource None } }",
+				"[Console]::InputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()",
 			],
 		};
 	}
