@@ -14,8 +14,10 @@ import {
 	AuthStorage,
 	type DiscoveredModel,
 	discoverModels,
+	getStepAuthPath,
 	importStepgoModels,
 	ModelDiscoveryError,
+	ModelRuntime,
 	normalizeProviderBaseUrl,
 	readModelsJsonProviders,
 	readStoredCredential,
@@ -164,6 +166,25 @@ function entryOf(raw: unknown): WebModelEntry | undefined {
 		...(typeof raw.reasoning === "boolean" ? { reasoning: raw.reasoning } : {}),
 		...(thinkingLevelMap ? { thinkingLevelMap } : {}),
 	};
+}
+
+/**
+ * Whether a custom (bring-your-own-key) model can run a session without a Step
+ * credential, so the sign-in gate is not required.
+ *
+ * Answered by the kernel's own availability check over `models.json` and the
+ * credential file, the same inputs a session reads, and offline: no network
+ * refresh. An unreadable configuration answers `false`, which only shows the
+ * sign-in gate, and the gate itself offers the way to the models page.
+ */
+export async function hasUsableCustomModel(): Promise<boolean> {
+	try {
+		const runtime = await ModelRuntime.create({ authPath: getStepAuthPath(), modelsPath: modelsJsonPath() });
+		await runtime.refresh({ allowNetwork: false });
+		return runtime.getAvailableSnapshot().some((model) => model.provider !== STEP_PROVIDER_ID);
+	} catch {
+		return false;
+	}
 }
 
 /** Every custom provider in `models.json`, sorted so the list is stable between reads. */

@@ -468,8 +468,18 @@ export interface LoginReport {
 	readonly profile?: string;
 	readonly userId?: string;
 	readonly path?: string;
+	/** A Step model credential exists; independent of the account session. */
 	readonly configured: boolean;
 	readonly validity?: string;
+	/**
+	 * The Step account session (`step-login.json`) beside the credential.
+	 * `missing` is normal for an API-key sign-in; `expired` only affects the
+	 * account identity, not model requests.
+	 */
+	readonly session: {
+		readonly state: "ready" | "expiring" | "expired" | "missing";
+		readonly refreshExpiresAt?: number;
+	};
 	readonly loginCommand: string;
 	/** Step Plan page of the credential's region (src/login.ts): where Upgrade leads. */
 	readonly planUrl: string;
@@ -494,6 +504,8 @@ export interface BrowserLoginState {
 	readonly state: "idle" | "pending" | "completed" | "failed";
 	readonly profile?: string;
 	readonly authUrl?: string;
+	/** Non-fatal account-session problem; the credential is already saved. */
+	readonly warning?: string;
 	readonly error?: string;
 }
 
@@ -501,6 +513,8 @@ export interface BootstrapPayload {
 	readonly cwd: string;
 	readonly directoryPicker?: string;
 	readonly login?: LoginReport | null;
+	/** A custom models.json model runs without a Step credential, so no sign-in gate is needed. */
+	readonly customModels?: boolean;
 }
 
 export interface TreeEntry {

@@ -175,11 +175,9 @@ export interface UiState {
 	readonly tagPicker: { readonly sessionId: string } | null;
 	/** `#authBanner` visible (a request returned 401). */
 	readonly authExpired: boolean;
-	/** `#loggedOutOverlay` visible. */
-	readonly loggedOut: boolean;
-	/** `#logoutDialog`: confirming Log out; `pending` while `/auth/logout` runs. */
+	/** `#logoutDialog`: confirming Log out; `pending` while `POST /api/v1/logout` runs. */
 	readonly logoutConfirm: { readonly pending: boolean } | null;
-	/** `#loginGate` visible: Desktop has no Step credential yet, and the app waits behind it. */
+	/** `#loginGate` visible: no model can run yet (no Step credential, no custom model), and the app waits behind it. */
 	readonly loginRequired: boolean;
 	/** Incremented to ask the composer to focus `#prompt` (legacy `$("#prompt").focus()`). */
 	readonly promptFocusRequest: number;
@@ -403,7 +401,6 @@ export function createInitialState(): AppState {
 			sessionMenu: null,
 			tagPicker: null,
 			authExpired: false,
-			loggedOut: false,
 			logoutConfirm: null,
 			loginRequired: false,
 			promptFocusRequest: 0,

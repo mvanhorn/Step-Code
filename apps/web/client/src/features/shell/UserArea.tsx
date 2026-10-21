@@ -18,7 +18,7 @@ import type { AccountReport, LoginReport } from "../../state/types";
 import { Icon, IconButton, Menu, MenuDivider, MenuItem, Popover, Tooltip } from "../../ui";
 import { openLoginPage } from "../login/actions";
 import { openSettings } from "../settings/actions";
-import { logout, stepPlanUrl } from "./actions";
+import { canLogout, logout, stepPlanUrl } from "./actions";
 
 function isStepPlan(login: LoginReport | null): boolean {
 	return login?.source === "auth.json" && login.profile?.startsWith("step_plan") === true;
@@ -29,6 +29,9 @@ function accountName(t: TranslateFn, login: LoginReport | null, account: Account
 	if (!login?.configured) return t("footerSignedOut");
 	if (account?.account) return account.account.name;
 	if (!isStepPlan(login)) return t("footerApiKey");
+	// The key still runs models, but the account identity is gone: say so instead
+	// of claiming the Step Plan account is signed in.
+	if (login.session?.state === "expired") return t("footerSessionExpired");
 	return account ? t("footerSignedIn") : "";
 }
 
@@ -66,6 +69,7 @@ function AccountMenu({
 }) {
 	const t = useT();
 	const planUrl = useAppStore((state) => stepPlanUrl(state.login));
+	const removable = useAppStore((state) => canLogout(state.login));
 	return (
 		<>
 			<div className="account-menu-header">
@@ -107,6 +111,7 @@ function AccountMenu({
 					id="accountLogoutButton"
 					icon="logout"
 					danger
+					disabled={!removable}
 					onClick={() => {
 						closeAccountMenu();
 						logout();

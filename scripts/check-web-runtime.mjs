@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
-import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,6 +19,8 @@ const child = spawn(process.execPath, ["apps/web/dist/server.js"], {
 		STEPCODE_WEB_PORT: String(port),
 		STEPCODE_WEB_CWD: cwd,
 		STEP_CODING_AGENT_DIR: agentDir,
+		STEPCODE_AUTH_PATH: join(agentDir, "auth.json"),
+		STEPCODE_LEGACY_AUTH_PATH: join(agentDir, "legacy-auth.json"),
 		// A check must never open a window, even when the caller exported the flag.
 		STEPCODE_WEB_OPEN: "0",
 		// HOME is the caller's: never copy a local stepgo key into the temporary config root.
@@ -69,6 +72,34 @@ async function request(path, init = {}, cookie) {
 
 try {
 	await writeFile(join(cwd, "smoke.txt"), "stepcode web smoke\n", "utf8");
+	const authPath = join(agentDir, "auth.json");
+	const loginStatePath = join(agentDir, "step-login.json");
+	await writeFile(
+		authPath,
+		`${JSON.stringify({
+			step: {
+				type: "oauth",
+				access: "smoke-key",
+				refresh: "step-static-credential",
+				expires: Number.MAX_SAFE_INTEGER,
+				profile: "step_plan",
+			},
+		})}\n`,
+		"utf8",
+	);
+	await writeFile(
+		loginStatePath,
+		`${JSON.stringify({
+			version: 1,
+			profile: "step_plan",
+			appId: "10300",
+			deviceId: "smoke-device",
+			accessToken: "smoke-access",
+			refreshToken: "smoke-refresh",
+			accessExpiresAt: Math.floor(Date.now() / 1000) + 1800,
+		})}\n`,
+		"utf8",
+	);
 	const token = await waitForServer();
 	const auth = await fetch(`${origin}/auth/exchange`, {
 		method: "POST",
@@ -143,6 +174,14 @@ try {
 		headers: { origin, cookie },
 	});
 	if (afterDelete.status !== 404) throw new Error(`deleted session still available: ${afterDelete.status}`);
+	const stepLogout = await request("/api/v1/logout", { method: "POST" }, cookie);
+	if (stepLogout.body?.removed !== true || stepLogout.body?.accountSessionRemoved !== true) {
+		throw new Error(`Step logout did not report removal: ${JSON.stringify(stepLogout.body)}`);
+	}
+	if (stepLogout.body?.login?.configured !== false) throw new Error("Step logout left a configured credential");
+	const stored = JSON.parse(await readFile(authPath, "utf8"));
+	if ("step" in stored) throw new Error("Step logout left the step credential in auth.json");
+	if (existsSync(loginStatePath)) throw new Error("Step logout left step-login.json");
 	const logout = await fetch(`${origin}/auth/logout`, {
 		method: "POST",
 		headers: { origin, cookie },
@@ -150,7 +189,7 @@ try {
 	if (!logout.ok || !logout.headers.get("set-cookie")?.includes("Max-Age=0")) {
 		throw new Error("logout did not expire the authentication cookie");
 	}
-	console.log("web runtime smoke passed: auth/logout, v3 session, policy, rename, archive, files/directories, SSE, 50 reads");
+	console.log("web runtime smoke passed: step logout, auth/logout, v3 session, policy, rename, archive, files/directories, SSE, 50 reads");
 } finally {
 	if (child.exitCode === null) {
 		const exited = new Promise((resolve) => child.once("exit", resolve));

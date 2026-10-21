@@ -54,18 +54,3 @@ export function AuthBanner() {
 		</div>
 	);
 }
-
-/** `#loggedOutOverlay`, shown after a successful logout (legacy index.html 1280-1288). */
-export function LoggedOutOverlay() {
-	const t = useT();
-	const open = useAppStore((state) => state.ui.loggedOut);
-	return (
-		<div className="logged-out-overlay" id="loggedOutOverlay" hidden={!open}>
-			<div>
-				<div className="brand-mark">S</div>
-				<h2>{t("loggedOut")}</h2>
-				<p>{t("loggedOutHint")}</p>
-			</div>
-		</div>
-	);
-}

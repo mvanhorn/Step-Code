@@ -444,6 +444,12 @@ paths:
                   cwd: { type: string, description: Launch working directory }
                   directoryPicker: { type: string, enum: [native, browse] }
                   login: { $ref: "#/components/schemas/LoginReport" }
+                  customModels:
+                    type: boolean
+                    description: |
+                      A custom (bring-your-own-key) model from models.json is usable
+                      without a Step credential. Checked offline. When true, the
+                      page does not open the sign-in gate.
   /api/v1/account:
     get:
       description: |
@@ -511,6 +517,7 @@ paths:
                 type: object
                 properties:
                   login: { $ref: "#/components/schemas/LoginReport" }
+                  warning: { type: string, description: "Non-fatal account-session problem; the credential was saved" }
         "400": { description: "Bad input, or `code: invalid_key` when the provider rejected the key" }
         "502": { description: "`code: unavailable`: the provider could not be reached; nothing was saved" }
   /api/v1/login/browser:
@@ -548,6 +555,21 @@ paths:
       description: Cancel the pending browser sign-in; a later approval is ignored.
       responses:
         "200": { description: Cancelled }
+  /api/v1/logout:
+    post:
+      description: |
+        Sign out of Step exactly as `step logout`: stop running sessions, remove
+        the stored `step` credential, the legacy copies and `step-login.json`,
+        then drop the cached login and account reports. The page cookie is
+        deliberately kept, so Desktop reloads into its sign-in gate without a new
+        terminal launch link. `remainingSource: environment` means `STEP_API_KEY`
+        still authorizes requests and cannot be removed by the host.
+      responses:
+        "200":
+          description: Sign-out report
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StepLogoutReport" }
   /api/v1/workspaces:
     get:
       responses:
@@ -1899,6 +1921,7 @@ components:
         state: { type: string, enum: [idle, pending, completed, failed] }
         profile: { type: string }
         authUrl: { type: string, description: Authorize URL to open while pending }
+        warning: { type: string, description: "Non-fatal account-session problem; the credential was saved" }
         error: { type: string }
     AccountReport:
       type: object
@@ -1924,7 +1947,7 @@ components:
         `configured` reports that one exists; `validity` reports what the
         provider said when it was checked.
       type: object
-      required: [source, configured, loginCommand, planUrl]
+      required: [source, configured, session, loginCommand, planUrl]
       properties:
         source: { type: string, enum: [environment, auth.json, none] }
         provider: { type: string, description: "Provider id the credential belongs to" }
@@ -1936,6 +1959,16 @@ components:
           type: string
           enum: [valid, invalid, unavailable, missing]
           description: "The provider's verdict; unavailable means it could not be reached"
+        session:
+          type: object
+          required: [state]
+          description: |
+            The account session (`step-login.json`) beside the credential.
+            Independent of `configured`: API-key sign-in leaves it `missing`, and
+            an expired session never stops model requests.
+          properties:
+            state: { type: string, enum: [ready, expiring, expired, missing] }
+            refreshExpiresAt: { type: integer, description: "Unix seconds when renewal is no longer possible" }
         loginCommand: { type: string, description: "The command that changes this state" }
         planUrl:
           type: string
@@ -1944,6 +1977,19 @@ components:
             Step Plan page of the credential's platform, where Upgrade leads:
             platform.stepfun.ai for an overseas plan or key, platform.stepfun.com
             otherwise (also when the region is unknown).
+    StepLogoutReport:
+      type: object
+      required: [removed, accountSessionRemoved, remainingSource, customModels, login]
+      properties:
+        removed: { type: boolean, description: "A stored Step credential or legacy copy was removed" }
+        accountSessionRemoved: { type: boolean, description: "`step-login.json` is gone from disk" }
+        remainingSource:
+          type: string
+          enum: [environment]
+          nullable: true
+          description: "`environment` when STEP_API_KEY still authorizes requests; null otherwise"
+        customModels: { type: boolean, description: "A custom models.json model is still usable, so the page stays in the app instead of the sign-in gate" }
+        login: { $ref: "#/components/schemas/LoginReport" }
   parameters:
     BrowserTabId:
       name: tabId

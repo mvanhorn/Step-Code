@@ -32,9 +32,11 @@ import {
 	searchWorkspaceFiles,
 } from "./files.ts";
 import { buildLoginReport, type LoginReport, loginMethods, WebLoginController } from "./login.ts";
+import { signOutStep } from "./logout.ts";
 import {
 	deleteModelProvider,
 	discoverProviderModels,
+	hasUsableCustomModel,
 	importLocalStepgoModels,
 	listModelProviders,
 	saveModelProvider,
@@ -348,7 +350,32 @@ async function signInWithApiKey(request: IncomingMessage, response: ServerRespon
 	if (!result.ok) {
 		return json(response, result.code === "invalid_key" ? 400 : 502, { error: result.error, code: result.code });
 	}
-	return json(response, 200, { login: await loginReport() });
+	return json(response, 200, {
+		login: await loginReport(),
+		...(result.warning ? { warning: result.warning } : {}),
+	});
+}
+
+/**
+ * Sign out of Step, not just the page.
+ *
+ * `step logout` removes the stored credential, the legacy copies and the
+ * account session. The page cookie is deliberately left alone: it only
+ * authorizes this browser window, and desktop reloads into the sign-in gate (or,
+ * with a custom model still usable, straight into the app)
+ * without needing a new terminal launch link.
+ */
+async function signOutOfStep(response: ServerResponse): Promise<void> {
+	await login.cancelAll();
+	const outcome = await signOutStep({
+		authPath: getStepAuthPath(),
+		env: process.env,
+		stopSessions: () => store.interruptAndClose(),
+	});
+	loginCache = undefined;
+	account.invalidate();
+	const [report, customModels] = await Promise.all([loginReport(), hasUsableCustomModel()]);
+	return json(response, 200, { ...outcome, customModels, login: report });
 }
 
 async function pickWorkspaceFolder(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -540,6 +567,9 @@ const server = createServer(async (request, response) => {
 				{ "set-cookie": `stepcode_web=${cookie}; HttpOnly; SameSite=Strict; Path=/` },
 			);
 		}
+		// Page-session only: expire this browser's cookie. It never touches
+		// `auth.json`/`step-login.json`; Account and the account menu use
+		// `POST /api/v1/logout` for the Step sign-out.
 		if (url.pathname === "/auth/logout" && method === "POST") {
 			if (!auth.allowsOrigin(request.headers.origin)) return error(response, 403, "Origin is not allowed");
 			return json(
@@ -559,7 +589,8 @@ const server = createServer(async (request, response) => {
 		if (parts[2] === "terminals")
 			return await terminalRoute(terminals, parts.slice(3), url, request, response, knownWorkspace);
 		if (parts[2] === "bootstrap" && method === "GET") {
-			return json(response, 200, { cwd: defaultWorkspace(), directoryPicker, login: await loginReport() });
+			const [report, customModels] = await Promise.all([loginReport(), hasUsableCustomModel()]);
+			return json(response, 200, { cwd: defaultWorkspace(), directoryPicker, login: report, customModels });
 		}
 		if (parts[2] === "account" && parts.length === 3 && method === "GET") {
 			return json(response, 200, await account.get());
@@ -584,6 +615,9 @@ const server = createServer(async (request, response) => {
 					return json(response, 200, state);
 				}
 			}
+		}
+		if (parts[2] === "logout" && parts.length === 3 && method === "POST") {
+			return signOutOfStep(response);
 		}
 		if (parts[2] === "workspaces" && parts[3] === "pick" && parts.length === 4 && method === "POST") {
 			return pickWorkspaceFolder(request, response);

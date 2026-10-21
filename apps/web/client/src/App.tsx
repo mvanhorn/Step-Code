@@ -6,15 +6,7 @@ import { RightPanel, RightToolRail } from "./features/inspector";
 import { LoginGate } from "./features/login";
 import { CronView, MarketView } from "./features/market";
 import { SettingsView } from "./features/settings";
-import {
-	AuthBanner,
-	ErrorToast,
-	LoggedOutOverlay,
-	LogoutDialog,
-	ShellEffects,
-	SidebarShowButton,
-	UserArea,
-} from "./features/shell";
+import { AuthBanner, ErrorToast, LogoutDialog, ShellEffects, SidebarShowButton, UserArea } from "./features/shell";
 import { SearchModal, SidebarNav, SidebarResizer } from "./features/sidebar";
 import { TerminalDock } from "./features/terminal";
 import { RemoveWorkspaceModal, WorkspaceBrowserModal, WorkspaceControl } from "./features/workspace";
@@ -42,8 +34,8 @@ import { IconSprite } from "./ui";
  *     nav.right-tool-rail
  *   #settingsView      settings: full-window settings page (menu + page) over the workspace
  *   #feedbackModal, #searchModal, #workspaceBrowserModal, #removeWorkspaceModal, #selectionDialog,
- *   #imagePreview (composer: enlarged image attachment), #logoutDialog (shell), #loggedOutOverlay
- *   #loginGate         login: Desktop sign-in, above everything while no credential exists
+ *   #imagePreview (composer: enlarged image attachment), #logoutDialog (shell)
+ *   #loginGate         login: sign-in (or bring your own key), above everything while no model can run
  *   #workspaceMenu, #sessionMenu, #tagPicker: rendered by their sidebar trigger, in a portal on body, only while open
  */
 export function App() {
@@ -126,7 +118,6 @@ export function App() {
 			<SelectionDialog />
 			<ImagePreview />
 			<LogoutDialog />
-			<LoggedOutOverlay />
 			<LoginGate />
 			<ShellEffects />
 		</I18nProvider>

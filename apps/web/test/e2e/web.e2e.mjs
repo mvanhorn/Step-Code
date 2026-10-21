@@ -607,7 +607,7 @@ test(
 		await until(() => $("#logoutDialog").hidden, "log-out dialog to cancel");
 		$("#settingsBack").click();
 		await until(() => $("#settingsView").hidden, "settings view to close again");
-		const stillIn = $("#loggedOutOverlay").hidden && (await fetch("/api/v1/login")).ok;
+		const stillIn = (await fetch("/api/v1/login")).ok;
 		// Back to the settings view for the steps below.
 		$("#settingsButton").click();
 		await until(() => !$("#settingsView").hidden, "settings view to reopen");

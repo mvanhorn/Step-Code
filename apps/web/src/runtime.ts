@@ -1484,6 +1484,22 @@ export class WebSessionStore {
 		this.openings.clear();
 		this.sessions.clear();
 	}
+
+	/**
+	 * Stop every running turn the way the Stop button does, then close all
+	 * sessions. Used by a Step sign-out: interrupting first records the turn as
+	 * aborted and keeps the prompt and partial reply on disk, which a bare
+	 * `close()` (disposal mid-stream) would lose. A session that fails to stop
+	 * is still closed.
+	 */
+	async interruptAndClose(): Promise<void> {
+		await Promise.allSettled(this.openings.values());
+		const busy = [...this.sessions.values()].filter((session) => session.isBusy());
+		for (const result of await Promise.allSettled(busy.map((session) => session.interrupt()))) {
+			if (result.status === "rejected") console.error("Could not stop a turn before signing out:", result.reason);
+		}
+		await this.close();
+	}
 }
 
 export function defaultWorkspace(): string {

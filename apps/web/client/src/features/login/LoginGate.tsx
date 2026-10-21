@@ -4,7 +4,14 @@ import { errorMessage } from "../../lib/api";
 import { useAppStore } from "../../state/store";
 import type { LoginMethod } from "../../state/types";
 import { Spinner } from "../../ui";
-import { cancelBrowserSignIn, loadLoginMethods, openLoginPage, signInWithApiKey, signInWithBrowser } from "./actions";
+import {
+	cancelBrowserSignIn,
+	continueWithOwnModels,
+	loadLoginMethods,
+	openLoginPage,
+	signInWithApiKey,
+	signInWithBrowser,
+} from "./actions";
 
 type Region = LoginMethod["region"];
 type View = { readonly kind: "choose" } | { readonly kind: "apiKey" } | { readonly kind: "browser"; authUrl: string };
@@ -37,12 +44,14 @@ function methodFor(methods: readonly LoginMethod[], region: Region, source: Logi
 }
 
 /**
- * The Desktop sign-in gate (`#loginGate`). Shown while bootstrap waits for a
- * credential and cannot be dismissed: there is no close button, no backdrop
- * click, and the shell ignores Escape and shortcuts while it is open.
+ * The sign-in gate (`#loginGate`). Shown while bootstrap waits because no model
+ * can run: no Step credential and no usable custom model. There is no close
+ * button, no backdrop click, and the shell ignores Escape and shortcuts while it
+ * is open; "Use your own models" is the way past it without a Step account.
  *
  * Choose: Step Plan (browser) or API key, for the mainland or the
- * international platform. API key: pick the platform, paste the key, and the
+ * international platform, or skip to the models settings (bring your own key).
+ * API key: pick the platform, paste the key, and the
  * host validates it before saving; Cancel returns to the choice.
  */
 export function LoginGate() {
@@ -161,6 +170,12 @@ export function LoginGate() {
 								}}
 							>
 								{t(region === "cn" ? "loginSwitchToGlobal" : "loginSwitchToCn")}
+							</button>
+						</p>
+						<p className="login-switch login-own-models">
+							{t("loginOwnModelsHint")}{" "}
+							<button type="button" className="login-link" id="loginOwnModels" onClick={continueWithOwnModels}>
+								{t("loginOwnModels")}
 							</button>
 						</p>
 					</div>

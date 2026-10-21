@@ -6,10 +6,17 @@ import { setState, useAppStore } from "../../state/store";
 import type { LoginMethod, LoginReport } from "../../state/types";
 import { Icon, IconButton, Spinner, Tooltip } from "../../ui";
 import { cancelBrowserSignIn, openLoginPage, signInWithApiKey, signInWithBrowser } from "../login/actions";
-import { logout, stepPlanUrl } from "../shell/actions";
+import { canLogout, logout, stepPlanUrl } from "../shell/actions";
 import { useSettingsResource } from "./actions";
 import { PageHeader, ResourceState, SectionHeader, StatusDot } from "./parts";
 import "./account.css";
+
+const SESSION_LABELS: Readonly<Record<LoginReport["session"]["state"], string>> = {
+	ready: "settingsAccountSessionReady",
+	expiring: "settingsAccountSessionExpiring",
+	expired: "settingsAccountSessionExpired",
+	missing: "settingsAccountSessionMissing",
+};
 
 const PROFILE_LABELS: Readonly<Record<string, string>> = {
 	step_plan: "settingsAccountStepPlanCn",
@@ -38,6 +45,7 @@ export function AccountPage() {
 	const [authUrl, setAuthUrl] = useState("");
 	const [error, setError] = useState("");
 	const [notice, setNotice] = useState("");
+	const [warning, setWarning] = useState("");
 	const [refreshing, setRefreshing] = useState(true);
 	const [refreshError, setRefreshError] = useState("");
 	const [revision, setRevision] = useState(0);
@@ -81,16 +89,22 @@ export function AccountPage() {
 		setBusy(true);
 		setError("");
 		setNotice("");
+		setWarning("");
 		try {
 			if (entry.browser) {
 				const outcome = await signInWithBrowser(selected.id, setAuthUrl, entry.controller.signal);
-				if (!entry.controller.signal.aborted && outcome === "completed") setNotice(t("settingsAccountSaved"));
+				if (!entry.controller.signal.aborted && outcome.outcome === "completed") {
+					if (outcome.warning) setWarning(t("settingsAccountSessionWarning"));
+					else setNotice(t("settingsAccountSaved"));
+				}
 			} else {
 				const outcome = await signInWithApiKey(selected.id, apiKey.trim(), entry.controller.signal);
 				if (entry.controller.signal.aborted) return;
 				setApiKey("");
-				if (outcome.kind === "ok") setNotice(t("settingsAccountSaved"));
-				else if (outcome.kind === "invalid") setError(t("loginInvalidKey"));
+				if (outcome.kind === "ok") {
+					if (outcome.warning) setWarning(t("settingsAccountSessionWarning"));
+					else setNotice(t("settingsAccountSaved"));
+				} else if (outcome.kind === "invalid") setError(t("loginInvalidKey"));
 				else if (outcome.kind === "unavailable") setError(t("loginUnavailable"));
 				else setError(t("loginFailed", { error: outcome.message }));
 			}
@@ -114,6 +128,7 @@ export function AccountPage() {
 
 	const verified = login?.configured && login.validity === "valid";
 	const rejected = login?.configured && login.validity === "invalid";
+	const removable = canLogout(login);
 	const status = !login?.configured
 		? "settingsAccountNone"
 		: verified
@@ -151,13 +166,20 @@ export function AccountPage() {
 					{login?.userId && (
 						<span className="settings-account-uid">{t("settingsAccountUid", { uid: login.userId })}</span>
 					)}
+					{login?.session && (
+						<span className="settings-account-uid" id="settingsAccountSession">
+							{t("settingsAccountSession", {
+								state: t(SESSION_LABELS[login.session.state]),
+							})}
+						</span>
+					)}
 				</div>
-				<Tooltip content={t("settingsLogoutDesc")}>
+				<Tooltip content={t(removable ? "settingsLogoutDesc" : "settingsLogoutUnavailable")}>
 					<button
 						type="button"
 						className="settings-btn settings-account-logout"
 						id="logoutButton"
-						disabled={busy}
+						disabled={busy || !removable}
 						onClick={() => void logout()}
 					>
 						<Icon name="accountLogout" size="xs" />
@@ -165,6 +187,11 @@ export function AccountPage() {
 					</button>
 				</Tooltip>
 			</section>
+			{login?.configured &&
+				login.profile?.startsWith("step_plan") &&
+				(login.session?.state === "expired" || login.session?.state === "missing") && (
+					<p className="settings-account-note">{t("settingsAccountSessionMissingHint")}</p>
+				)}
 			{refreshing && (
 				<output className="settings-loading">
 					<Spinner />
@@ -288,6 +315,7 @@ export function AccountPage() {
 								{error}
 							</div>
 						)}
+						{warning && <output className="settings-account-notice">{warning}</output>}
 						{notice && <output className="settings-account-notice">{notice}</output>}
 					</div>
 				</form>

@@ -56,7 +56,7 @@ function checkWebClientSurface() {
     "/policy",
     "/model",
     "/files",
-    "/auth/logout",
+    "/api/v1/logout",
     "renderMarkdown",
     "workspaceBrowserModal",
     "stepcode.theme",

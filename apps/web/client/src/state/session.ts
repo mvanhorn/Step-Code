@@ -1058,6 +1058,37 @@ export function completeLogin(login: LoginReport): void {
 }
 
 /**
+ * Close the sign-in gate without a Step credential (bring your own key).
+ *
+ * Step is not required: a user may run custom models from `models.json`
+ * instead. Bootstrap continues as after a sign-in; the caller opens the place
+ * where those models are configured.
+ */
+export function continueWithoutLogin(): void {
+	setUi({ loginRequired: false });
+	const resume = resumeAfterLogin;
+	resumeAfterLogin = undefined;
+	resume?.();
+}
+
+/**
+ * Whether bootstrap must wait behind the sign-in gate.
+ *
+ * Only when no model can run at all: no Step credential and no usable custom
+ * model. Desktop asks on every such start; plain Web keeps its terminal
+ * `step login` path and asks only after an explicit sign-out from the page.
+ */
+export function signInGateNeeded(input: {
+	readonly desktop: boolean;
+	readonly signedOut: boolean;
+	readonly login: LoginReport | null;
+	readonly customModels: boolean;
+}): boolean {
+	if (!input.login || input.login.configured || input.customModels) return false;
+	return input.desktop || input.signedOut;
+}
+
+/**
  * Sign in, load workspaces and sessions, then open the most relevant session
  * (or start a draft in the launch folder). Runs once per page load; a second
  * call (React StrictMode double effects) is ignored because the launch token
@@ -1068,6 +1099,15 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<void> {
 	bootstrapped = true;
 	try {
 		await exchange();
+		// A Step sign-out may have completed only partially; its notice survives
+		// the reload that removed the credential.
+		if (typeof sessionStorage !== "undefined") {
+			const notice = sessionStorage.getItem("stepcode:logoutNotice");
+			if (notice) {
+				sessionStorage.removeItem("stepcode:logoutNotice");
+				showError(notice, false);
+			}
+		}
 		const boot = await api<BootstrapPayload>("/api/v1/bootstrap");
 		setState({
 			bootstrapCwd: boot.cwd,
@@ -1076,9 +1116,20 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<void> {
 			draftCwd: boot.cwd,
 		});
 		if (boot.login?.configured) void refreshAccount();
-		// Desktop asks for a credential before anything else; a browser host
-		// keeps the terminal `step login` path and its banner.
-		if (isDesktopHost() && boot.login && !boot.login.configured) {
+		// An explicit Step sign-out in plain Web sets this so the page asks for a
+		// credential instead of opening sessions that cannot call a model. A first
+		// visit still keeps the terminal `step login` path and its banner.
+		const signedOut =
+			typeof sessionStorage !== "undefined" && sessionStorage.getItem("stepcode:signInRequired") === "1";
+		if (signedOut && typeof sessionStorage !== "undefined") sessionStorage.removeItem("stepcode:signInRequired");
+		if (
+			signInGateNeeded({
+				desktop: isDesktopHost(),
+				signedOut,
+				login: boot.login ?? null,
+				customModels: boot.customModels === true,
+			})
+		) {
 			await new Promise<void>((resolve) => {
 				resumeAfterLogin = resolve;
 				setUi({ loginRequired: true });

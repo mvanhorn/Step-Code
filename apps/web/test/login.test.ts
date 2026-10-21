@@ -10,7 +10,14 @@ const readCredential = () => planCredential;
 
 test("a stored plan credential is reported with its profile and never its value", () => {
 	const report = buildLoginReport({
-		status: { loggedIn: true, loginMethod: "step_plan", profile: "step_plan", account: "uid-1", validity: "valid" },
+		status: {
+			credentialConfigured: true,
+			loginMethod: "step_plan",
+			profile: "step_plan",
+			account: "uid-1",
+			validity: "valid",
+			session: { state: "ready" },
+		},
 		authPath,
 		env: {},
 		read: readCredential,
@@ -23,6 +30,7 @@ test("a stored plan credential is reported with its profile and never its value"
 		path: authPath,
 		configured: true,
 		validity: "valid",
+		session: { state: "ready" },
 		loginCommand: "step login",
 		planUrl: "https://platform.stepfun.com/step-plan",
 	});
@@ -32,11 +40,11 @@ test("a stored plan credential is reported with its profile and never its value"
 });
 
 test("an unreachable provider still has a credential, and says so", () => {
-	// The kernel folds "could not reach the provider" into loggedIn: false and
-	// drops the profile. The credential is on disk either way, and telling the
-	// user to sign in again would not fix a network problem.
+	// A kernel check that cannot reach the provider reports validity: unavailable.
+	// The credential is on disk either way, and telling the user to sign in again
+	// would not fix a network problem.
 	const report = buildLoginReport({
-		status: { loggedIn: false, loginMethod: null, validity: "missing" },
+		status: { credentialConfigured: false, loginMethod: null, validity: "missing" },
 		authPath,
 		env: {},
 		read: readCredential,
@@ -48,7 +56,7 @@ test("an unreachable provider still has a credential, and says so", () => {
 });
 
 test("only a bounded stored OAuth UID matching a valid checked account reaches the report", () => {
-	const status = { loggedIn: true, loginMethod: "step_plan" as const, profile: "step_plan" as const, account: "uid-fixture", validity: "valid" as const };
+	const status = { credentialConfigured: true, loginMethod: "step_plan" as const, profile: "step_plan" as const, account: "uid-fixture", validity: "valid" as const };
 	const input = {
 		status, authPath, env: {},
 		read: () => JSON.stringify({ step: { type: "oauth", access: "secret-fixture", uid: " uid-fixture ", profile: "step_plan" } }),
@@ -61,7 +69,7 @@ test("only a bounded stored OAuth UID matching a valid checked account reaches t
 		{ ...input, status: { ...status, account: "step_plan" } },
 		{ ...input, status: { ...status, validity: "invalid" as const } },
 		{ ...input, status: { ...status, validity: "unavailable" as const } },
-		{ ...input, status: { ...status, loggedIn: false } },
+		{ ...input, status: { ...status, credentialConfigured: false } },
 		{ ...input, env: { STEP_API_KEY: "environment-fixture" } },
 		{ ...input, read: () => JSON.stringify({ step: { type: "api_key", key: "key-fixture", uid: "uid-fixture" } }) },
 		{ ...input, read: () => JSON.stringify({ step: { type: "oauth", access: "secret-fixture", uid: "x".repeat(257) } }) },
@@ -71,7 +79,7 @@ test("only a bounded stored OAuth UID matching a valid checked account reaches t
 test("a rejected token keeps its source and reports the verdict", () => {
 	const report = buildLoginReport({
 		status: {
-			loggedIn: true,
+			credentialConfigured: true,
 			loginMethod: "step_plan",
 			profile: "step_plan_oversea",
 			validity: "invalid",
@@ -93,7 +101,7 @@ test("a rejected token keeps its source and reports the verdict", () => {
 
 test("an environment key is reported as coming from the environment", () => {
 	const report = buildLoginReport({
-		status: { loggedIn: true, loginMethod: "api_key", validity: "valid" },
+		status: { credentialConfigured: true, loginMethod: "api_key", validity: "valid" },
 		authPath,
 		env: { STEP_API_KEY: "super-secret" },
 		read: readCredential,
@@ -113,7 +121,7 @@ test("an empty or malformed store reports none and names the command that fixes 
 		() => JSON.stringify({ other: { type: "oauth", access: "x" } }),
 	]) {
 		const report = buildLoginReport({
-			status: { loggedIn: false, loginMethod: null, validity: "missing" },
+			status: { credentialConfigured: false, loginMethod: null, validity: "missing" },
 			authPath,
 			env: {},
 			read,
@@ -122,6 +130,7 @@ test("an empty or malformed store reports none and names the command that fixes 
 		assert.deepEqual(report, {
 			source: "none",
 			configured: false,
+			session: { state: "missing" },
 			loginCommand: "step login",
 			planUrl: "https://platform.stepfun.com/step-plan",
 		});
@@ -130,7 +139,7 @@ test("an empty or malformed store reports none and names the command that fixes 
 
 test("a plain API-key credential is recognised without a profile", () => {
 	const report = buildLoginReport({
-		status: { loggedIn: false, loginMethod: null, validity: "missing" },
+		status: { credentialConfigured: false, loginMethod: null, validity: "missing" },
 		authPath,
 		env: {},
 		read: () => JSON.stringify({ step: { type: "api_key", key: "sk-not-echoed" } }),
@@ -142,6 +151,7 @@ test("a plain API-key credential is recognised without a profile", () => {
 		path: authPath,
 		configured: true,
 		validity: "missing",
+		session: { state: "missing" },
 		loginCommand: "step login",
 		planUrl: "https://platform.stepfun.com/step-plan",
 	});
@@ -151,7 +161,7 @@ test("a plain API-key credential is recognised without a profile", () => {
 test("Upgrade leads to the Step Plan page of the credential's region", () => {
 	const reportFor = (profile: string | undefined, env: Record<string, string | undefined> = {}) =>
 		buildLoginReport({
-			status: { loggedIn: true, loginMethod: "step_plan", validity: "valid" },
+			status: { credentialConfigured: true, loginMethod: "step_plan", validity: "valid" },
 			authPath,
 			env,
 			read: () =>
@@ -248,6 +258,48 @@ test("a browser sign-in answers with the authorize URL, completes in the backgro
 	await new Promise((resolve) => setImmediate(resolve));
 	assert.deepEqual(controller.browserState(), { state: "idle" });
 	assert.equal(saved, 1);
+});
+
+test("cancelAll waits for sign-ins that are still writing, and their success is not reported", async () => {
+	let saved = 0;
+	let finishKey!: () => void;
+	let finishBrowser!: () => void;
+	const order: string[] = [];
+	const controller = new WebLoginController({
+		authPath: () => authPath,
+		onSaved: () => saved++,
+		// Both stand-ins ignore the abort, like a sign-in already past its last
+		// abort check and busy writing the credential.
+		loginWithApiKey: () =>
+			new Promise((resolve) => {
+				finishKey = () => {
+					order.push("key written");
+					resolve({ validity: "valid" });
+				};
+			}),
+		loginInBrowser: (input) => {
+			input.onAuthUrl("https://platform.stepfun.com/cli-login-remote");
+			return new Promise((resolve) => {
+				finishBrowser = () => {
+					order.push("browser written");
+					resolve({ session: "saved" });
+				};
+			});
+		},
+	});
+	const key = controller.withApiKey("platform_cn", "sk-1");
+	await controller.startBrowser("step_plan");
+	const cancelled = controller.cancelAll().then(() => order.push("cancelled"));
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.deepEqual(order, [], "cancelAll is still waiting");
+	finishBrowser();
+	finishKey();
+	await cancelled;
+	assert.deepEqual(order, ["browser written", "key written", "cancelled"]);
+	assert.deepEqual(await key, { ok: false, code: "unavailable", error: "The sign-in was cancelled" });
+	assert.deepEqual(controller.browserState(), { state: "idle" });
+	assert.equal(saved, 0);
+	await controller.cancelAll();
 });
 
 test("a browser sign-in that fails before a URL reports the failure", async () => {

@@ -3,7 +3,6 @@ import {
 	loginStepInBrowser,
 	loginStepWithApiKey,
 	resolveStepLoginProfiles,
-	type StepApiKeyValidation,
 	type StepLoginProfileId,
 	type StepLoginStatus,
 } from "@step-harness/coding-agent";
@@ -36,6 +35,14 @@ export interface LoginReport {
 	 * when no check was possible.
 	 */
 	readonly validity?: StepLoginStatus["validity"];
+	/**
+	 * The Step account session in `step-login.json`, beside the credential.
+	 *
+	 * Independent of `configured`: an API-key sign-in has no account session and
+	 * is still configured; a Step Plan key with an expired session still runs
+	 * models and only loses the account identity.
+	 */
+	readonly session: NonNullable<StepLoginStatus["session"]>;
 	/** Terminal alternative to the page's sign-in controls. */
 	readonly loginCommand: string;
 	/**
@@ -63,10 +70,10 @@ const ENVIRONMENT_KEY = "STEP_API_KEY";
 /**
  * Whether a usable credential is stored, independent of the network.
  *
- * `getStepLoginStatus` reports `loggedIn: false` when the provider cannot be
- * reached, which is the wrong question here: the credential is still on disk
- * and the next request may well succeed. Only the shape is read, never the
- * token.
+ * `getStepLoginStatus` may report `validity: "unavailable"` when the provider
+ * cannot be reached, which is the wrong question here: the credential is still on
+ * disk and the next request may well succeed. Presence is read from the file
+ * shape, never from the token.
  */
 function storedCredential(
 	authPath: string,
@@ -133,14 +140,14 @@ export function buildLoginReport(input: LoginReportInput): LoginReport {
 	const exists = input.exists ?? existsSync;
 	const viaEnvironment = (env[ENVIRONMENT_KEY] ?? "").trim() !== "";
 	const stored = viaEnvironment ? undefined : storedCredential(input.authPath, read);
-	const configured = viaEnvironment || stored !== undefined || input.status.loggedIn === true;
+	const configured = viaEnvironment || stored !== undefined || input.status.credentialConfigured === true;
 	const profile = stored?.profile ?? input.status.profile;
 	return {
 		source: !configured ? "none" : viaEnvironment ? "environment" : "auth.json",
 		...(configured ? { provider: "step" } : {}),
 		...(configured && profile ? { profile } : {}),
 		...(stored?.userId &&
-		input.status.loggedIn &&
+		input.status.credentialConfigured &&
 		input.status.validity === "valid" &&
 		input.status.account === stored.userId
 			? { userId: stored.userId }
@@ -151,6 +158,7 @@ export function buildLoginReport(input: LoginReportInput): LoginReport {
 		// A check ran only when the kernel reached a verdict; an unreachable
 		// provider reports "unavailable", not a failure of the credential.
 		...(configured ? { validity: input.status.validity } : {}),
+		session: input.status.session ?? { state: "missing" },
 		loginCommand: "step login",
 		planUrl: stepPlanUrl(configured ? profile : undefined, env),
 	};
@@ -182,11 +190,13 @@ export interface BrowserLoginState {
 	readonly profile?: StepLoginProfileId;
 	/** The authorize URL to open; present while pending. */
 	readonly authUrl?: string;
+	/** Non-fatal account-session problem; the credential is already saved. */
+	readonly warning?: string;
 	readonly error?: string;
 }
 
 export type ApiKeyLoginResult =
-	| { readonly ok: true }
+	| { readonly ok: true; readonly warning?: string }
 	| { readonly ok: false; readonly code: "invalid_key" | "unavailable"; readonly error: string };
 
 export interface WebLoginControllerOptions {
@@ -210,6 +220,8 @@ export interface WebLoginControllerOptions {
 export class WebLoginController {
 	private readonly options: WebLoginControllerOptions;
 	private browser: { controller: AbortController; state: BrowserLoginState } | undefined;
+	/** Every kernel sign-in still running, so a sign-out can wait for its write to land first. */
+	private readonly inFlight = new Set<{ controller: AbortController; done: Promise<unknown> }>();
 
 	constructor(options: WebLoginControllerOptions) {
 		this.options = options;
@@ -230,16 +242,29 @@ export class WebLoginController {
 	/** Validate the key against its region and save it only when the provider accepts it. */
 	async withApiKey(profile: StepLoginProfileId, apiKey: string): Promise<ApiKeyLoginResult> {
 		const login = this.options.loginWithApiKey ?? loginStepWithApiKey;
-		const result: StepApiKeyValidation = await login({
+		const controller = new AbortController();
+		const cancelled: ApiKeyLoginResult = { ok: false, code: "unavailable", error: "The sign-in was cancelled" };
+		const run = login({
 			authPath: this.options.authPath(),
 			profile,
 			apiKey,
+			signal: controller.signal,
 			...(this.options.env ? { env: this.options.env } : {}),
 		});
+		let result: Awaited<typeof run>;
+		try {
+			result = await this.track(controller, run);
+		} catch (caught) {
+			if (controller.signal.aborted) return cancelled;
+			throw caught;
+		}
+		// A sign-out that started meanwhile removes whatever this call wrote,
+		// so success must not be reported or cached.
+		if (controller.signal.aborted) return cancelled;
 		if (result.validity === "valid") {
 			this.cancelBrowser();
 			this.options.onSaved();
-			return { ok: true };
+			return { ok: true, ...(result.warning ? { warning: result.warning } : {}) };
 		}
 		return result.validity === "invalid"
 			? { ok: false, code: "invalid_key", error: "The API key was rejected" }
@@ -260,19 +285,26 @@ export class WebLoginController {
 		this.browser = entry;
 		const login = this.options.loginInBrowser ?? loginStepInBrowser;
 		return new Promise((resolve) => {
-			login({
-				authPath: this.options.authPath(),
-				profile,
-				signal: controller.signal,
-				...(this.options.env ? { env: this.options.env } : {}),
-				onAuthUrl: (authUrl) => {
-					entry.state = { state: "pending", profile, authUrl };
-					resolve(entry.state);
-				},
-			}).then(
-				() => {
+			this.track(
+				controller,
+				login({
+					authPath: this.options.authPath(),
+					profile,
+					signal: controller.signal,
+					...(this.options.env ? { env: this.options.env } : {}),
+					onAuthUrl: (authUrl) => {
+						entry.state = { state: "pending", profile, authUrl };
+						resolve(entry.state);
+					},
+				}),
+			).then(
+				(session) => {
 					if (controller.signal.aborted) return;
-					entry.state = { state: "completed", profile };
+					entry.state = {
+						state: "completed",
+						profile,
+						...(session?.warning ? { warning: session.warning } : {}),
+					};
 					this.options.onSaved();
 					resolve(entry.state);
 				},
@@ -299,5 +331,28 @@ export class WebLoginController {
 		if (!this.browser) return;
 		this.browser.controller.abort();
 		this.browser = undefined;
+	}
+
+	/**
+	 * Cancel every sign-in and wait until each has settled.
+	 *
+	 * Aborting alone is not enough before a sign-out: a sign-in past its last
+	 * abort check may still be writing `auth.json` or `step-login.json`, and a
+	 * write landing after the sign-out removed them would restore a credential.
+	 * Once this resolves, no sign-in started before the call writes again.
+	 */
+	async cancelAll(): Promise<void> {
+		this.cancelBrowser();
+		const running = [...this.inFlight];
+		for (const entry of running) entry.controller.abort();
+		await Promise.allSettled(running.map((entry) => entry.done));
+	}
+
+	private track<T>(controller: AbortController, run: Promise<T>): Promise<T> {
+		const entry = { controller, done: run };
+		this.inFlight.add(entry);
+		const forget = () => this.inFlight.delete(entry);
+		run.then(forget, forget);
+		return run;
 	}
 }

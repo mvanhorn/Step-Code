@@ -3,6 +3,7 @@
  * owns this file; legacy app.js line numbers are noted per function.
  */
 
+import { t } from "../../i18n";
 import type { Locale } from "../../i18n/messages";
 import { api, errorMessage } from "../../lib/api";
 import { STORAGE_KEYS, writeStorage } from "../../lib/storage";
@@ -63,23 +64,74 @@ export function logout(): void {
 	setUi({ logoutConfirm: { pending: false } });
 }
 
+/**
+ * Whether an Account or sidebar sign-out has anything it can remove.
+ *
+ * An environment key is read-only, and a page with neither a stored credential
+ * nor an account session has nothing this host can remove.
+ */
+export function canLogout(login: LoginReport | null): boolean {
+	if (!login) return false;
+	const session = login.session?.state ?? "missing";
+	if (login.source === "environment" && session === "missing") return false;
+	return login.configured || session !== "missing";
+}
+
+interface StepLogoutResponse {
+	readonly removed: boolean;
+	readonly accountSessionRemoved: boolean;
+	readonly remainingSource: "environment" | null;
+	/** A custom models.json model still runs, so the page stays in the app. */
+	readonly customModels: boolean;
+	readonly login: LoginReport;
+}
+
 /** Cancel the log-out dialog; ignored while the request is in flight. */
 export function closeLogoutConfirm(): void {
 	if (!getState().ui.logoutConfirm?.pending) setUi({ logoutConfirm: null });
 }
 
 /**
- * Log out, close the live stream and cover the page with the logged-out
- * overlay (legacy `logout`, 3233-3243). A failure keeps the dialog open, so
- * the user can retry or cancel.
+ * Sign out of Step, not just this page.
+ *
+ * The Host removes the stored credential, the legacy copies and
+ * `step-login.json`, and stops running turns first (a session keeps its model
+ * runtime in memory). Reloading then boots the page without a Step credential:
+ * with no custom model left, Desktop opens its sign-in gate and plain Web opens
+ * it too for this explicit sign-out; with one, the app stays open on it. The
+ * launch cookie survives, so no new terminal link is needed. A
+ * failure keeps the dialog open, so the user can retry or cancel.
  */
 export async function confirmLogout(): Promise<void> {
 	if (getState().ui.logoutConfirm?.pending) return;
 	setUi({ logoutConfirm: { pending: true } });
 	try {
-		await api("/auth/logout", { method: "POST", body: "{}" });
+		const result = await api<StepLogoutResponse>("/api/v1/logout", { method: "POST", body: "{}" });
 		closeStream();
-		setUi({ logoutConfirm: null, loggedOut: true, settingsPage: null, settingsEditor: null, settingsDialog: null });
+		setState({ login: result.login, account: null });
+		setUi({ logoutConfirm: null, settingsPage: null, settingsEditor: null, settingsDialog: null });
+		// Plain Web has no startup gate on a first visit; after an explicit Step
+		// sign-out it should ask for a credential instead of opening sessions that
+		// cannot call a model. Desktop gates anyway. Custom models (bring your own
+		// key) need no Step account, so with one the page stays in the app.
+		const keepsCustomModels = !result.login.configured && result.customModels;
+		if (!result.login.configured && !result.customModels && typeof sessionStorage !== "undefined") {
+			sessionStorage.setItem("stepcode:signInRequired", "1");
+		}
+		// A partial sign-out must not look complete after the reload. Carry the
+		// notice through it; bootstrap shows it once.
+		if (typeof sessionStorage !== "undefined") {
+			const notice = [
+				result.accountSessionRemoved ? undefined : t("logoutWarningAccountSession"),
+				result.remainingSource ? t("logoutWarningEnvironment") : undefined,
+				keepsCustomModels ? t("logoutContinueCustomModels") : undefined,
+			]
+				.filter(Boolean)
+				.join(" ");
+			if (notice) sessionStorage.setItem("stepcode:logoutNotice", notice);
+		}
+		// Tests and non-browser callers have no location; they inspect the store.
+		if (typeof location !== "undefined" && typeof location.reload === "function") location.reload();
 	} catch (error) {
 		setUi({ logoutConfirm: { pending: false } });
 		showError(errorMessage(error));
