@@ -221,8 +221,13 @@ async function serveStatic(_request: IncomingMessage, response: ServerResponse, 
 		if (!info.isFile()) return error(response, 404, "Not found");
 		const contentType = STATIC_CONTENT_TYPES[extname(target).toLowerCase()] ?? "application/octet-stream";
 		// Vite content-hashes everything under /assets/, so those names never change
-		// meaning; index.html must be revalidated to pick up a new build.
-		const cacheControl = relativePath.startsWith("assets/") ? "public, max-age=31536000, immutable" : "no-cache";
+		// meaning; the document itself is never stored, so a rebuild cannot leave a
+		// tab pointing at an asset hash that no longer exists on disk.
+		const cacheControl = relativePath.startsWith("assets/")
+			? "public, max-age=31536000, immutable"
+			: relativePath.endsWith("index.html")
+				? "no-store"
+				: "no-cache";
 		response.writeHead(200, { "content-type": contentType, "cache-control": cacheControl });
 		createReadStream(target).pipe(response);
 	} catch {
