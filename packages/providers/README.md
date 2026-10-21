@@ -781,6 +781,8 @@ Every `AssistantMessage` includes a `stopReason` field that indicates how the ge
 
 ## Error Handling
 
+Anthropic SSE transport EOF before `message_stop`, including an unparseable trailing event, is classified as `transient` using the structured `stream_incomplete` error code. Callers can reuse their bounded retry policy. A delimited invalid JSON event is not automatically classified as a dropped connection; cancellation remains `aborted`. Parse failures omit raw SSE payloads to avoid exposing response content in durable diagnostics.
+
 Request failures never throw out of the stream functions: when a request ends with an error (including aborts and tool call validation errors), the streaming API emits an error event and the final message carries the details:
 
 ```typescript

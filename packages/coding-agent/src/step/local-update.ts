@@ -415,7 +415,7 @@ export function resolveStepUpdateInstallerSpec(platform: NodeJS.Platform = proce
 	};
 }
 
-async function installLatestStepRelease(input: StepUpdateInstallInput): Promise<StepUpdateInstallResult> {
+export async function installLatestStepRelease(input: StepUpdateInstallInput): Promise<StepUpdateInstallResult> {
 	const tempRoot = await mkdtemp(path.join(os.tmpdir(), "stepcode-update-"));
 	const installer = resolveStepUpdateInstallerSpec();
 	const scriptPath = path.join(tempRoot, installer.scriptName);
@@ -427,14 +427,14 @@ async function installLatestStepRelease(input: StepUpdateInstallInput): Promise<
 		if (!response.ok)
 			return { ok: false, message: `failed to download ${installer.scriptName} (${response.status})` };
 		await writeFile(scriptPath, await response.text(), { encoding: "utf8", mode: 0o755 });
-		const code = await runCommand(installer.command, installer.buildArgs(scriptPath, input.installDir), {
+		const { code, output } = await runCommand(installer.command, installer.buildArgs(scriptPath, input.installDir), {
 			...process.env,
 			STEP_RELEASE_BASE_URL: input.releaseBaseUrl,
 			STEP_VERSION: "latest",
 			STEP_INSTALL_DIR: input.installDir,
 			...(input.agentDir ? { STEP_CODING_AGENT_DIR: input.agentDir } : {}),
 		});
-		if (code !== 0) return { ok: false, message: `${installer.scriptName} exited with code ${code}` };
+		if (code !== 0) return { ok: false, message: formatInstallerFailure(installer.scriptName, code, output) };
 		return {
 			ok: true,
 			message: `Updated Step in ${formatHomeRelativePath(input.installDir)}; restarting.`,
@@ -626,11 +626,48 @@ async function replaceInstallation(
 	}
 }
 
-function runCommand(command: string, args: string[], env: NodeJS.ProcessEnv): Promise<number> {
+const INSTALLER_OUTPUT_TAIL_LINES = 20;
+
+/**
+ * Build the failure message for a non-zero installer exit, appending the tail
+ * of the installer's captured output so the actual error is visible to the
+ * user instead of a bare exit code.
+ */
+export function formatInstallerFailure(scriptName: string, code: number, output: string): string {
+	const base = `${scriptName} exited with code ${code}`;
+	const trimmed = output.trim();
+	if (!trimmed) return base;
+	const lines = trimmed.split(/\r?\n/u);
+	const omitted = Math.max(0, lines.length - INSTALLER_OUTPUT_TAIL_LINES);
+	const tail = lines.slice(-INSTALLER_OUTPUT_TAIL_LINES).join("\n");
+	const header =
+		omitted > 0
+			? `installer output (last ${INSTALLER_OUTPUT_TAIL_LINES} of ${lines.length} lines):`
+			: "installer output:";
+	return `${base}\n${header}\n${tail}`;
+}
+
+function runCommand(
+	command: string,
+	args: string[],
+	env: NodeJS.ProcessEnv,
+): Promise<{ code: number; output: string }> {
 	return new Promise((resolve, reject) => {
-		const child = spawn(command, args, { env, stdio: "inherit" });
+		// Capture instead of inherit: the TUI renders full-screen, so inherited
+		// child output is overwritten before the user can read it. The captured
+		// output is surfaced in the failure message instead.
+		const child = spawn(command, args, { env, stdio: ["ignore", "pipe", "pipe"] });
+		const chunks: Buffer[] = [];
+		child.stdout?.on("data", (chunk: Buffer) => {
+			chunks.push(chunk);
+		});
+		child.stderr?.on("data", (chunk: Buffer) => {
+			chunks.push(chunk);
+		});
 		child.once("error", reject);
-		child.once("exit", (code) => resolve(code ?? 1));
+		child.once("exit", (code) => {
+			resolve({ code: code ?? 1, output: Buffer.concat(chunks).toString("utf8") });
+		});
 	});
 }
 
