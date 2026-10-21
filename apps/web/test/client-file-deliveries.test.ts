@@ -136,3 +136,20 @@ test("delivery triggers toggle their selected preview without dropping tabs or c
 	assert.equal(activeRightPanel(getState()), "files");
 	assert.equal(getState().preview.tabs[getState().preview.active].cwd, "/another-workspace");
 });
+
+test("artifact recognition keeps one cached result per turn, even past dozens of turns", () => {
+	const items: TimelineItem[] = [];
+	for (let turn = 0; turn < 40; turn++) {
+		items.push(
+			{ kind: "message", itemId: `u${turn}`, entryId: `u${turn}`, role: "user", content: "Write it." },
+			{ kind: "message", itemId: `a${turn}`, entryId: `a${turn}`, role: "assistant", content: `See [report](out/report-${turn}.md).` },
+		);
+	}
+	const footers = collectTurnFooters(items, "idle", false);
+	assert.equal(footers.length, 40);
+	const first = footers.map((footer) => turnArtifacts(items, footer, "/work"));
+	const again = footers.map((footer) => turnArtifacts(items, footer, "/work"));
+	assert.deepEqual(first.map((artifacts) => artifacts.map((artifact) => artifact.path)), footers.map((_footer, turn) => [`out/report-${turn}.md`]));
+	// The same arrays come back: no turn was evicted and re-parsed.
+	for (const [index, artifacts] of again.entries()) assert.equal(artifacts, first[index]);
+});

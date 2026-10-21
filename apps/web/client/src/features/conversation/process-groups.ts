@@ -82,6 +82,29 @@ export function groupProcessRows(
 	return result;
 }
 
+/**
+ * Keep the previous row and group objects whose content did not change, so memoized rows skip
+ * re-rendering while a turn streams: grouping runs on every update and otherwise hands each
+ * historical group a new object.
+ */
+export function reuseUnchangedRows(
+	previous: readonly (IndexedTimelineRow | ProcessGroup)[],
+	next: (IndexedTimelineRow | ProcessGroup)[],
+): (IndexedTimelineRow | ProcessGroup)[] {
+	const byKey = new Map(previous.map((row) => [row.key, row]));
+	return next.map((row) => {
+		const before = byKey.get(row.key);
+		if (!before || before.index !== row.index || before.lastIndex !== row.lastIndex) return row;
+		if (!("kind" in row)) return !("kind" in before) && before.item === row.item ? before : row;
+		if (!("kind" in before) || before.running !== row.running || before.rows.length !== row.rows.length) return row;
+		return before.rows.every(
+			(member, index) => member.item === row.rows[index].item && member.key === row.rows[index].key,
+		)
+			? before
+			: row;
+	});
+}
+
 /** DFSC Simple uses the current tool subject, or the latest paragraph of live thinking. */
 export function processGroupSummary(
 	group: ProcessGroup,

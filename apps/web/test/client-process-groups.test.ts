@@ -4,6 +4,7 @@ import {
 	groupProcessRows,
 	type ProcessGroup,
 	processGroupSummary,
+	reuseUnchangedRows,
 } from "../client/src/features/conversation/process-groups.ts";
 import { collectTurnFooters } from "../client/src/features/conversation/turn-footers.ts";
 import { translate, type TranslateFn } from "../client/src/i18n/index.ts";
@@ -138,4 +139,16 @@ test("unknown tool names are counted without using text to infer success or cate
 	const group = onlyGroup([{ ...tool("custom", "__proto__"), outputSummary: "FAILED" }]);
 	assert.equal(processGroupSummary(group, en).label, "Completed: 1 tool calls");
 	assert.equal(group.running, false);
+});
+
+test("regrouping a streaming turn keeps the objects of unchanged history rows and groups", () => {
+	const history: TimelineItem[] = [user, thought("t1"), tool("r1"), prose, { ...user, itemId: "u2" }];
+	const before = groupProcessRows([...history, thought("t2", true)], true);
+	const after = reuseUnchangedRows(before, groupProcessRows([...history, { ...thought("t2", true), content: "More." }], true));
+	// History keeps its identity, so memoized rows skip rendering; the live row is new.
+	for (let index = 0; index < after.length - 1; index++) assert.equal(after[index], before[index]);
+	assert.notEqual(after.at(-1), before.at(-1));
+	// A group whose member changed is replaced.
+	const finished = reuseUnchangedRows(before, groupProcessRows([user, thought("t1"), tool("r1", "read", "failed"), prose], true));
+	assert.notEqual(finished[1], before[1]);
 });

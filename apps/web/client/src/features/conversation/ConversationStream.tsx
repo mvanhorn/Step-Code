@@ -5,7 +5,12 @@ import { setUi, useAppStore } from "../../state/store";
 import type { SteeringMessage, TimelineItem } from "../../state/types";
 import { MessageActions, MessageItem } from "./MessageItem";
 import { ProcessGroup } from "./ProcessGroup";
-import { groupProcessRows } from "./process-groups";
+import {
+	groupProcessRows,
+	type IndexedTimelineRow,
+	type ProcessGroup as ProcessGroupRow,
+	reuseUnchangedRows,
+} from "./process-groups";
 import { RetryRow } from "./RetryRow";
 import { ThinkingDisclosure } from "./ThinkingDisclosure";
 import { ThinkingIndicator } from "./ThinkingIndicator";
@@ -75,6 +80,7 @@ export function ConversationStream() {
 	const streamRef = useRef<HTMLDivElement>(null);
 	const innerRef = useRef<HTMLDivElement>(null);
 	const stick = useRef(true);
+	const previousRows = useRef<readonly (IndexedTimelineRow | ProcessGroupRow)[]>([]);
 	const turns = useMemo(() => collectTurnChanges(items, cwd), [items, cwd]);
 	const footerAfter = useMemo(
 		() => new Map(collectTurnFooters(items, status, pendingTurn !== null).map((turn) => [turn.lastIndex, turn])),
@@ -130,7 +136,16 @@ export function ConversationStream() {
 			.filter((turn) => !turn.latest || pendingTurn !== null || !busy)
 			.map((turn) => [turn.lastIndex, turn] as const),
 	);
-	const presentation = groupProcessRows(items, running, new Set([...cardAfter.keys(), ...footerAfter.keys()]));
+	const breaks = [...cardAfter.keys(), ...footerAfter.keys()].sort((a, b) => a - b).join(",");
+	// `breaks` is the value-stable form of the two maps, so the grouping reruns only when they really change.
+	const presentation = useMemo(() => {
+		const next = reuseUnchangedRows(
+			previousRows.current,
+			groupProcessRows(items, running, new Set(breaks ? breaks.split(",").map(Number) : [])),
+		);
+		previousRows.current = next;
+		return next;
+	}, [items, running, breaks]);
 	return (
 		<div className="stream" id="stream" ref={streamRef} onScroll={onScroll}>
 			<div className="stream-inner" id="streamInner" ref={innerRef}>

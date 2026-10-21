@@ -11,7 +11,9 @@ export interface TurnArtifact {
 }
 
 // Streaming updates regroup history; unchanged settled turns must not reparse Markdown each frame.
-const artifactCache = new Map<string, readonly TurnArtifact[]>();
+// One entry per turn, so a long conversation does not evict its own turns on every update.
+const artifactCache = new Map<string, { readonly signature: string; readonly artifacts: readonly TurnArtifact[] }>();
+const ARTIFACT_CACHE_TURNS = 512;
 
 /** Recognize references and observed outputs, not a durable or filesystem-verified registry. */
 export function turnArtifacts(
@@ -19,9 +21,9 @@ export function turnArtifacts(
 	footer: TurnFooter,
 	cwd: string,
 ): readonly TurnArtifact[] {
-	const start = items.findIndex(
-		(item) => item.kind === "message" && item.role === "user" && (item.entryId ?? item.itemId) === footer.turnId,
-	);
+	// The turn's user message sits just before its rows; scanning back keeps every turn O(its length).
+	let start = footer.lastIndex;
+	while (start > 0 && !opensTurn(items[start], footer.turnId)) start--;
 	const outputs = new Map<string, string>();
 	const windows = /^[a-z]:[\\/]/i.test(cwd);
 	const keyOf = (path: string) => (windows ? path.toLowerCase() : path);
@@ -42,9 +44,10 @@ export function turnArtifacts(
 		.filter((message) => !message.error)
 		.map((message) => message.content)
 		.join("\n\n");
-	const cacheKey = JSON.stringify([cwd, text, [...outputs.values()]]);
+	const cacheKey = `${cwd}\u0000${footer.turnId}`;
+	const signature = `${text}\u0000${[...outputs.values()].join("\u0000")}`;
 	const cached = artifactCache.get(cacheKey);
-	if (cached) return cached;
+	if (cached?.signature === signature) return cached.artifacts;
 	for (const reference of markdownFileReferences(text)) {
 		let path = workspaceFileReference(cwd, reference.path);
 		if (!path) continue;
@@ -62,10 +65,15 @@ export function turnArtifacts(
 	}
 	for (const path of outputs.values()) add(path, basename(path));
 	const result = [...found.values()];
-	if (artifactCache.size >= 32) {
+	artifactCache.delete(cacheKey);
+	if (artifactCache.size >= ARTIFACT_CACHE_TURNS) {
 		const oldest = artifactCache.keys().next().value;
 		if (oldest !== undefined) artifactCache.delete(oldest);
 	}
-	artifactCache.set(cacheKey, result);
+	artifactCache.set(cacheKey, { signature, artifacts: result });
 	return result;
+}
+
+function opensTurn(item: TimelineItem, turnId: string): boolean {
+	return item.kind === "message" && item.role === "user" && (item.entryId ?? item.itemId) === turnId;
 }
