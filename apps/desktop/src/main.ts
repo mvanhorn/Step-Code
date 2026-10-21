@@ -86,7 +86,10 @@ async function main(): Promise<void> {
 	};
 
 	const startServer = async (): Promise<void> => {
-		const entry = resolveWebServerEntry(process.env);
+		const entry = resolveWebServerEntry(
+			process.env,
+			app.isPackaged ? join(process.resourcesPath, "server") : undefined,
+		);
 		const publicDir = process.env.STEPCODE_WEB_PUBLIC_DIR?.trim() || join(dirname(entry), "public");
 		if (!existsSync(join(publicDir, "index.html"))) {
 			throw new Error(

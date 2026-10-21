@@ -83,6 +83,37 @@ on the macOS icon grid. `pnpm --filter @step-harness/desktop icons` (macOS; uses
 regenerates the committed `icon.png` (window / Dock icon at run time), `icon.icns` (macOS bundle) and `icon.ico`
 (Windows executable and installer). `electron .` sets the Dock icon from `icon.png`; a packaged app uses the bundle's.
 
+## Installers
+
+Run `pnpm build` at the repo root first, then from the repo root:
+
+| Command | Output in `apps/desktop/release/<version>/` |
+| --- | --- |
+| `pnpm --filter @step-harness/desktop package` | All of the below |
+| `pnpm --filter @step-harness/desktop package:mac` | `StepCode-<version>-mac-arm64.dmg` (Apple Silicon), `StepCode-<version>-mac-x64.dmg` (Intel) |
+| `pnpm --filter @step-harness/desktop package:win` | `StepCode-<version>-win-x64.exe` (NSIS, per-user, install folder selectable) |
+
+`<version>` is the product version shown by `step --version` and the web host, not the workspace package version:
+`STEPCODE_BUILD_VERSION` when set (a release tag such as `v0.2.0` is accepted), otherwise the root `package.json`
+version. It is also what the app reports (`app.getVersion()`, `window.stepcodeDesktop.version`).
+
+`scripts/package.mjs` stages two trees under `release/stage/` and hands them to electron-builder (appId
+`com.stepfun.stepcode`):
+
+- `app` → `resources/app.asar`: only `dist/main.js`, `dist/preload.cjs` and the icon.
+- `server` → `resources/server` (not in the asar: the server runs from its own directory and spawns node-pty and
+  subagent processes from real files): `@step-harness/web` plus its production dependency closure, copied from the
+  installed pnpm tree into a flat `node_modules`, so the exact lockfile versions ship. The packaged app resolves
+  `@step-harness/web/server` from there.
+
+Native modules are N-API prebuilds for every platform (node-pty, `@step-harness/pi-tui`), so one server tree serves
+every target and nothing is rebuilt. Optional per-platform packages that are not installed on the build machine are
+left out (e.g. `@mariozechner/clipboard` for Windows; its callers fall back without it).
+
+The builds are **unsigned** (macOS gets an ad-hoc signature so Apple Silicon starts it; no notarization). On macOS
+the first launch needs right-click → Open (or `xattr -dr com.apple.quarantine /Applications/StepCode.app`); on
+Windows SmartScreen asks for "More info → Run anyway".
+
 ## Not included yet
 
-Packaging (installers, code signing, notarization) and auto-update. `electron .` runs the app from the workspace only.
+Code signing, notarization and auto-update.

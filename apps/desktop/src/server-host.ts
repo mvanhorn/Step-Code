@@ -16,7 +16,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { createWriteStream, mkdirSync, type WriteStream } from "node:fs";
 import { createRequire } from "node:module";
 import { createServer } from "node:net";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 const LOOPBACK = "127.0.0.1";
 const DEFAULT_READY_TIMEOUT_MS = 30_000;
@@ -68,11 +68,17 @@ export interface WebServerExit {
  * Locate apps/web's compiled server through the workspace dependency, so the
  * desktop runs whatever `@step-harness/web` build is installed beside it.
  * `STEPCODE_DESKTOP_SERVER_ENTRY` points at another build (e.g. a temp outDir).
+ *
+ * A packaged app passes `bundledServerDir` (`<resources>/server`): the
+ * installer ships the server and its production dependencies there, outside
+ * the app archive, because the server runs from its own directory and spawns
+ * helper processes from real files.
  */
-export function resolveWebServerEntry(env: NodeJS.ProcessEnv): string {
+export function resolveWebServerEntry(env: NodeJS.ProcessEnv, bundledServerDir?: string): string {
 	const override = env.STEPCODE_DESKTOP_SERVER_ENTRY?.trim();
 	if (override) return resolve(override);
-	return createRequire(import.meta.url).resolve("@step-harness/web/server");
+	const base = bundledServerDir === undefined ? import.meta.url : join(bundledServerDir, "package.json");
+	return createRequire(base).resolve("@step-harness/web/server");
 }
 
 /**

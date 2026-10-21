@@ -23,6 +23,7 @@ This package only changes when the change needs the OS, the window or the proces
 | Bundler | esbuild 0.28 (`scripts/build.mjs`) | `src/main.ts` -> `dist/main.js` (ESM); `src/preload.ts` -> `dist/preload.cjs` (CJS: sandboxed preloads cannot load ES modules) |
 | Server | `@step-harness/web` (workspace dependency) | Spawned with `ELECTRON_RUN_AS_NODE=1` |
 | Lint / format | Biome (root `biome.json`) | Tabs, indent width 3, line width 120 |
+| Installers | electron-builder 26.15 (dev dependency, `scripts/package.mjs`) | dmg (mac arm64 / x64), NSIS (win x64); unsigned |
 
 No other runtime dependencies. Adding one needs the user's approval; pin it to an exact version and install with
 `pnpm install --ignore-scripts`. Do not add a renderer framework, a second web server or native Node modules.
@@ -36,6 +37,7 @@ apps/desktop/
   package.json           main: dist/main.js
   tsconfig.json
   scripts/build.mjs      esbuild bundle; --ensure-web builds @step-harness/web if its output is missing
+  scripts/package.mjs    stage the app and the server's dependency closure, run electron-builder (dmg / NSIS)
   scripts/icons.mjs      regenerate resources/icon.{png,icns,ico} from resources/icon.svg (macOS)
   resources/             app icons; icon.svg is the source
   src/
@@ -50,6 +52,7 @@ apps/desktop/
     shell-environment.ts read the login-shell environment for GUI launches
     state.ts             persisted window bounds and last picked folder (<userData>/desktop-state.json)
   dist/                  build output; never edit
+  release/               installers and their staging tree (git-ignored)
 ```
 
 ## Security rules (do not relax)
@@ -108,6 +111,7 @@ Run from the repo root.
 | `pnpm --filter @step-harness/desktop dev` | Bundle and launch; builds the web app only when its output is missing |
 | `pnpm --filter @step-harness/desktop build` | esbuild bundle only |
 | `pnpm --filter @step-harness/desktop typecheck` | Type check (also part of `pnpm run check`) |
+| `pnpm --filter @step-harness/desktop package[:mac\|:win]` | Unsigned installers in `release/<version>/` (run `pnpm build` first; see README) |
 | `STEPCODE_DESKTOP_SMOKE=1 pnpm --filter @step-harness/desktop dev` | Load hidden, print `STEPCODE_DESKTOP_SMOKE {json}`, exit 0/1 |
 | `pnpm run check` | Required before handing back any code change |
 
@@ -129,5 +133,6 @@ changes).
 
 ## Not in scope yet
 
-Packaging (installers, signing, notarization), auto-update and a dedicated bundle id. Ask before starting any of
-them; they need decisions from the user (identity, update channel). App icons exist (`resources/`).
+Code signing, notarization and auto-update. Ask before starting any of them; they need decisions from the user
+(certificates, update channel). Installers (`scripts/package.mjs`), icons and the bundle id `com.stepfun.stepcode`
+exist; changing the bundle id makes the installed app a different application.

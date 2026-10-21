@@ -12,13 +12,17 @@
 		"start": "pnpm --filter @step-harness/web build && node scripts/build.mjs && electron .",
 		"dev": "node scripts/build.mjs --ensure-web && electron .",
 		"icons": "node scripts/icons.mjs",
-		"clean": "shx rm -rf dist"
+		"package": "node scripts/build.mjs && node scripts/package.mjs",
+		"package:mac": "node scripts/build.mjs && node scripts/package.mjs --mac",
+		"package:win": "node scripts/build.mjs && node scripts/package.mjs --win",
+		"clean": "shx rm -rf dist release"
 	},
 	"dependencies": {
 		"@step-harness/web": "workspace:*"
 	},
 	"devDependencies": {
 		"electron": "44.7.0",
+		"electron-builder": "26.15.3",
 		"esbuild": "0.28.1"
 	}
 }

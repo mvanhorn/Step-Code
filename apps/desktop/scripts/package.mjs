@@ -1,0 +1,272 @@
+#!/usr/bin/env node
+// Build StepCode Desktop installers with electron-builder.
+//
+//   node scripts/package.mjs [--mac] [--win]      (default: both)
+//
+//   mac: dmg for arm64 (Apple Silicon) and x64 (Intel)
+//   win: NSIS installer for x64
+//
+// Run `pnpm build` at the repo root first: this script packages existing build
+// output and fails when any of it is missing.
+//
+// Layout of the staging directory (release/stage) and of the installed app:
+//
+//   stage/app      -> <app>/resources/app.asar    desktop main + preload, icon; no dependencies
+//   stage/server   -> <app>/resources/server      @step-harness/web and its production dependency
+//                                                  closure in a flat node_modules
+//
+// The server stays outside the asar archive: it runs with its own directory as
+// cwd and spawns helper processes (node-pty, subagents) from real files. The
+// closure is copied from the installed pnpm tree, so the packaged app runs the
+// exact versions pnpm-lock.yaml pins. Native modules ship N-API prebuilds for
+// every platform (node-pty, @step-harness/pi-tui), so one server tree serves
+// all targets; nothing is rebuilt.
+//
+// Builds are unsigned (internal testing): macOS gets an ad-hoc signature so
+// Apple Silicon can run it; Windows executables are not signed.
+
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
+import builder from "electron-builder";
+
+const { Arch, build, Platform } = builder;
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const repoRoot = join(root, "..", "..");
+const webRoot = join(repoRoot, "apps", "web");
+const releaseDir = join(root, "release");
+const stageDir = join(releaseDir, "stage");
+const appStage = join(stageDir, "app");
+const serverStage = join(stageDir, "server");
+const resources = join(root, "resources");
+
+const desktopPackage = readJson(join(root, "package.json"));
+const electronVersion = readJson(join(root, "node_modules", "electron", "package.json")).version;
+const version = productVersion();
+
+/**
+ * The installer carries the product version users see from `step --version`
+ * and the web host, not the workspace package version (`0.84.4`, which tracks
+ * the upstream Pi packages). Same sources as `packages/coding-agent/src/step/
+ * version.ts`: a release tag in STEPCODE_BUILD_VERSION, else the root
+ * package.json version (which matches its STEPCODE_FALLBACK_VERSION).
+ */
+function productVersion() {
+	const tag = process.env.STEPCODE_BUILD_VERSION?.trim()
+		.replace(/^refs\/tags\//iu, "")
+		.replace(/^(?:step|pi)-v/iu, "")
+		.replace(/^v(?=\d)/iu, "");
+	const value = tag || readJson(join(repoRoot, "package.json")).version;
+	if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(value)) {
+		throw new Error(`Not a semver product version: ${JSON.stringify(value)}`);
+	}
+	return value;
+}
+
+const args = new Set(process.argv.slice(2));
+const unknown = [...args].filter((arg) => arg !== "--mac" && arg !== "--win");
+if (unknown.length > 0) throw new Error(`Unknown arguments: ${unknown.join(" ")}`);
+const wantMac = args.has("--mac") || args.size === 0;
+const wantWin = args.has("--win") || args.size === 0;
+
+function readJson(path) {
+	return JSON.parse(readFileSync(path, "utf8"));
+}
+
+function requireFiles(paths) {
+	const missing = paths.filter((path) => !existsSync(path));
+	if (missing.length > 0) {
+		throw new Error(
+			`Build output missing:\n  ${missing.map((path) => relative(repoRoot, path)).join("\n  ")}\nRun \`pnpm build\` at the repo root.`,
+		);
+	}
+}
+
+/** The installed directory of dependency `name` as Node would resolve it from `fromDir`. */
+function installedDir(name, fromDir) {
+	for (let dir = fromDir; ; dir = dirname(dir)) {
+		const candidate = join(dir, "node_modules", name, "package.json");
+		if (existsSync(candidate)) return realpathSync(dirname(candidate));
+		if (dirname(dir) === dir) return undefined;
+	}
+}
+
+/** True for workspace packages (sources in this repo, not in the pnpm store). */
+function isWorkspacePackage(dir) {
+	return !relative(repoRoot, dir).startsWith("..") && !dir.includes(`${join("node_modules", ".pnpm")}`);
+}
+
+/**
+ * What a workspace package publishes: package.json, README/LICENSE, and the
+ * top-level directories its `files` globs name (dist when it has no `files`).
+ */
+function copyWorkspacePackage(source, target, manifest) {
+	mkdirSync(target, { recursive: true });
+	const entries = new Set(["package.json"]);
+	for (const name of readdirSync(source)) if (/^(README|LICENSE)/i.test(name)) entries.add(name);
+	const patterns = Array.isArray(manifest.files) ? manifest.files : ["dist"];
+	for (const pattern of patterns) {
+		const fixed = pattern.split("/").filter((segment, index, all) => !all.slice(0, index + 1).some((s) => s.includes("*")));
+		if (fixed.length > 0) entries.add(fixed.join("/"));
+	}
+	for (const entry of entries) {
+		const from = join(source, entry);
+		// Nested node_modules (e.g. examples' own installs) are links into this checkout, not published files.
+		if (existsSync(from)) {
+			cpSync(from, join(target, entry), { recursive: true, filter: (path) => !/[\\/]node_modules$/.test(path) });
+		}
+	}
+}
+
+/**
+ * Copy the production dependency closure of `rootDir` into `stage/node_modules`,
+ * npm style: each package at the top level unless another version already
+ * holds that name there, then nested under the package that needs it.
+ * Optional dependencies that are not installed (other platforms) are skipped.
+ */
+function stageClosure(rootDir, stage) {
+	const placed = new Map(); // stage path -> source realpath
+	let copied = 0;
+
+	const resolvesTo = (name, fromStageDir) => {
+		for (let dir = fromStageDir; relative(stage, dir).startsWith("..") === false; dir = dirname(dir)) {
+			const candidate = join(dir, "node_modules", name);
+			if (placed.has(candidate)) return placed.get(candidate);
+			if (dir === stage) break;
+		}
+		return undefined;
+	};
+
+	const visit = (source, stageDir) => {
+		const manifest = readJson(join(source, "package.json"));
+		const dependencies = { ...manifest.dependencies, ...manifest.optionalDependencies };
+		for (const name of Object.keys(dependencies)) {
+			const dependency = installedDir(name, source);
+			if (dependency === undefined) {
+				if (manifest.optionalDependencies?.[name] !== undefined) continue;
+				throw new Error(`${manifest.name} depends on ${name}, which is not installed`);
+			}
+			const current = resolvesTo(name, stageDir);
+			if (current === dependency) continue;
+			const top = join(stage, "node_modules", name);
+			const target = current === undefined && !placed.has(top) ? top : join(stageDir, "node_modules", name);
+			placed.set(target, dependency);
+			const dependencyManifest = readJson(join(dependency, "package.json"));
+			if (isWorkspacePackage(dependency)) copyWorkspacePackage(dependency, target, dependencyManifest);
+			else cpSync(dependency, target, { recursive: true });
+			copied += 1;
+			visit(dependency, target);
+		}
+	};
+
+	const rootManifest = readJson(join(rootDir, "package.json"));
+	const rootTarget = join(stage, "node_modules", rootManifest.name);
+	placed.set(rootTarget, rootDir);
+	copyWorkspacePackage(rootDir, rootTarget, rootManifest);
+	visit(rootDir, rootTarget);
+	return copied + 1;
+}
+
+function stage() {
+	requireFiles([
+		join(root, "dist", "main.js"),
+		join(root, "dist", "preload.cjs"),
+		join(resources, "icon.png"),
+		join(resources, "icon.icns"),
+		join(resources, "icon.ico"),
+		join(webRoot, "dist", "server.js"),
+		join(webRoot, "dist", "public", "index.html"),
+		join(repoRoot, "packages", "coding-agent", "dist", "bundle", "step.js"),
+	]);
+	rmSync(stageDir, { recursive: true, force: true });
+
+	mkdirSync(appStage, { recursive: true });
+	cpSync(join(root, "dist"), join(appStage, "dist"), {
+		recursive: true,
+		filter: (source) => !source.endsWith(".map"),
+	});
+	cpSync(join(resources, "icon.png"), join(appStage, "resources", "icon.png"));
+	writeFileSync(
+		join(appStage, "package.json"),
+		`${JSON.stringify(
+			{
+				name: "stepcode-desktop",
+				productName: "StepCode",
+				description: desktopPackage.description,
+				version,
+				private: true,
+				type: "module",
+				main: "dist/main.js",
+				author: "StepFun",
+			},
+			null,
+			"\t",
+		)}\n`,
+	);
+
+	mkdirSync(serverStage, { recursive: true });
+	writeFileSync(join(serverStage, "package.json"), `${JSON.stringify({ private: true, type: "module" }, null, "\t")}\n`);
+	const count = stageClosure(webRoot, serverStage);
+	console.log(`[package] staged desktop app and server (${count} packages) in ${relative(repoRoot, stageDir)}`);
+}
+
+// A fresh object per build: electron-builder normalizes (mutates) the configuration it is given.
+const config = () => ({
+	appId: "com.stepfun.stepcode",
+	productName: "StepCode",
+	copyright: `Copyright © ${new Date().getFullYear()} StepFun`,
+	electronVersion,
+	directories: { app: appStage, output: join(releaseDir, version), buildResources: resources },
+	artifactName: "${productName}-${version}-${os}-${arch}.${ext}",
+	asar: true,
+	npmRebuild: false,
+	nodeGypRebuild: false,
+	buildDependenciesFromSource: false,
+	// The app archive holds only the shell; the server tree is copied by afterPack.
+	files: ["**/*", "!**/node_modules{,/**}"],
+	// Not extraResources: its copier drops node_modules directories.
+	afterPack: async (context) => {
+		const resourcesDir =
+			context.electronPlatformName === "darwin"
+				? join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`, "Contents", "Resources")
+				: join(context.appOutDir, "resources");
+		const target = join(resourcesDir, "server");
+		rmSync(target, { recursive: true, force: true });
+		cpSync(serverStage, target, { recursive: true, verbatimSymlinks: true });
+	},
+	mac: {
+		icon: join(resources, "icon.icns"),
+		category: "public.app-category.developer-tools",
+		// Ad-hoc signature: required for Apple Silicon to start the app; not a Developer ID.
+		identity: "-",
+		hardenedRuntime: false,
+		notarize: false,
+	},
+	dmg: { title: "StepCode ${version}" },
+	win: { icon: join(resources, "icon.ico"), signAndEditExecutable: true },
+	nsis: {
+		oneClick: false,
+		perMachine: false,
+		allowToChangeInstallationDirectory: true,
+		createDesktopShortcut: true,
+		createStartMenuShortcut: true,
+		shortcutName: "StepCode",
+		installerIcon: join(resources, "icon.ico"),
+		uninstallerIcon: join(resources, "icon.ico"),
+	},
+});
+
+stage();
+const artifacts = [];
+if (wantMac) {
+	artifacts.push(
+		...(await build({ projectDir: appStage, config: config(), targets: Platform.MAC.createTarget(["dmg"], Arch.arm64, Arch.x64), publish: "never" })),
+	);
+}
+if (wantWin) {
+	artifacts.push(
+		...(await build({ projectDir: appStage, config: config(), targets: Platform.WINDOWS.createTarget(["nsis"], Arch.x64), publish: "never" })),
+	);
+}
+console.log(`[package] artifacts:\n  ${artifacts.map((path) => relative(repoRoot, path)).join("\n  ")}`);

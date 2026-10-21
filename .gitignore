@@ -60,3 +60,6 @@ pixel-art/
 /goal-g3.md
 /goal-test.md
 /windows-xp-*.md
+
+# StepCode Desktop installers and their staging tree (apps/desktop/scripts/package.mjs)
+apps/desktop/release/
