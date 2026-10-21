@@ -102,6 +102,16 @@ export function backgroundSubagentStatuses(entries: readonly SessionEntry[]): Re
 	}
 	for (const entry of entries) {
 		const message = entry.message;
+		if (message?.role === "toolResult" && message.toolName === "agent_send") {
+			// One reply/stop reports every lane it addressed (`to.group`, `to.all`): an array of lane details.
+			for (const lane of Array.isArray(message.details) ? message.details : []) {
+				const details = record(lane);
+				const next = status(details?.status);
+				if (typeof details?.agentId === "string" && states.has(details.agentId) && next !== "unknown")
+					states.set(details.agentId, next);
+			}
+			continue;
+		}
 		const details = record(entry.type === "custom_message" ? entry.details : message?.details);
 		if (typeof details?.agentId !== "string" || !states.has(details.agentId)) continue;
 		if (
@@ -112,12 +122,6 @@ export function backgroundSubagentStatuses(entries: readonly SessionEntry[]): Re
 			details.status === NOTIFICATION_STATUS[details.event]
 		) {
 			states.set(details.agentId, NOTIFICATION_STATUS[details.event]);
-		} else if (
-			message?.role === "toolResult" &&
-			message.toolName === "agent_send" &&
-			status(details.status) !== "unknown"
-		) {
-			states.set(details.agentId, status(details.status));
 		}
 	}
 	return states;

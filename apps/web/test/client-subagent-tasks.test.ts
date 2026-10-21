@@ -101,3 +101,22 @@ test("unregistered lane ids and inconsistent notification pairs cannot change st
 	);
 	assert.deepEqual([...backgroundSubagentStatuses(history)], [["lane-1", "running"]]);
 });
+
+test("agent_send results update every addressed lane from their structured details", () => {
+	const history = entries({ agentId: "lane-1", status: "running", results: [] });
+	history.push({
+		id: "send",
+		type: "message",
+		message: {
+			role: "toolResult",
+			toolName: "agent_send",
+			toolCallId: "send-call",
+			content: [{ type: "text", text: "Agent lane-1 stopped" }],
+			details: [
+				{ agentId: "lane-1", status: "aborted", results: [] },
+				{ agentId: "unregistered", status: "completed", results: [] },
+			],
+		},
+	});
+	assert.deepEqual([...backgroundSubagentStatuses(history)], [["lane-1", "aborted"]]);
+});
