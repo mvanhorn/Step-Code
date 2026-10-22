@@ -31,7 +31,7 @@ interface Harness {
 	commands: Map<string, { handler: (args: string, ctx: ExtensionContext) => unknown }>;
 	handlerEvents: () => string[];
 	appended: Array<{ customType: string; data: unknown }>;
-	notifications: Array<{ message: string; type?: string }>;
+	notifications: Array<{ message: string; type?: string; options?: { transient?: boolean } }>;
 	userMessages: Array<Parameters<ExtensionAPI["sendUserMessage"]>>;
 	statuses: Map<string, string | undefined>;
 	customCalls: () => number;
@@ -138,8 +138,8 @@ function createHarness(
 			isIdle: () => true,
 			hasPendingMessages: () => false,
 			ui: {
-				notify: (message: string, type?: string) => {
-					notifications.push({ message, type });
+				notify: (message: string, type?: string, notifyOptions?: { transient?: boolean }) => {
+					notifications.push({ message, type, ...(notifyOptions ? { options: notifyOptions } : {}) });
 				},
 				select: options.select ?? (async () => undefined),
 				editor: options.editor ?? (async () => undefined),
@@ -463,6 +463,27 @@ test("the status chip does not require a theme from the host", async () => {
 
 	await expect(harness.commands.get("plan")!.handler("", context)).resolves.toBeUndefined();
 	expect(harness.statuses.get("plan-mode")).toBe("Planning (user)");
+});
+
+test("plan mode announces itself as transient state, not a transcript answer", async () => {
+	// The Web/Desktop host draws plan mode from session state; the notice only
+	// decorates that. A host that renders notices as transcript rows must not keep
+	// "Plan mode enabled…" as if the user had sent it.
+	const harness = createHarness({ cwd: makeWorkspace() });
+	createStepPlanExtension()(harness.api);
+	const context = harness.ctx();
+
+	await harness.commands.get("plan")!.handler("", context);
+	expect(harness.notifications.at(-1)).toMatchObject({
+		message: expect.stringContaining("Plan mode enabled."),
+		type: "info",
+		options: { transient: true },
+	});
+	await harness.commands.get("plan")!.handler("", context);
+	expect(harness.notifications.at(-1)).toMatchObject({
+		message: "Plan mode disabled.",
+		options: { transient: true },
+	});
 });
 
 test("session_start restores the chip: user for --plan, unknown for persisted state without planSource", async () => {

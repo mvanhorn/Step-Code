@@ -279,6 +279,52 @@ describe("Step Pi slash command adapters", () => {
 		expect(complete).not.toHaveBeenCalled();
 	});
 
+	test("/btw hands the answer to a host surface instead of the transcript", async () => {
+		const { commands } = registerCommands();
+		const notify = vi.fn();
+		const sideAnswer = vi.fn();
+		const complete = vi.fn().mockResolvedValue({
+			role: "assistant" as const,
+			content: [{ type: "text" as const, text: "because the token expired" }],
+			timestamp: 1,
+			api: "anthropic-messages",
+			provider: "step",
+			model: "m",
+			usage: {},
+			stopReason: "stop",
+		});
+		await getCommand(commands, "btw").handler("why?", {
+			ui: { notify, sideAnswer },
+			hasUI: true,
+			mode: "rpc",
+			model: { provider: "step", id: "m" },
+			modelRegistry: { complete },
+			getSystemPrompt: () => "",
+			sessionManager: { buildContextEntries: () => [] },
+		} as unknown as ExtensionCommandContext);
+
+		expect(sideAnswer).toHaveBeenCalledWith({
+			question: "why?",
+			text: "because the token expired",
+			model: "step/m",
+		});
+		// A host with its own surface is not also given the text.
+		expect(notify).not.toHaveBeenCalled();
+
+		// Without that capability the answer stays a Markdown notice.
+		const fallbackNotify = vi.fn();
+		await getCommand(commands, "btw").handler("why?", {
+			ui: { notify: fallbackNotify },
+			hasUI: true,
+			mode: "rpc",
+			model: { provider: "step", id: "m" },
+			modelRegistry: { complete },
+			getSystemPrompt: () => "",
+			sessionManager: { buildContextEntries: () => [] },
+		} as unknown as ExtensionCommandContext);
+		expect(fallbackNotify).toHaveBeenLastCalledWith("because the token expired", "info", { markdown: true });
+	});
+
 	test("routes /clear to Pi's session replacement action", async () => {
 		const { commands } = registerCommands();
 		const newSession = vi.fn().mockResolvedValue({ cancelled: false });

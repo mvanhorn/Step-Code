@@ -217,7 +217,11 @@ export function createStepExtension(options: StepExtensionOptions = {}): Extensi
 			options.onPermissionChange?.(state.preset);
 			trackPermissionMode(options.telemetry, state.preset, apply.source === "startup" ? "command" : apply.source);
 			if (apply.persist) persistPermissionState(options.stepSettings, state);
-			ctx.ui.notify(`Permission mode: ${getStepPermissionPreset(state.preset)?.label ?? state.preset}`, "info");
+			// The policy menu already shows the tier; announce it without adding a
+			// transcript row to a conversation nobody typed into.
+			ctx.ui.notify(`Permission mode: ${getStepPermissionPreset(state.preset)?.label ?? state.preset}`, "info", {
+				transient: true,
+			});
 		};
 
 		/**

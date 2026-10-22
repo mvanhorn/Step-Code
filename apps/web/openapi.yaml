@@ -904,6 +904,12 @@ paths:
                     type: array
                     description: Kernel text prompts (`ui.input`) waiting for an answer (in memory, restored after reload)
                     items: { $ref: "#/components/schemas/TextInputRequest" }
+                  sideAnswers:
+                    type: array
+                    description: >-
+                      `/btw` answers of this session, oldest first (in memory for the life of the host process, never a
+                      session entry, never model context).
+                    items: { $ref: "#/components/schemas/SideAnswer" }
                   pendingClarifications:
                     type: array
                     items: { $ref: "#/components/schemas/ClarificationRequest" }
@@ -987,12 +993,14 @@ paths:
         "200":
           description: >-
             SSE snapshot and agent/status/approval/clarification_required/clarification_resolved/selection_required/
-            selection_resolved/text_input_required/text_input_resolved/notice/queue events.
+            selection_resolved/text_input_required/text_input_resolved/notice/side-answer/queue events.
             clarification_required carries clarification and selection_required carries selection; the resolved events
             carry id. text_input_required carries `input` (id, sessionId, title, placeholder) and
-            text_input_resolved carries id. `notice` carries level (info|warning|error), text and optional markdown:
+            text_input_resolved carries id. side-answer carries `answer` (id, question, text, model, unavailable,
+            createdAt) for the rail tab. `notice` carries level (info|warning|error), text and optional markdown:
             it is command output from the kernel's `ui.notify`, shown in the transcript but never persisted and never
-            part of the model's context. A failure the host cannot attribute to a request is sent as `web_error` with
+            part of the model's context. `transient: true` marks an announcement of state the client already renders
+            (plan mode, the permission tier): shown briefly, never added to the conversation. A failure the host cannot attribute to a request is sent as `web_error` with
             a message. queue carries a QueueState (queued, steering).
             Agent envelopes optionally carry thinkingTimings, keyed by original content-block index, with host-observed
             epoch-millisecond startedAt/endedAt fields. Live intervals may omit endedAt; saved intervals are complete.
@@ -1704,6 +1712,13 @@ paths:
         "200": { description: Session snapshot after the answer was applied }
         "400": { description: Missing id or a non-string value }
         "404": { description: Text input no longer pending }
+  /api/v1/sessions/{id}/side-answers/clear:
+    post:
+      description: Forget this session's `/btw` answers (the rail panel's Clear action).
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+      responses:
+        "200": { description: Answers cleared }
   /api/v1/sessions/{id}/clarifications/response:
     post:
       parameters:
@@ -2073,6 +2088,17 @@ components:
         sessionId: { type: string }
         title: { type: string }
         options: { type: array, items: { type: string } }
+    SideAnswer:
+      type: object
+      required: [id, question, text, createdAt]
+      description: One `/btw` answer, shown in a rail tab.
+      properties:
+        id: { type: string }
+        question: { type: string }
+        text: { type: string, description: Markdown answer, or why there is none }
+        model: { type: string }
+        unavailable: { type: boolean, description: Cancelled, or no usable answer }
+        createdAt: { type: integer }
     TextInputRequest:
       type: object
       required: [id, sessionId, title]

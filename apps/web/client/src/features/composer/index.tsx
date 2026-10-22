@@ -32,6 +32,7 @@ import { type FileQuery, fileCompletionText, sameFileQuery } from "./file-comple
 import { GoalStrip } from "./GoalStrip";
 import { ModelMenu } from "./ModelMenu";
 import { PerformanceBar } from "./PerformanceBar";
+import { PlanStrip } from "./PlanStrip";
 import { MODES, PlusMenu } from "./PlusMenu";
 import { PolicyMenu } from "./PolicyMenu";
 import { PromptInput } from "./PromptInput";
@@ -342,6 +343,7 @@ export function Composer({ workspaceControl }: ComposerProps) {
 			<ClarificationPanel />
 			{workspaceControl}
 			<GoalStrip />
+			<PlanStrip />
 			<QueueDock />
 			<div className="composer-card">
 				<AttachmentList />

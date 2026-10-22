@@ -1243,3 +1243,53 @@
 	cursor: default;
 	opacity: 0.55;
 }
+
+/*
+ * `.plan-strip`: plan mode, docked exactly like `.goal-strip` (same inset and
+ * square bottom): it stands on the card's top edge, and a goal strip, when one
+ * exists, sits above it.
+ */
+.plan-strip {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 14px -1px;
+  padding: 5px 12px;
+  border: 1px solid var(--line);
+  border-bottom: 0;
+  border-radius: var(--radius-panel) var(--radius-panel) 0 0;
+  background: var(--surface-soft);
+  color: var(--ink);
+  font-size: 13px;
+}
+.plan-strip[hidden] {
+  display: none;
+}
+.plan-strip-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  color: var(--ink-3);
+}
+.plan-strip-label {
+  flex: none;
+  font-weight: 500;
+}
+.plan-strip-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+.plan-strip-hint {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-3);
+  text-align: right;
+}

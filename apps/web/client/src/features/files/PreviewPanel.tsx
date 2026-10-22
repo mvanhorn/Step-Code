@@ -12,6 +12,7 @@ import { setUi, useAppStore } from "../../state/store";
 import { IconButton, ResizeHandle } from "../../ui";
 import {
 	applyPreviewWidth,
+	clearSideAnswers,
 	copyActivePreview,
 	PREVIEW_DEFAULT,
 	reloadActivePreview,
@@ -29,16 +30,18 @@ function PreviewTools() {
 	const t = useT();
 	const tab = useActiveTab();
 	const wrap = useAppStore((state) => state.preview.wrap);
-	const file = tab?.file;
+	const file = tab?.kind === "file" ? tab.file : undefined;
 	const text = file?.kind === "text";
 	const markdown = text && isMarkdownPath(file.path);
+	const isFile = tab?.kind === "file";
+	const rendered = tab?.kind === "file" && tab.rendered;
 	return (
 		<div className="preview-tools">
 			<IconButton
 				id="previewMode"
 				icon="eye"
 				iconSize="sm"
-				aria-pressed={Boolean(tab?.rendered)}
+				aria-pressed={rendered}
 				title={t("renderedPreview")}
 				aria-label={t("renderedPreview")}
 				hidden={!markdown}
@@ -51,7 +54,7 @@ function PreviewTools() {
 				aria-pressed={wrap}
 				title={t("wrapLines")}
 				aria-label={t("wrapLines")}
-				hidden={!text || Boolean(markdown && tab?.rendered)}
+				hidden={!text || Boolean(markdown && rendered)}
 				// Legacy toggled `.code-view.wrap` in the click handler itself; callers read it right after.
 				onClick={() => flushSync(togglePreviewWrap)}
 			/>
@@ -61,7 +64,7 @@ function PreviewTools() {
 				iconSize="sm"
 				title={t("reloadFile")}
 				aria-label={t("reloadFile")}
-				hidden={!tab}
+				hidden={!isFile}
 				onClick={reloadActivePreview}
 			/>
 			<IconButton
@@ -72,6 +75,15 @@ function PreviewTools() {
 				aria-label={t("copyFile")}
 				hidden={!text}
 				onClick={copyActivePreview}
+			/>
+			<IconButton
+				id="previewClearSideAnswers"
+				icon="trash"
+				iconSize="sm"
+				title={t("btwClear")}
+				aria-label={t("btwClearHint")}
+				hidden={tab?.kind !== "btw"}
+				onClick={() => void clearSideAnswers()}
 			/>
 		</div>
 	);

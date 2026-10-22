@@ -18,7 +18,7 @@ import { FULL_ACCESS_PRESET, isFullAccessRisk } from "../lib/permissions";
 import { isDesktopHost } from "../platform/host";
 import { assistantBlocks } from "./assistant-content";
 import { observePerformance } from "./performance";
-import { type AppState, getState, mapWith, setState, setUi } from "./store";
+import { type AppState, getState, mapWith, setState, setUi, type ToastState } from "./store";
 import { backgroundSubagentStatuses, subagentTasks } from "./subagent-tasks";
 import { readThinkingTimings } from "./thinking-timing";
 import type {
@@ -41,6 +41,7 @@ import type {
 	SessionSnapshot,
 	SessionStatus,
 	SessionSummary,
+	SideAnswer,
 	TextInputRequest,
 	ThinkingTimings,
 	TimelineItem,
@@ -56,6 +57,23 @@ let toastSeq = 0;
 
 /** Notices are page-local command output; keep the newest so a chatty command cannot grow the list forever. */
 const NOTICE_LIMIT = 20;
+/** Side answers kept per session, matching the host's own bound. */
+const SIDE_ANSWER_LIMIT = 30;
+/**
+ * Answers whose tab the reader closed. The host keeps them (they are its history),
+ * so without this a snapshot refresh would resurrect the tab they dismissed.
+ */
+const dismissedSideAnswers = new Set<string>();
+
+/** Stop restoring one answer's tab after the reader closed it. */
+export function forgetSideAnswer(id: string): void {
+	dismissedSideAnswers.add(id);
+}
+
+/** The answers a snapshot should restore: everything the reader has not closed. */
+export function restorableSideAnswers(answers: readonly SideAnswer[]): readonly SideAnswer[] {
+	return answers.filter((answer) => !dismissedSideAnswers.has(answer.id));
+}
 let noticeSeq = 0;
 
 /**
@@ -75,6 +93,45 @@ export function pushNotice(level: NoticeItem["level"], text: string, options?: {
 	setState((state) => ({ notices: [...state.notices, item].slice(-NOTICE_LIMIT) }));
 }
 
+/**
+ * What opens side answers in the rail. `state/session.ts` must not import a
+ * feature (features import it), so the tab actions install themselves here.
+ */
+let openSideAnswerTab: (answer: SideAnswer) => void = () => {};
+let syncSideAnswerTabs: (answers: readonly SideAnswer[]) => void = () => {};
+let dropSideAnswerTabs: () => void = () => {};
+
+/** Called once by `features/files/actions.ts`; keeps the reducer free of feature imports. */
+export function installSideAnswerTabs(actions: {
+	open: (answer: SideAnswer) => void;
+	sync: (answers: readonly SideAnswer[]) => void;
+	drop: () => void;
+}): void {
+	openSideAnswerTab = actions.open;
+	syncSideAnswerTabs = actions.sync;
+	dropSideAnswerTabs = actions.drop;
+}
+
+/**
+ * File one `/btw` answer: keep it on the session (so the rail can list it) and
+ * open it as its own tab, the way asking the question is what the user wanted.
+ * The conversation, its entries and the model's context are untouched.
+ */
+export function applySideAnswer(answer: SideAnswer): void {
+	setState((state) => ({
+		current: state.current
+			? {
+					...state.current,
+					sideAnswers: [
+						...(state.current.sideAnswers ?? []).filter((item) => item.id !== answer.id),
+						answer,
+					].slice(-SIDE_ANSWER_LIMIT),
+				}
+			: state.current,
+	}));
+	openSideAnswerTab(answer);
+}
+
 /** Remove one notice the reader dismissed. */
 export function dismissNotice(id: string): void {
 	setState((state) => ({ notices: state.notices.filter((notice) => notice.id !== id) }));
@@ -82,9 +139,14 @@ export function dismissNotice(id: string): void {
 
 /** Show the top-centre toast for 4.2s (legacy `showError`, 3184-3193). `danger=false` is the neutral tone. */
 export function showError(message: string, danger = true): void {
+	showToast(message, danger ? "danger" : "neutral");
+}
+
+/** A short, self-dismissing announcement. State the UI already draws says nothing else. */
+export function showToast(message: string, tone: ToastState["tone"] = "neutral"): void {
 	toastSeq += 1;
 	const seq = toastSeq;
-	setState({ toast: { message, tone: danger ? "danger" : "neutral", seq } });
+	setState({ toast: { message, tone, seq } });
 	if (toastTimer !== undefined) clearTimeout(toastTimer);
 	toastTimer = setTimeout(() => {
 		if (getState().toast?.seq === seq) setState({ toast: null });
@@ -520,6 +582,7 @@ export function renderSnapshot(snapshot: SessionSnapshot): void {
 		// A response that left before an answer must not reopen the dialog.
 		pendingSelections: (snapshot.pendingSelections ?? []).filter((request) => !resolvedSelections.has(request.id)),
 	};
+	const previousSessionId = getState().current?.id;
 	setState((state) => {
 		const timelineItems = [...timelineFromEntries(snapshot.entries, snapshot.retry), ...approvalItems(snapshot)];
 		const pendingTurn =
@@ -548,6 +611,11 @@ export function renderSnapshot(snapshot: SessionSnapshot): void {
 			compacting: snapshot.compacting === true,
 		};
 	});
+	// Side answers belong to one session, so tabs from the previous one are dropped
+	// before this session's are restored. A reloaded page then shows the history
+	// again; an open file tab stays in front.
+	if (previousSessionId !== snapshot.id) dropSideAnswerTabs();
+	syncSideAnswerTabs(restorableSideAnswers(snapshot.sideAnswers ?? []));
 }
 
 /** User messages in a timeline; `pendingTurn` compares this before and after a send. */
@@ -1010,10 +1078,18 @@ export function connectStream(id: string): void {
 			level?: string;
 			text?: string;
 			markdown?: boolean;
+			transient?: boolean;
 		};
 		if (typeof notice.text !== "string" || !notice.text) return;
 		const level =
 			notice.level === "warning" || notice.level === "error" || notice.level === "info" ? notice.level : "info";
+		if (notice.transient) {
+			// An announcement about state the UI already renders (plan mode, the
+			// permission tier): show it, then let it go. It must not become a row in
+			// a conversation the user did not send anything to.
+			showToast(notice.text, level === "error" ? "danger" : "neutral");
+			return;
+		}
 		pushNotice(level, notice.text, notice.markdown ? { markdown: true } : undefined);
 		// A command answered in place (`/btw`, `/status`, a refusal) starts no turn,
 		// so the optimistic bubble that `sendMessage` drew would otherwise sit
@@ -1023,6 +1099,13 @@ export function connectStream(id: string): void {
 		setState((state) => ({
 			pendingTurn: /^\s*\/[A-Za-z0-9]/u.test(state.pendingTurn?.text ?? "") ? null : state.pendingTurn,
 		}));
+	});
+	// A `/btw` answer: its own tab in the rail, never a transcript row.
+	source.addEventListener("side-answer", (event) => {
+		if (stream !== source) return;
+		const answer = JSON.parse((event as MessageEvent).data).answer as SideAnswer;
+		if (!answer || typeof answer.id !== "string") return;
+		applySideAnswer(answer);
 	});
 	source.addEventListener("web_error", (event) => {
 		setState({ pendingTurn: null });

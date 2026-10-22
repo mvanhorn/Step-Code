@@ -14,13 +14,15 @@ import { ancestorPaths } from "../../lib/format";
 import { readStoredInt, STORAGE_KEYS, writeStorage } from "../../lib/storage";
 import { collectTurnChanges } from "../../lib/turn-changes";
 import { activeRightPanel, closeRightPanel, openRightPanel } from "../../state/right-panel";
-import { copyText, showError } from "../../state/session";
+import { copyText, forgetSideAnswer, installSideAnswerTabs, showError } from "../../state/session";
 import {
 	emptyTree,
+	type FilePreviewTab,
 	getState,
 	mapWith,
 	mapWithout,
 	type PreviewTab,
+	type SideAnswerTab,
 	setPreview,
 	setState,
 	setToggled,
@@ -30,7 +32,7 @@ import {
 	setWithout,
 	type TreeState,
 } from "../../state/store";
-import type { TreeEntry, WorkspaceFile } from "../../state/types";
+import type { SideAnswer, TreeEntry, WorkspaceFile } from "../../state/types";
 
 /* ── Signals for the tree component ──────────────────────────────────────── */
 
@@ -209,11 +211,11 @@ export function activateTreeEntry(path: string, kind: string): void {
 
 /* ── Preview ─────────────────────────────────────────────────────────────── */
 
-function sameTab(tab: PreviewTab, cwd: string, path: string): boolean {
-	return tab.cwd === cwd && tab.path === path;
+function sameTab(tab: PreviewTab, cwd: string, path: string): tab is FilePreviewTab {
+	return tab.kind === "file" && tab.cwd === cwd && tab.path === path;
 }
 
-function updateTab(cwd: string, path: string, update: (tab: PreviewTab) => PreviewTab): void {
+function updateTab(cwd: string, path: string, update: (tab: FilePreviewTab) => FilePreviewTab): void {
 	setPreview((preview) => ({
 		...preview,
 		tabs: preview.tabs.map((tab) => (sameTab(tab, cwd, path) ? update(tab) : tab)),
@@ -246,7 +248,10 @@ export async function openFile(cwd: string, path: string, rendered?: boolean): P
 		let index = preview.tabs.findIndex((candidate) => sameTab(candidate, cwd, path));
 		let tabs = preview.tabs;
 		if (index < 0) {
-			tabs = [...tabs, { cwd, path, file: null, error: "", loading: false, rendered: rendered ?? false }];
+			tabs = [
+				...tabs,
+				{ kind: "file", cwd, path, file: null, error: "", loading: false, rendered: rendered ?? false },
+			];
 			index = tabs.length - 1;
 		} else if (rendered !== undefined) {
 			tabs = tabs.map((tab, position) => (position === index ? { ...tab, rendered } : tab));
@@ -254,7 +259,8 @@ export async function openFile(cwd: string, path: string, rendered?: boolean): P
 		return { ...preview, tabs, active: index, open: true, mode: "files" };
 	});
 	const preview = getState().preview;
-	if (!preview.tabs[preview.active]?.file) await loadPreviewTab(cwd, path);
+	const active = preview.tabs[preview.active];
+	if (active?.kind !== "file" || !active.file) await loadPreviewTab(cwd, path);
 }
 
 /** Message references never navigate the browser or widen the host's workspace access. */
@@ -335,6 +341,9 @@ export function showPreviewFiles(): void {
 /** Close one tab; closing the last one hides the panel (legacy `closePreviewTab`, 1760-1769). */
 export function closePreviewTab(index: number): void {
 	const wasShowingFiles = getState().preview.open && getState().preview.mode === "files";
+	// A closed side answer stays closed: the host still holds it for the session.
+	const closing = getState().preview.tabs[index];
+	if (closing?.kind === "btw") forgetSideAnswer(closing.id);
 	setPreview((preview) => {
 		const tabs = preview.tabs.filter((_tab, position) => position !== index);
 		let active = preview.active >= index ? Math.max(0, preview.active - 1) : preview.active;
@@ -363,7 +372,7 @@ export function togglePreviewWrap(): void {
 export function togglePreviewRendered(): void {
 	const preview = getState().preview;
 	const tab = preview.tabs[preview.active];
-	if (!tab) return;
+	if (tab?.kind !== "file") return;
 	updateTab(tab.cwd, tab.path, (current) => ({ ...current, rendered: !current.rendered }));
 }
 
@@ -371,14 +380,98 @@ export function togglePreviewRendered(): void {
 export function reloadActivePreview(): void {
 	const preview = getState().preview;
 	const tab = preview.tabs[preview.active];
-	if (tab) void loadPreviewTab(tab.cwd, tab.path);
+	if (tab?.kind === "file") void loadPreviewTab(tab.cwd, tab.path);
 }
 
 /** Copy the active text file (legacy `#previewCopy`). */
 export function copyActivePreview(): void {
 	const preview = getState().preview;
-	const file = preview.tabs[preview.active]?.file;
+	const tab = preview.tabs[preview.active];
+	if (tab?.kind === "btw") {
+		void copyText(tab.text);
+		return;
+	}
+	const file = tab?.file;
 	if (file?.kind === "text") void copyText(file.content);
+}
+
+/* ── Side answers (`/btw`) ───────────────────────────────────────────────── */
+
+/**
+ * Show one side answer in the tab strip, reusing its tab when the same answer
+ * arrives twice (the SSE event and a snapshot). A side question is a separate
+ * thread: it gets its own tab so the conversation is never displaced.
+ */
+export function openSideAnswerTab(answer: SideAnswer): void {
+	openRightPanel("files");
+	setPreview((preview) => {
+		const index = preview.tabs.findIndex((tab) => tab.kind === "btw" && tab.id === answer.id);
+		const tab: SideAnswerTab = sideAnswerTab(answer);
+		const tabs =
+			index < 0 ? [...preview.tabs, tab] : preview.tabs.map((item, position) => (position === index ? tab : item));
+		return { ...preview, tabs, active: index < 0 ? tabs.length - 1 : index, open: true, mode: "files" };
+	});
+}
+
+function sideAnswerTab(answer: SideAnswer): SideAnswerTab {
+	return {
+		kind: "btw",
+		id: answer.id,
+		question: answer.question,
+		text: answer.text,
+		...(answer.model ? { model: answer.model } : {}),
+		...(answer.unavailable ? { unavailable: true } : {}),
+		createdAt: answer.createdAt,
+	};
+}
+
+/** Restore a reloaded session's answers without taking the reader off an open file. */
+export function syncSideAnswerTabs(answers: readonly SideAnswer[]): void {
+	if (!answers.length) return;
+	setPreview((preview) => {
+		const known = new Set(preview.tabs.flatMap((tab) => (tab.kind === "btw" ? [tab.id] : [])));
+		const missing = answers.filter((answer) => !known.has(answer.id));
+		if (!missing.length) return preview;
+		const tabs = [...preview.tabs, ...missing.map(sideAnswerTab)];
+		// A page that had nothing open lands on the newest answer; an open file
+		// keeps its place, so a background refresh never moves the reader.
+		if (!preview.tabs.length) return { ...preview, tabs, active: tabs.length - 1, open: true, mode: "files" };
+		return { ...preview, tabs };
+	});
+}
+
+/** Forget the previous session's answers when the page follows another session. */
+export function dropSideAnswerTabs(): void {
+	setPreview((preview) => {
+		const tabs = preview.tabs.filter((tab) => tab.kind !== "btw");
+		if (tabs.length === preview.tabs.length) return preview;
+		const active = Math.max(0, Math.min(preview.active, tabs.length - 1));
+		return { ...preview, tabs, active: tabs.length ? active : -1, open: tabs.length ? preview.open : false };
+	});
+}
+
+// `state/session.ts` cannot import a feature; these are the one direction it needs.
+installSideAnswerTabs({ open: openSideAnswerTab, sync: syncSideAnswerTabs, drop: dropSideAnswerTabs });
+
+/** Close every side-answer tab and tell the host to forget the answers. */
+export async function clearSideAnswers(): Promise<void> {
+	// Everything is going away, so nothing needs to stay dismissed.
+	const current = getState().current;
+	setPreview((preview) => {
+		const tabs = preview.tabs.filter((tab) => tab.kind !== "btw");
+		const active = Math.min(preview.active, tabs.length - 1);
+		return {
+			...preview,
+			tabs,
+			active: tabs.length ? Math.max(0, active) : -1,
+			open: tabs.length ? preview.open : false,
+		};
+	});
+	if (current)
+		await api(`/api/v1/sessions/${encodeURIComponent(current.id)}/side-answers/clear`, {
+			method: "POST",
+			body: "{}",
+		});
 }
 
 /* ── Preview width (legacy 1875-1888) ────────────────────────────────────── */

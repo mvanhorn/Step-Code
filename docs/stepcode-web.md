@@ -478,6 +478,22 @@ the main task runs is its purpose, and the kernel runs extension commands before
 its streaming gate. Every other command is queued like a message, so `/compact`
 takes effect when the turn ends.
 
+A `/btw` answer is its own thread, so it gets its own tab in the preview rail
+(`kind: "btw"`) instead of a transcript row: the conversation, its entries and the
+model's context are untouched, and the tab strip's × closes one answer without
+deleting it. The kernel offers `ui.sideAnswer`; a host without that surface keeps
+the Markdown notice. Answers live in host memory for the session (bounded, like
+the terminal panel's history), appear in the snapshot so a reloaded page can show
+them again, and are cleared by `POST /sessions/{id}/side-answers/clear`.
+
+State the client already draws is never narrated into the conversation: plan mode
+(`snapshot.planMode` → the composer's `Plan · <file>` strip) and the permission
+tier (`policies`) announce themselves with `notify(…, { transient: true })`, which
+the host forwards and the client shows as a short toast, not a row. Command
+answers (`/status`, `/usage`, `/todos`, `/cron`, `/btw` on a text-only host) still
+become dismissible notices, because those are answers to something the user
+typed.
+
 The shared Web/Desktop composer also completes workspace files and folders at
 an `@` token after whitespace or at the start of a line. It follows the actual
 collapsed caret, not the whole prompt; email addresses and closed quoted

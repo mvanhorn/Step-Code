@@ -181,6 +181,8 @@ export type {
 	SessionShutdownEvent,
 	SessionStartEvent,
 	SessionTreeEvent,
+	// Side answers (`/btw`) with a host surface of their own
+	SideAnswer,
 	SlashCommandInfo,
 	SlashCommandSource,
 	SourceInfo,

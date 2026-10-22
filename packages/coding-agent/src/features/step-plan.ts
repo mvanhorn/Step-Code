@@ -167,9 +167,12 @@ export const createStepPlanExtension =
 			updateStatus(ctx, enabled, planSource);
 			persistPlanState();
 			if (source === "user") {
+				// An announcement, not an answer: the host renders plan mode from
+				// session state, so this must not become a transcript row.
 				ctx.ui.notify(
 					`Plan mode enabled. Draft your proposal at ${planFilePath}; file-editing tools are limited to this path. Commands still use normal permissions.`,
 					"info",
+					{ transient: true },
 				);
 			}
 			return planFilePath;
@@ -201,7 +204,8 @@ export const createStepPlanExtension =
 				if (!prompt) {
 					if (enabled) {
 						exit("toggled_off", ctx);
-						ctx.ui.notify("Plan mode disabled.", "info");
+						// State the host already draws; see enter().
+						ctx.ui.notify("Plan mode disabled.", "info", { transient: true });
 					} else {
 						enter("user", ctx);
 					}

@@ -873,6 +873,10 @@ const server = createServer(async (request, response) => {
 				if (!session.respondTextInput(input.id, input.value)) return error(response, 404, "Text input not found");
 				return json(response, 200, session.snapshot());
 			}
+			if (parts[4] === "side-answers" && parts[5] === "clear" && parts.length === 6 && method === "POST") {
+				session.clearSideAnswers();
+				return json(response, 200, { ok: true });
+			}
 			if (parts[4] === "approvals" && parts[5] === "decision" && method === "POST") {
 				const input = await body(request);
 				const verdict = input.verdict;

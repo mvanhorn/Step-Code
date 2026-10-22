@@ -47,6 +47,7 @@ import {
 	type SessionEntry,
 	type SessionIndex,
 	type SessionInfo,
+	type SideAnswer,
 	STEP_APP_SYSTEM_PROMPT_PRODUCT,
 	STEP_DEFAULT_MODEL,
 	STEP_PERMISSION_PRESETS,
@@ -140,6 +141,16 @@ export type WebEvent =
 			level: "info" | "warning" | "error";
 			text: string;
 			markdown?: boolean;
+			/** Restates host-rendered state (plan mode, permission tier): shown briefly, not kept. */
+			transient?: boolean;
+	  }
+	| {
+			/**
+			 * A `/btw` answer, for the rail. Side answers are process memory, like the
+			 * terminal panel's history: never a session entry, never model context.
+			 */
+			type: "side-answer";
+			answer: WebSideAnswer;
 	  }
 	| { type: "status"; status: WebSessionStatus; unread: boolean }
 	| ({ type: "queue" } & WebQueueState)
@@ -165,6 +176,20 @@ export function mcpStatuses(): StepMcpStatus[] {
 	return getStepMcpStatuses();
 }
 
+/** One `/btw` answer as the rail shows it. */
+export interface WebSideAnswer {
+	readonly id: string;
+	readonly question: string;
+	readonly text: string;
+	readonly model?: string;
+	/** The request was cancelled or produced nothing usable. */
+	readonly unavailable?: boolean;
+	readonly createdAt: number;
+}
+
+/** Side answers kept per session: enough to scroll back through, bounded like the terminal's history. */
+const SIDE_ANSWER_LIMIT = 30;
+
 /** The session modes the composer can toggle. Each is independent of the others. */
 export type WebMode = "goal" | "plan" | "ultraloop";
 
@@ -183,7 +208,13 @@ function webUiContext(
 	clarifications: ClarificationBroker,
 	selections: SelectionBroker,
 	textInputs: TextInputBroker,
-	notify: (notice: { level: "info" | "warning" | "error"; text: string; markdown?: boolean }) => void,
+	notify: (notice: {
+		level: "info" | "warning" | "error";
+		text: string;
+		markdown?: boolean;
+		transient?: boolean;
+	}) => void,
+	sideAnswer: (answer: SideAnswer) => void,
 ): ExtensionUIContext {
 	const unsupported = async <T>(fallback: T): Promise<T> => fallback;
 	return {
@@ -199,7 +230,10 @@ function webUiContext(
 				level: type ?? "info",
 				text: message,
 				...(options?.markdown ? { markdown: true } : {}),
+				...(options?.transient ? { transient: true } : {}),
 			}),
+		// `/btw` answers get a rail tab instead of a transcript row.
+		sideAnswer,
 		onTerminalInput: () => () => {},
 		setStatus: () => {},
 		setWorkingMessage: () => {},
@@ -562,6 +596,8 @@ export class WebSession {
 	readonly clarifications: ClarificationBroker;
 	readonly selections: SelectionBroker;
 	readonly textInputs: TextInputBroker;
+	/** `/btw` answers of this session, oldest first. Process memory, never persisted. */
+	private sideAnswers: WebSideAnswer[] = [];
 	private readonly listeners = new Set<(event: WebEvent) => void>();
 	private runtime!: AgentSessionRuntime;
 	private session!: AgentSession;
@@ -930,8 +966,13 @@ export class WebSession {
 		});
 		void session.bindExtensions({
 			mode: "rpc",
-			uiContext: webUiContext(this.broker, this.clarifications, this.selections, this.textInputs, (notice) =>
-				this.emit({ type: "notice", ...notice }),
+			uiContext: webUiContext(
+				this.broker,
+				this.clarifications,
+				this.selections,
+				this.textInputs,
+				(notice) => this.emit({ type: "notice", ...notice }),
+				(answer) => this.recordSideAnswer(answer),
 			),
 			commandContextActions: {
 				waitForIdle: () => session.waitForIdle(),
@@ -1261,6 +1302,31 @@ export class WebSession {
 	}
 
 	/**
+	 * Keep a `/btw` answer for the rail and announce it.
+	 *
+	 * The terminal keeps the same history in process memory; doing the same here
+	 * means a side question is never written to the session file and never enters
+	 * the model's context, while a reloaded page still shows what it answered.
+	 */
+	recordSideAnswer(answer: SideAnswer): void {
+		const entry: WebSideAnswer = {
+			id: randomUUID(),
+			question: answer.question,
+			text: answer.text,
+			...(answer.model ? { model: answer.model } : {}),
+			...(answer.unavailable ? { unavailable: true } : {}),
+			createdAt: Date.now(),
+		};
+		this.sideAnswers = [...this.sideAnswers, entry].slice(-SIDE_ANSWER_LIMIT);
+		this.emit({ type: "side-answer", answer: entry });
+	}
+
+	/** Drop this session's side answers (the rail panel's Clear action). */
+	clearSideAnswers(): void {
+		this.sideAnswers = [];
+	}
+
+	/**
 	 * Answer a kernel text prompt (`ui.input`). `undefined` dismisses it and an
 	 * empty string is a submitted empty answer, which is how the kernel tells
 	 * "the user cancelled" from "the user typed nothing".
@@ -1504,6 +1570,7 @@ export class WebSession {
 			pendingClarifications: this.clarifications.pendingRequests(),
 			pendingSelections: this.selections.pendingRequests(),
 			pendingTextInputs: this.textInputs.pendingRequests(),
+			sideAnswers: this.sideAnswers,
 			queuedMessages: this.queue.views(),
 			steeringMessages: this.steeringViews(),
 			retry: this.retry.view(),

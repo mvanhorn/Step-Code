@@ -88,7 +88,9 @@ export interface TreeState {
 	readonly resultsTruncated: boolean;
 }
 
-export interface PreviewTab {
+/** A workspace file open in the preview rail. */
+export interface FilePreviewTab {
+	readonly kind: "file";
 	readonly cwd: string;
 	readonly path: string;
 	readonly file: WorkspaceFile | null;
@@ -97,6 +99,23 @@ export interface PreviewTab {
 	/** Markdown shown rendered rather than as source. */
 	readonly rendered: boolean;
 }
+
+/**
+ * A `/btw` answer in the same tab strip as files: a side question has its own
+ * thread, so it gets its own tab and the conversation stays untouched.
+ * Process memory, like the terminal's side-answer history.
+ */
+export interface SideAnswerTab {
+	readonly kind: "btw";
+	readonly id: string;
+	readonly question: string;
+	readonly text: string;
+	readonly model?: string;
+	readonly unavailable?: boolean;
+	readonly createdAt: number;
+}
+
+export type PreviewTab = FilePreviewTab | SideAnswerTab;
 
 /** The preview panel's turn-changes view (features/files/ChangesView). */
 export interface ChangesViewState {
