@@ -89,7 +89,8 @@ export interface RoomExtensionOptions {
 		onBotAdded: (chatId: string) => void,
 	) => RoomTransport;
 	/** Rendezvous client; defaults to the trial deployment. */
-	rendezvous?: RoomRendezvousClient;
+	/** Only the calls the command makes, so a test can stand in without impersonating the class. */
+	rendezvous?: Pick<RoomRendezvousClient, "configured" | "publish" | "status" | "claim" | "retire">;
 	/** Title for the group. */
 	roomName?: (selfName: string, peerName: string | undefined) => string;
 }
@@ -107,6 +108,8 @@ interface ActiveRoom {
 	transport: RoomTransport;
 	/** `openId` is the peer's bot; `userOpenId` is the peer himself, and he must be in the group. */
 	peer?: { appId: string; openId: string; userOpenId: string; name?: string };
+	/** The session this room speaks for; needed to bind a chat that arrives before any event does. */
+	sessionId: string;
 	lastSpoken?: string;
 	polling?: NodeJS.Timeout;
 }
@@ -154,7 +157,18 @@ export function createRoomExtension(options: RoomExtensionOptions): ExtensionFac
 
 		const handleInbound = (message: RoomInbound) => {
 			const current = room;
-			if (!current || !bindings) return;
+			if (!current) return;
+			// The joining side is invited rather than creating the group, so a bot-added event may never
+			// arrive for it. A message addressed to this bot in the room it is waiting on is itself
+			// proof of membership; binding here beats dropping the first turn of every joined room.
+			if (!bindings && current.sessionId) {
+				current.chatId = current.chatId || message.chatId;
+				if (current.chatId === message.chatId) {
+					bindings = new RoomBindingStore();
+					bindings.bind(message.chatId, current.sessionId);
+				}
+			}
+			if (!bindings) return;
 			if (bindings.resolve(message.chatId).action === "drop") {
 				// Unbound chat: nobody in this terminal asked for it, and replying would be noise.
 				return;
@@ -304,6 +318,7 @@ export function createRoomExtension(options: RoomExtensionOptions): ExtensionFac
 				botOpenId: self.openId,
 				botName: self.name,
 				transport,
+				sessionId: context.sessionManager.getSessionId(),
 			};
 			context.ui.notify(`room · @${self.name} · 房间码 ${code} · 2 分钟内有效，念给对方`, "info");
 
@@ -421,6 +436,7 @@ export function createRoomExtension(options: RoomExtensionOptions): ExtensionFac
 				botOpenId: self.openId,
 				botName: self.name,
 				transport,
+				sessionId: context.sessionManager.getSessionId(),
 			};
 			context.ui.notify("room · 已登记，等待对方建群后把你拉进群（进群后即可对话）", "info");
 		};
@@ -433,10 +449,16 @@ export function createRoomExtension(options: RoomExtensionOptions): ExtensionFac
 			const current = room;
 			if (!current) return;
 			if (current.chatId && current.chatId !== chatId) return;
+			const first = !current.chatId;
 			current.chatId = chatId;
 			if (!bindings) {
 				bindings = new RoomBindingStore();
 				bindings.bind(chatId, context.sessionManager.getSessionId());
+			}
+			// Being added is the only signal this side gets that the room is open. Staying silent here
+			// leaves the person watching "waiting for the other side", which reads as a hang.
+			if (first) {
+				context.ui.notify(`room · 已进群，可以开始对话（@${current.botName} 或直接说话）`, "info");
 			}
 		};
 

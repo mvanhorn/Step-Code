@@ -9,7 +9,7 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { BotIdentityError } from "@step-harness/lark-adapter";
+import { BotIdentityError, type LarkCredentials } from "@step-harness/lark-adapter";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@step-harness/coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -30,6 +30,8 @@ vi.mock("@step-harness/lark-adapter", async (importOriginal) => {
 });
 
 const { createRoomExtension } = await import("../src/ui/runtime/room-connection.ts");
+type RoomInbound = import("../src/ui/runtime/room-connection.ts").RoomInbound;
+type RoomTransport = import("../src/ui/runtime/room-connection.ts").RoomTransport;
 
 const SAVED = {
 	appId: "cli_saved",
@@ -61,15 +63,20 @@ function harness(options: Parameters<typeof createRoomExtension>[0]) {
 		ui: { notify: (message: string, level?: string) => notifications.push({ message, level }) },
 		sessionManager: { getSessionId: () => "session-1" },
 	} as unknown as ExtensionCommandContext;
+	const outgoing: Array<{ role: string; text: string }> = [];
 	const extensionApi = {
 		registerCommand: (name: string, registration: { handler: (args: string, ctx: ExtensionCommandContext) => Promise<void> }) => {
 			commands.set(name, registration.handler);
 		},
 		registerTool: () => {},
 		on: () => {},
+		sendUserMessage: (content: Array<{ type: string; text?: string }>) => {
+			const text = content.map((part) => part.text ?? "").join("");
+			outgoing.push({ role: "user", text });
+		},
 	} as unknown as ExtensionAPI;
 	createRoomExtension(options)(extensionApi);
-	return { commands, notifications, context };
+	return { commands, notifications, context, outgoing };
 }
 
 async function seed(record: Record<string, unknown> = SAVED) {
@@ -129,13 +136,102 @@ describe("the saved room bot", () => {
 	});
 });
 
+describe("a room this side only joined", () => {
+	it("takes the first addressed message even though no bot-added event arrived", async () => {
+		// The joining side is invited, not the creator, so it must learn its chat id from the message
+		// itself. Requiring the event first would drop the opening turn of every joined room.
+		await seed();
+		api.getBotIdentity.mockResolvedValue({ openId: "ou_saved_bot", name: "Saved bot" });
+		const transport = recordingTransport();
+		const h = harness({ recordDirectory: directory, rendezvous: stubRendezvous(), transport: transport.build });
+
+		await h.commands.get("room")?.("join 48291730", h.context);
+		expect(transport.last?.onMessage).toBeDefined();
+
+		transport.last?.onMessage({
+			chatId: "oc_joined",
+			messageId: "om_first",
+			createdAt: Date.now(),
+			senderType: "user",
+			senderOpenId: "ou_owner",
+			text: "hello from the room",
+			mentions: [{ mentionedType: "user", openId: "ou_saved_bot" }],
+		});
+
+		expect(h.outgoing).toHaveLength(1);
+		expect(h.outgoing[0]?.text).toContain("hello from the room");
+	});
+
+	it("still ignores a chat that was never joined", async () => {
+		await seed();
+		api.getBotIdentity.mockResolvedValue({ openId: "ou_saved_bot", name: "Saved bot" });
+		const transport = recordingTransport();
+		const h = harness({ recordDirectory: directory, rendezvous: stubRendezvous(), transport: transport.build });
+
+		await h.commands.get("room")?.("join 48291730", h.context);
+		transport.last?.onMessage({
+			chatId: "oc_joined",
+			messageId: "om_first",
+			createdAt: Date.now(),
+			senderType: "user",
+			senderOpenId: "ou_owner",
+			text: "first",
+			mentions: [{ mentionedType: "user", openId: "ou_saved_bot" }],
+		});
+		transport.last?.onMessage({
+			chatId: "oc_someone_else",
+			messageId: "om_second",
+			createdAt: Date.now(),
+			senderType: "user",
+			senderOpenId: "ou_owner",
+			text: "not my room",
+			mentions: [{ mentionedType: "user", openId: "ou_saved_bot" }],
+		});
+
+		expect(h.outgoing).toHaveLength(1);
+		expect(h.outgoing[0]?.text).toContain("first");
+	});
+});
+
+function recordingTransport() {
+	const state: { last?: { onMessage: (message: RoomInbound) => void; onBotAdded: (chatId: string) => void } } = {};
+	return {
+		get last() {
+			return state.last;
+		},
+		build: (
+			_credentials: LarkCredentials,
+			onMessage: (message: RoomInbound) => void,
+			onBotAdded: (chatId: string) => void,
+		): RoomTransport => {
+			state.last = { onMessage, onBotAdded };
+			return {
+				start: async () => undefined,
+				close: () => {},
+				identity: async () => ({ openId: "ou_saved_bot", name: "Saved bot" }),
+				createChat: async () => "oc_created",
+				api: {
+					sendText: async () => "om_x",
+					sendCard: async () => "om_card",
+					updateCard: async () => undefined,
+					listChatMembers: async () => undefined,
+					close: async () => undefined,
+				},
+			};
+		},
+	};
+}
+
 /** The room command refuses to start without a service; keep it offline but configured. */
 function stubRendezvous() {
 	return {
 		configured: true,
 		publish: async () => ({ ok: false as const, failure: { kind: "unavailable" as const, status: 0, message: "test" } }),
 		status: async () => ({ ok: false as const, failure: { kind: "unavailable" as const, status: 0, message: "test" } }),
-		claim: async () => ({ ok: false as const, failure: { kind: "unavailable" as const, status: 0, message: "test" } }),
+		claim: async () => ({
+			ok: true as const,
+			value: { code: "48291730", claimed: true, createdAt: "", expiresAt: "" },
+		}),
 		retire: async () => ({ ok: false as const, failure: { kind: "unavailable" as const, status: 0, message: "test" } }),
-	} as never;
+	};
 }
