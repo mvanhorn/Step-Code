@@ -691,6 +691,9 @@ const server = createServer(async (request, response) => {
 			const sessions = await store.list();
 			return json(response, 200, { sessions });
 		}
+		if (parts[2] === "session-status" && parts.length === 3 && method === "GET") {
+			return json(response, 200, { sessions: store.statuses() });
+		}
 		if (parts[2] === "sessions" && parts.length === 3 && method === "POST") {
 			const input = await body(request);
 			const session = await store.create(typeof input.cwd === "string" ? input.cwd : defaultWorkspace());
@@ -736,11 +739,14 @@ const server = createServer(async (request, response) => {
 					const eventName = event.type === "error" ? "web_error" : event.type;
 					response.write(`event: ${eventName}\ndata: ${JSON.stringify(event)}\n\n`);
 				});
+				// Following the stream is looking at the session: its outcome is seen.
+				const unwatch = session.watch();
 				// A closed session (e.g. rebuilt after sign-in) sends nothing more; end
 				// the stream so the page's EventSource reconnects to its replacement.
 				const stopOnClose = session.onClose(() => response.end());
 				response.on("close", () => {
 					unsubscribe();
+					unwatch();
 					stopOnClose();
 				});
 				return;

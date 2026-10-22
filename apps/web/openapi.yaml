@@ -711,12 +711,38 @@ paths:
       description: >-
         Every session a user started, newest first after the client sorts. Child-agent sessions (subagent lanes and
         workflow agents) are omitted. Rows carry `name`, `firstMessage` and counts but not the full message text;
-        content search is `GET /api/v1/search`.
+        content search is `GET /api/v1/search`. Sessions open in the host also carry their live `status` and
+        `unread` (see `GET /api/v1/session-status`).
       responses:
         "200": { description: Session list grouped by cwd by the client }
     post:
       responses:
         "201": { description: New StepCode v3 session }
+  /api/v1/session-status:
+    get:
+      description: >-
+        Live status of every session open in the host, cheap enough to poll while a session the page is not
+        following runs. `unread` is true when a run completed or failed while no page followed the session's event
+        stream; opening the stream clears it. A session missing from the list is not open: nothing runs and nothing
+        is unread.
+      responses:
+        "200":
+          description: Open sessions
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sessions]
+                properties:
+                  sessions:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, status, unread]
+                      properties:
+                        id: { type: string }
+                        status: { type: string, enum: [idle, running, waiting, completed, failed] }
+                        unread: { type: boolean }
   /api/v1/search:
     get:
       description: >-

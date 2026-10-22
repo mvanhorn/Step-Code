@@ -25,10 +25,14 @@ export function SessionRow({ session, grouped = false, filteredOut = false }: Se
 		const tag = state.tags.get(session.id);
 		// The project and grouped views both render a row per session; only the visible one owns its menus.
 		const inView = state.currentView === (grouped ? "group" : "project");
+		const status = taskStatus(state, session);
+		const active = state.current?.id === session.id;
 		return {
-			status: taskStatus(state, session),
-			unread: state.unreadById.get(session.id) === true,
-			active: state.current?.id === session.id,
+			status,
+			// The green dot marks a finished run the user has not looked at yet; a
+			// running row keeps its pulse and badge, and the open row is being looked at.
+			unread: status === "completed" && !active && state.unreadById.get(session.id) === true,
+			active,
 			tag,
 			tagName: tag ? groupName(state.groups, tag) : "",
 			view: state.currentView,
