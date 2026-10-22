@@ -56,6 +56,11 @@ export interface PromptInputProps {
 	readonly onCompositionChange?: (composing: boolean) => void;
 	/** Offered each key first; returning true means an open menu used it. */
 	readonly onMenuKey?: (key: string) => boolean;
+	/**
+	 * Filled with the editor's file stager, so files picked elsewhere (`#attachInput` in `#plusMenu`) are staged
+	 * exactly like pasted or dropped ones: images as attachments, every other file as an inline chip.
+	 */
+	readonly stageFilesRef?: RefObject<((files: readonly File[]) => void) | null>;
 }
 
 /** Uncontrolled: the composer reads and resets the content through the ref on send. */
@@ -69,6 +74,7 @@ export function PromptInput({
 	onCaretChange,
 	onCompositionChange,
 	onMenuKey,
+	stageFilesRef,
 }: PromptInputProps) {
 	const t = useT();
 	const ime = useImeGuard();
@@ -132,6 +138,19 @@ export function PromptInput({
 	disabledRef.current = disabled;
 	const stageRef = useRef(stageFiles);
 	stageRef.current = stageFiles;
+	useEffect(() => {
+		if (!stageFilesRef) return;
+		// Chips land at the caret the prompt kept while the menu was open, or at the end.
+		stageFilesRef.current = (files) => {
+			const root = promptRef.current;
+			if (!root || !files.length || disabledRef.current) return;
+			stageRef.current(files);
+			root.focus();
+		};
+		return () => {
+			stageFilesRef.current = null;
+		};
+	}, [stageFilesRef, promptRef]);
 	useEffect(() => {
 		let depth = 0;
 		const accepting = () => !disabledRef.current && !getState().ui.loginRequired;

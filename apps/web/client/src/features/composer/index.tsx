@@ -66,6 +66,7 @@ export function Composer({ workspaceControl }: ComposerProps) {
 	const t = useT();
 	const form = useRef<HTMLFormElement | null>(null);
 	const prompt = useRef<HTMLDivElement | null>(null);
+	const stageFiles = useRef<((files: readonly File[]) => void) | null>(null);
 	const [openMenu, setOpenMenu] = useState<ComposerMenu | null>(null);
 	const [query, setQuery] = useState<string | null>(null);
 	const slash = useRef<SlashMenuHandle | null>(null);
@@ -401,6 +402,7 @@ export function Composer({ workspaceControl }: ComposerProps) {
 					onCaretChange={syncFileQuery}
 					onCompositionChange={onCompositionChange}
 					onMenuKey={(key) => files.current?.key(key) || slash.current?.key(key) || false}
+					stageFilesRef={stageFiles}
 				/>
 				<div className="composer-controls">
 					<PlusMenu
@@ -409,6 +411,7 @@ export function Composer({ workspaceControl }: ComposerProps) {
 						onPickSkill={pickSkill}
 						onPickPlugin={pickPlugin}
 						onPickSession={(id) => void pickSession(id)}
+						onFiles={(picked) => stageFiles.current?.(picked)}
 					/>
 					<PolicyMenu {...menu("policy")} />
 					<div className="composer-right">
