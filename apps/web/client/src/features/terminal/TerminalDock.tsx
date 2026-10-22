@@ -477,36 +477,6 @@ export function TerminalDock() {
 					))}
 				</div>
 				<div className="terminal-actions">
-					<Tooltip content={t("terminalCopy")}>
-						<IconButton
-							icon="copy"
-							disabled={!selectedId}
-							aria-label={t("terminalCopy")}
-							onClick={() => void copy()}
-						/>
-					</Tooltip>
-					<Tooltip content={t("terminalPaste")}>
-						<IconButton
-							icon="clipboardPaste"
-							disabled={!connected || selected?.status !== "running"}
-							aria-label={t("terminalPaste")}
-							onClick={() => void paste()}
-						/>
-					</Tooltip>
-					<Tooltip content={t("terminalClear")}>
-						<IconButton
-							icon="eraser"
-							disabled={!selectedId}
-							aria-label={t("terminalClear")}
-							onClick={() => {
-								if (selectedId) {
-									views.current.get(selectedId)?.terminal.clear();
-									views.current.get(selectedId)?.terminal.focus();
-								}
-							}}
-						/>
-					</Tooltip>
-					<span className="terminal-actions-divider" aria-hidden="true" />
 					<Tooltip content={t("terminalNew")}>
 						<IconButton
 							icon="plus"

@@ -9,7 +9,7 @@ import styles from "./IconSprite.module.css";
  *
  * The artwork comes from the design team's icon library (icon-library.html):
  * a 24x24 canvas, no colour of its own, every stroke and fill `currentColor`.
- * 91 of the 102 names below are drawn from it.
+ * 90 of the 100 names below are drawn from it.
  *
  * ICON_NAMES is a DOM contract, so the names never move with the artwork. The
  * Names below without a library counterpart retain their existing in-house,
@@ -26,7 +26,6 @@ export const MISSING_FROM_LIBRARY = [
 	"loaderCircle",
 	"plug",
 	"layers3",
-	"clipboardPaste",
 ] as const;
 
 /*
@@ -41,7 +40,6 @@ export const MISSING_FROM_LIBRARY = [
  * - loaderCircle: 加载中（3/4 圆弧，旋转动画用）
  * - plug: 插头（当前未被使用）
  * - layers3: 三层图层（当前未被使用）
- * - clipboardPaste: 粘贴（剪贴板 + 箭头），终端粘贴按钮
  */
 
 export const ICON_NAMES = [
@@ -145,8 +143,6 @@ export const ICON_NAMES = [
 	"layers3",
 	"timer",
 	"database",
-	"clipboardPaste",
-	"eraser",
 ] as const;
 
 export type IconName = (typeof ICON_NAMES)[number];
@@ -237,27 +233,6 @@ export function IconSprite() {
 					stroke="currentColor"
 					strokeWidth="1.8"
 					strokeLinecap="round"
-					strokeLinejoin="round"
-				/>
-			</symbol>
-			<symbol
-				id="i-clipboardPaste"
-				viewBox="0 0 24 24"
-				fill="none"
-				stroke="currentColor"
-				strokeWidth="2"
-				strokeLinecap="round"
-				strokeLinejoin="round"
-			>
-				<path d="M11 14h10M16 4h2a2 2 0 0 1 2 2v1.344m-3 10.656 4-4-4-4M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 1.793-1.113" />
-				<rect x="8" y="2" width="8" height="4" rx="1" />
-			</symbol>
-			{/* icon-library.html: CleanUp */}
-			<symbol id="i-eraser" viewBox="0 0 24 24" fill="none">
-				<path
-					d="M8.18043 8.39647C8.67157 7.99509 8.96718 7.70415 8.96718 7.70415C9.15347 7.53101 9.33724 7.35194 9.51894 7.16802C10.3663 6.31031 11.7365 6.24775 12.5551 7.06548C12.7301 7.24031 12.9088 7.41244 13.0839 7.58776C13.247 7.75097 13.513 7.75551 13.676 7.5922C14.7517 6.51409 15.8181 5.4263 16.8851 4.33927C17.6589 3.55091 18.9265 3.54627 19.7076 4.32739C20.4878 5.10757 20.4856 6.37301 19.7021 7.14988C18.5467 8.29554 17.0664 9.76394 16.4492 10.3761C16.2885 10.5355 16.2887 10.7941 16.4486 10.9544C16.6225 11.1286 16.8367 11.3432 16.9779 11.4844C17.7963 12.302 17.734 13.6701 16.8754 14.5167C16.6909 14.6986 16.512 14.8829 16.3383 15.0694C16.3383 15.0694 16.0435 15.3691 15.6425 15.8585C15.481 16.0557 15.3022 16.2837 15.1185 16.5352C14.3837 17.5417 13.7573 18.6187 13.2416 19.8047C12.7334 20.9736 11.4663 21.3554 10.3793 20.9073C9.62942 20.5982 6.85529 19.0446 5.34316 16.9229L6.72163 14.5715C6.81552 14.4114 6.65954 14.2209 6.48401 14.2813L4.02382 15.128C4.02382 15.128 3.41069 14.154 3.12148 13.6563C2.53176 12.6411 3.05513 11.306 4.22597 10.7979C5.41371 10.2825 6.49267 9.65684 7.50038 8.92193C7.75429 8.73675 7.98314 8.5577 8.18043 8.39647ZM15.6425 15.8585L8.18043 8.39647"
-					stroke="currentColor"
-					strokeWidth="1.8"
 					strokeLinejoin="round"
 				/>
 			</symbol>
