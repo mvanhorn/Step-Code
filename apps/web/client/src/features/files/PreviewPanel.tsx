@@ -81,6 +81,8 @@ export function PreviewPanel({ embedded = false }: { readonly embedded?: boolean
 	const t = useT();
 	const open = useAppStore((state) => state.preview.open);
 	const changes = useAppStore((state) => state.preview.mode === "changes");
+	/* With no file open the tab strip and path toolbar would be empty bars above the empty state. */
+	const hasTab = Boolean(useActiveTab());
 	const panelRef = useRef<HTMLElement>(null);
 
 	// Before the first paint: restoring the width here avoids a jump from the default.
@@ -112,7 +114,7 @@ export function PreviewPanel({ embedded = false }: { readonly embedded?: boolean
 				hidden={embedded}
 			/>
 			<ChangesView hidden={!open || !changes} embedded={embedded} />
-			<div className="preview-tabs-row" hidden={changes}>
+			<div className="preview-tabs-row" hidden={changes || (embedded && !hasTab)}>
 				<PreviewTabs />
 				<IconButton
 					id="previewClose"
@@ -123,7 +125,7 @@ export function PreviewPanel({ embedded = false }: { readonly embedded?: boolean
 					hidden={embedded}
 				/>
 			</div>
-			<div className="preview-toolbar" hidden={changes}>
+			<div className="preview-toolbar" hidden={changes || !hasTab}>
 				<PreviewPath />
 				<PreviewTools />
 			</div>

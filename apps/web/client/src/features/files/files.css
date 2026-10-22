@@ -98,7 +98,7 @@
 	margin-left: auto;
 	overflow: hidden;
 	color: var(--ink-3);
-	font-size: 11px;
+	font-size: 12px;
 	text-overflow: ellipsis;
 }
 .file-note {
@@ -236,7 +236,7 @@
 .preview-path > small {
 	flex: none;
 	margin-left: 8px;
-	font-size: 11px;
+	font-size: 12px;
 }
 .preview-tools {
 	display: flex;
@@ -257,6 +257,25 @@
 	color: var(--ink-3);
 	font-size: 13px;
 	text-align: center;
+}
+/* The empty changes panel: one centred mark and line rather than a caption pinned to the top. */
+.changes-empty {
+	display: grid;
+	flex: 1;
+	place-content: center;
+	justify-items: center;
+	gap: 10px;
+	/* Centred in whatever pane holds it: changes, file preview and subagents share this empty state. */
+	min-height: max(240px, 100%);
+}
+/* Directly in the panel column it fills the space left under the header instead. */
+.right-panel > .changes-empty {
+	min-height: 0;
+}
+.changes-empty > .icon {
+	width: 20px;
+	height: 20px;
+	color: var(--ink-3);
 }
 .preview-image {
 	display: block;
@@ -307,8 +326,8 @@
 	user-select: none;
 }
 .tok-comment {
+	/* Colour alone: a synthesized italic slants CJK comments, and Geist Mono has no true italic. */
 	color: var(--tok-comment);
-	font-style: italic;
 }
 .tok-string {
 	color: var(--tok-string);
@@ -318,6 +337,7 @@
 }
 .tok-keyword {
 	color: var(--tok-keyword);
+	font-weight: 600;
 }
 .tok-key {
 	color: var(--tok-key);
@@ -342,6 +362,9 @@
 	flex: 1;
 	flex-direction: column;
 	min-height: 0;
+}
+.changes-header[hidden] {
+	display: none;
 }
 .changes-header {
 	display: flex;
@@ -390,7 +413,7 @@
 }
 .changes-tools .icon-button {
 	width: 28px;
-	height: 26px;
+	height: 28px;
 	color: var(--ink-2);
 }
 .changes-tools .icon-button:disabled {
@@ -410,7 +433,8 @@
 .changes-files {
 	flex: 1;
 	min-height: 0;
-	overflow: auto;
+	overflow-x: hidden;
+	overflow-y: auto;
 	list-style: none;
 }
 .changes-file {
@@ -469,9 +493,9 @@
 	border-radius: var(--radius-input);
 	background: var(--surface);
 	color: var(--ink-2);
-	box-shadow: 0 6px 18px var(--shadow);
+	box-shadow: var(--elev-2);
 	content: attr(data-tooltip);
-	font-size: 11px;
+	font-size: 12px;
 	font-weight: 400;
 	overflow-wrap: anywhere;
 	pointer-events: none;
@@ -510,28 +534,21 @@
 	display: inline-grid;
 	flex: none;
 	place-items: center;
-	width: 18px;
-	height: 18px;
+	/* 20px tile with 11px letters: the app's smallest legible size. */
+	width: 20px;
+	height: 20px;
 	border-radius: var(--radius-tiny);
-	color: var(--ink-3);
-	font: 700 10px / 1 var(--mono);
+	background: var(--surface-soft);
+	color: var(--ink-2);
+	font: 600 11px / 1 var(--mono);
 	letter-spacing: -0.04em;
 }
+/* The badge's letters name the file type; colour stays neutral so green and red keep meaning +/- lines. */
 .changes-file-badge.markdown {
-	color: var(--success);
-	font-size: 11px;
-}
-.changes-file-badge.markup {
-	background: color-mix(in srgb, var(--attention) 20%, transparent);
-	color: color-mix(in srgb, var(--attention) 70%, var(--danger));
+	font-size: 12px;
 }
 .changes-file-badge.script {
-	background: color-mix(in srgb, var(--accent) 14%, transparent);
-	color: var(--accent);
 	font-size: 8px;
-}
-.changes-file-badge.data {
-	color: var(--attention-ink);
 }
 .changes-file-action {
 	flex: none;
@@ -542,8 +559,12 @@
 .changes-file-action:disabled {
 	opacity: 0.35;
 }
+/* Each file's diff scrolls sideways on its own; the file rows above it stay put. */
 .changes-diff {
-	min-width: max-content;
+	/* One column as wide as the longest line (never narrower than the panel), so every row's tint spans it. */
+	display: grid;
+	grid-template-columns: minmax(100%, max-content);
+	overflow-x: auto;
 	padding: 4px 0 10px;
 	font: 13px / 21.5px var(--mono);
 	tab-size: 4;

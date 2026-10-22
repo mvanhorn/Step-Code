@@ -51,6 +51,8 @@ export interface MarkdownFileReference {
 export interface MarkdownOptions {
 	readonly localFiles?: boolean;
 	readonly onFileReference?: (reference: MarkdownFileReference) => void;
+	/** Colours a fenced block; returns escaped HTML. Without it code is plain escaped text. */
+	readonly highlightCode?: (code: string, language: string) => string;
 }
 
 function renderInline(value: string): string {
@@ -161,6 +163,8 @@ export function renderMarkdown(value: unknown, labels: MarkdownLabels, options: 
 	const blocks: string[] = [];
 	const inlines: string[] = [];
 	const definitions = new Map<string, string>();
+	const fenceHtml = (code: string, language: string): string =>
+		options.highlightCode ? options.highlightCode(code, language.toLowerCase()) : escapeHtml(code);
 	const source = String(value)
 		.replace(/[\u0000\u0001]/g, "")
 		.replace(/\r\n?/g, "\n")
@@ -170,7 +174,7 @@ export function renderMarkdown(value: unknown, labels: MarkdownLabels, options: 
 				const label = language.trim() || labels.code;
 				const index =
 					blocks.push(
-						`<div class="code-block"><div class="code-block-header"><span>${escapeHtml(label)}</span><button class="copy-code" type="button">${escapeHtml(labels.copy)}</button></div><pre><code>${escapeHtml(code.replace(/\n$/, ""))}</code></pre></div>`,
+						`<div class="code-block"><div class="code-block-header"><span>${escapeHtml(label)}</span><button class="copy-code" type="button">${escapeHtml(labels.copy)}</button></div><pre><code>${fenceHtml(code.replace(/\n$/, ""), language.trim().split(/\s+/)[0] ?? "")}</code></pre></div>`,
 					) - 1;
 				return `\u0000${index}\u0000`;
 			},
@@ -185,7 +189,7 @@ export function renderMarkdown(value: unknown, labels: MarkdownLabels, options: 
 	// Protect inline code and links before formatting so URL punctuation and HTML
 	// attributes cannot be interpreted as Markdown. Fenced code is already protected.
 	const inlineSource = source.replace(
-		/`([^`]+)`|\[([^\]\n]+)\]\([ \t]*(<[^<>\n]+>|(?:[^\s()<>]|\([^()\n]*\))+)[ \t]*\)|\[([^\]\n]+)\]\[([^\]\n]*)\]|https?:\/\/[^\s<>\u0000\u0001\u0002]+/g,
+		/`([^`]+)`|\[([^\]\n]+)\]\([ \t]*(<[^<>\n]+>|(?:[^\s()<>]|\([^()\n]*\))+)[ \t]*\)|\[([^\]\n]+)\]\[([^\]\n]*)\]|https?:\/\/[^\s<>\u0000\u0001\u0002，。、；：！？）」』】》]+/g,
 		(
 			match,
 			code: string | undefined,
@@ -207,6 +211,11 @@ export function renderMarkdown(value: unknown, labels: MarkdownLabels, options: 
 				html = destination ? renderLink(referenceLabel, destination, options) : escapeHtml(match);
 			} else {
 				let url = match.replace(/[.,!?;:，。！？；：、]+$/, "");
+				// A CJK path segment is part of the address, but CJK after the query starts is the sentence
+				// resuming (`?ref=main这个分支`): real query values arrive percent-encoded.
+				const query = url.indexOf("?");
+				const prose = query < 0 ? -1 : url.slice(query).search(/[\u3000-\u9fff\uff00-\uffef]/);
+				if (prose > 0) url = url.slice(0, query + prose);
 				while (url.endsWith(")") && url.split(")").length > url.split("(").length) url = url.slice(0, -1);
 				suffix = match.slice(url.length);
 				html = renderLink(url, url, options);
@@ -219,10 +228,14 @@ export function renderMarkdown(value: unknown, labels: MarkdownLabels, options: 
 		.replace(/^## (.+)$/gm, "<h3>$1</h3>")
 		.replace(/^# (.+)$/gm, "<h2>$1</h2>")
 		.replace(/^[-*] (.+)$/gm, '<span class="md-li">$1</span>')
+		// One level of nesting: an indented bullet hangs under its parent item.
+		.replace(/^[ \t]{2,}[-*] (.+)$/gm, '<span class="md-li md-li-nested">$1</span>')
+		// Ordered items keep their own number, set in a hanging gutter like the bullet.
+		.replace(/^(\d{1,3})[.)] (.+)$/gm, '<span class="md-li md-ol" data-n="$1">$2</span>')
 		// Headings and code blocks are blocks: the line breaks around them would only add empty lines.
 		.replace(/\n*(<h[234]>.*?<\/h[234]>|\u0000\d+\u0000)\n*/g, "$1")
 		// List items are blocks too; only the line break after each one goes.
-		.replace(/(<span class="md-li">.*?<\/span>)\n(?!\n)/g, "$1")
+		.replace(/(<span class="md-li[^"]*"(?: data-n="\d+")?>.*?<\/span>)\n(?!\n)/g, "$1")
 		// A blank line separates paragraphs with a small gap rather than a whole empty line.
 		.replace(/\n\n/g, '<span class="md-gap"></span>')
 		.replace(/\n/g, "<br>");

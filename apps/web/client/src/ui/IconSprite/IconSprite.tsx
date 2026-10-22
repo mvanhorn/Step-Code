@@ -45,6 +45,7 @@ export const MISSING_FROM_LIBRARY = [
 	"wand",
 	"prompt",
 	"stepPlatform",
+	"user",
 	"keyRound",
 	"accountCheck",
 	"accountExternal",
@@ -68,6 +69,7 @@ export const MISSING_FROM_LIBRARY = [
 	"loaderCircle",
 	"triangleAlert",
 	"disclosure",
+	"stepcode",
 ] as const;
 
 /*
@@ -100,10 +102,12 @@ export const MISSING_FROM_LIBRARY = [
  * - palette: 调色板 / 外观主题
  * - wand: 魔法棒（技能 Skills）
  * - prompt: 命令提示符（无边框的 ›_ ，区别于带框终端）
+ * - stepcode: StepCode 品牌标识（紫色圆弧 + 琥珀色提示符），双色，由 --mark-arc / --mark-chevron 着色
  */
 
 export const ICON_NAMES = [
 	"stepPlatform",
+	"user",
 	"keyRound",
 	"accountCheck",
 	"accountExternal",
@@ -151,6 +155,7 @@ export const ICON_NAMES = [
 	"close-sm",
 	"brain",
 	"disclosure",
+	"stepcode",
 	"cube",
 	"check",
 	"star",
@@ -222,6 +227,19 @@ export function IconSprite() {
 			>
 				<path d="M20 6 9 17l-5-5" />
 			</symbol>
+			{/* Lucide user-round (ISC): the account entry, drawn in the same line weight as its neighbours. */}
+			<symbol
+				id="i-user"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<circle cx="12" cy="8" r="4.5" />
+				<path d="M20 21a8 8 0 0 0-16 0" />
+			</symbol>
 			<symbol
 				id="i-accountExternal"
 				viewBox="0 0 24 24"
@@ -243,6 +261,31 @@ export function IconSprite() {
 				strokeLinejoin="round"
 			>
 				<path d="m16 17 5-5-5-5M21 12H9M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+			</symbol>
+			{/*
+			 * The StepCode mark (the sign-in logo): two colours, so it does not use
+			 * currentColor. `--mark-arc` / `--mark-chevron` recolour it, and
+			 * `--mark-draw` (0..1, registered in stream.css) draws the chevron in.
+			 */}
+			<symbol id="i-stepcode" viewBox="0 0 48 48" fill="none">
+				<path
+					d="M34.6 13.4A15 15 0 1 0 34.6 34.6"
+					strokeWidth="7"
+					strokeLinecap="round"
+					style={{ stroke: "var(--mark-arc, #8f7cff)" }}
+				/>
+				<path
+					d="m21 17.5 6.5 6.5-6.5 6.5"
+					pathLength={1}
+					strokeWidth="4.2"
+					strokeLinecap="round"
+					strokeLinejoin="round"
+					style={{
+						stroke: "var(--mark-chevron, #f6b73c)",
+						strokeDasharray: 1,
+						strokeDashoffset: "calc(1 - var(--mark-draw, 1))",
+					}}
+				/>
 			</symbol>
 			<symbol id="i-stepPlatform" viewBox="0 0 24 24" fill="currentColor">
 				<rect x="9" y="2" width="6" height="6" />

@@ -1,6 +1,6 @@
 import { type CSSProperties, useLayoutEffect, useRef, useState } from "react";
 import { Composer, ImagePreview, SelectionDialog } from "./features/composer";
-import { ConversationStream, FeedbackModal, StreamNav } from "./features/conversation";
+import { ConversationStream, FeedbackModal, SessionHeader, StreamNav } from "./features/conversation";
 import { FileTreePanel } from "./features/files";
 import { RightPanel, RightToolRail } from "./features/inspector";
 import { LoginGate } from "./features/login";
@@ -33,6 +33,7 @@ import { IconSprite } from "./ui";
  *     aside.sidebar      sidebar nav | files tree | shell user area (account, remote control, settings gear)
  *     #sidebarResizer    sidebar
  *     main.main          shell show button | files show button | market cron/market views
+ *                        | conversation #sessionHeader (title, project, branch, status)
  *                        | conversation stream
  *                        | conversation stream-nav (locator rail over the stream's right edge)
  *                        | .composer-zone > composer form (workspace pill above the card)
@@ -106,6 +107,7 @@ export function App() {
 					<SidebarShowButton />
 					<CronView />
 					<MarketView />
+					<SessionHeader />
 					<ConversationStream />
 					<StreamNav />
 					<div className="composer-zone">

@@ -46,6 +46,8 @@ export function AccountPage() {
 	const selected = methods.data?.methods.find((method) => method.id === profile);
 	const environment = login?.source === "environment";
 	const disabled = busy || running || environment || refreshing || !!refreshError;
+	// Signed in with the selected method already: signing in is a repair, not the page's main action.
+	const current = Boolean(login?.configured && login.validity !== "invalid" && login.profile === profile);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: revision requests a fresh host credential report.
 	useEffect(() => {
@@ -126,6 +128,7 @@ export function AccountPage() {
 		<>
 			<PageHeader
 				title={t("settingsAccount")}
+				description={t("settingsAccountDesc")}
 				actions={
 					<Tooltip content={t("settingsAccountRefresh")}>
 						<IconButton
@@ -147,23 +150,30 @@ export function AccountPage() {
 				</span>
 				<div className="settings-account-identity-text">
 					<strong id="settingsAccountLabel">{accountLabel(t, login)}</strong>
-					<StatusDot tone={verified ? "success" : rejected ? "danger" : "off"} label={t(status)} />
+					{/* Signed out, the label above already says so; the line points at the way in instead. */}
+					<StatusDot
+						tone={verified ? "success" : rejected ? "danger" : "off"}
+						label={login?.configured ? t(status) : t("settingsAccountConnectHint")}
+					/>
 					{login?.userId && (
 						<span className="settings-account-uid">{t("settingsAccountUid", { uid: login.userId })}</span>
 					)}
 				</div>
-				<Tooltip content={t("settingsLogoutDesc")}>
-					<button
-						type="button"
-						className="settings-btn settings-account-logout"
-						id="logoutButton"
-						disabled={busy}
-						onClick={() => void logout()}
-					>
-						<Icon name="accountLogout" size="xs" />
-						{t("logout")}
-					</button>
-				</Tooltip>
+				{/* Nothing to sign out of without an account. */}
+				{login?.configured ? (
+					<Tooltip content={t("settingsLogoutDesc")}>
+						<button
+							type="button"
+							className="settings-btn settings-account-logout"
+							id="logoutButton"
+							disabled={busy}
+							onClick={() => void logout()}
+						>
+							<Icon name="accountLogout" size="xs" />
+							{t("logout")}
+						</button>
+					</Tooltip>
+				) : null}
 			</section>
 			{refreshing && (
 				<output className="settings-loading">
@@ -250,7 +260,7 @@ export function AccountPage() {
 						<div className="settings-account-actions">
 							<button
 								type="submit"
-								className="settings-btn primary"
+								className={current ? "settings-btn" : "settings-btn primary"}
 								id="settingsAccountLogin"
 								disabled={disabled || !selected || (selected.credentialSource === "apiKey" && !apiKey.trim())}
 							>
@@ -260,7 +270,9 @@ export function AccountPage() {
 										? selected?.credentialSource === "browser"
 											? "loginBrowserWaiting"
 											: "loginVerifying"
-										: "settingsAccountSignIn",
+										: current
+											? "settingsAccountSignInAgain"
+											: "settingsAccountSignIn",
 								)}
 							</button>
 							{busy && selected?.credentialSource === "browser" && (

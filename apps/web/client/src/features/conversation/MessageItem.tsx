@@ -1,5 +1,5 @@
 import { memo, useMemo, useRef, useState } from "react";
-import { formatRelativeTime, useT } from "../../i18n";
+import { formatRelativeTime, useRelativeTimeClock, useT } from "../../i18n";
 import { type AttachedFile, FILE_MARKER, markAttachedFiles, splitAttachedFiles } from "../../lib/attached-files";
 import { formatBytes, formatTokens } from "../../lib/format";
 import { escapeHtml, pluginInstallInvocation, renderMarkdown, skillInvocation } from "../../lib/markdown";
@@ -8,6 +8,7 @@ import { setUi, useAppStore } from "../../state/store";
 import type { MessageTimelineItem } from "../../state/types";
 import { Icon, LEGACY_ICONS, MarkdownView } from "../../ui";
 import { openFileReference } from "../files/actions";
+import { highlightFence } from "../files/index";
 import { forkAtEntry } from "./actions";
 import { openFeedback, type Sentiment } from "./feedback";
 import { useFadeIn, useSmoothText } from "./streaming";
@@ -61,13 +62,13 @@ export const MessageItem = memo(function MessageItem({
 			return renderMarkdown(
 				content,
 				{ code: codeLabel, copy: copyLabel, table: tableLabel },
-				{ localFiles: role === "assistant" && Boolean(cwd) },
+				{ localFiles: role === "assistant" && Boolean(cwd), highlightCode: highlightFence },
 			);
-		return renderMarkdown(markAttachedFiles(content, files), {
-			code: codeLabel,
-			copy: copyLabel,
-			table: tableLabel,
-		}).replace(FILE_MARKER, (_match, index: string) => fileChipHtml(files[Number(index)]));
+		return renderMarkdown(
+			markAttachedFiles(content, files),
+			{ code: codeLabel, copy: copyLabel, table: tableLabel },
+			{ highlightCode: highlightFence },
+		).replace(FILE_MARKER, (_match, index: string) => fileChipHtml(files[Number(index)]));
 	}, [content, files, codeLabel, copyLabel, tableLabel, role, cwd]);
 	useFadeIn(bodyRef, html, live);
 	if (item.error) return <MessageError entryId={item.entryId} error={item.error} />;
@@ -174,6 +175,7 @@ function MessageError({ entryId, error }: { readonly entryId?: string; readonly 
  * thumbs-down with no detail is much less useful than one with a topic.
  */
 export function MessageActions({ messages }: { readonly messages: readonly MessageTimelineItem[] }) {
+	useRelativeTimeClock();
 	const t = useT();
 	const [vote, setVote] = useState<Sentiment | null>(null);
 	const tokens = messages.reduce((sum, item) => sum + (item.usage ? item.usage.input + item.usage.output : 0), 0);

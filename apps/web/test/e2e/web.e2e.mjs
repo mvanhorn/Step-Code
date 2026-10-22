@@ -834,6 +834,11 @@ test(
   "the file tree loads one level at a time and folders expand and collapse",
   { skip },
   async () => {
+    // The settings view makes the workspace inert; earlier tests leave it open.
+    await browser.run(`
+		if (!$("#settingsView").hidden) $("#settingsBack").click();
+		await until(() => $("#settingsView").hidden, "settings view to close before the tree");
+	`)
     await browser.chord("KeyP", "p", ALT_META)
     const top = await browser.run(`
 		await until(() => $("#fileTree").classList.contains("open") && treeRows().length, "tree to open");

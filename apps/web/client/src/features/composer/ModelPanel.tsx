@@ -144,7 +144,8 @@ function ModelRows({ candidates, pinned, currentKey, pinnable, onPin, onSelect }
 	for (const model of candidates) {
 		const key = modelKey(model);
 		if (!othersLabelled && !pinned.includes(key)) {
-			rows.push(<PopoverGroupLabel key="others-label">{t("others")}</PopoverGroupLabel>);
+			// "Other" only reads right below pinned rows; heading the whole list it is just "Models".
+			rows.push(<PopoverGroupLabel key="others-label">{t(rows.length ? "others" : "allModels")}</PopoverGroupLabel>);
 			othersLabelled = true;
 		}
 		rows.push(
@@ -153,7 +154,8 @@ function ModelRows({ candidates, pinned, currentKey, pinnable, onPin, onSelect }
 				id={key}
 				icon="cube"
 				title={model.name || model.id}
-				description={model.id}
+				// The id only adds information when the model has a display name of its own.
+				description={model.name && model.name !== model.id ? model.id : undefined}
 				meta={modelMeta(model)}
 				selected={key === currentKey}
 				pinned={pinnable ? pinned.includes(key) : false}

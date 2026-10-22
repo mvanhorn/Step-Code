@@ -149,3 +149,31 @@ test("leaves pipes without a delimiter row as text", () => {
 	assert.equal(renderMarkdown("| a | b |", labels), "| a | b |");
 	assert.equal(renderMarkdown("| a | b |\n|---|", labels), "| a | b |<br>|---|");
 });
+
+test("nests indented bullets and keeps ordered numbers in a hanging gutter", () => {
+	const html = renderMarkdown("- parent\n  - child\n1. first\n2) second\n\ntext", labels);
+	assert.equal(
+		html,
+		'<span class="md-li">parent</span><span class="md-li md-li-nested">child</span>' +
+			'<span class="md-li md-ol" data-n="1">first</span><span class="md-li md-ol" data-n="2">second</span>' +
+			'<span class="md-gap"></span>text',
+	);
+});
+
+test("passes a fence's language to the code highlighter and keeps unhighlighted fences escaped", () => {
+	const seen: string[] = [];
+	const html = renderMarkdown("```TypeScript extra\nconst a = 1;\n```", labels, {
+		highlightCode: (code, language) => {
+			seen.push(`${language}:${code}`);
+			return `<span class="tok-keyword">const</span>${code.slice(5)}`;
+		},
+	});
+	assert.deepEqual(seen, ["typescript:const a = 1;"]);
+	assert.match(html, /<code><span class="tok-keyword">const<\/span> a = 1;<\/code>/);
+	assert.match(renderMarkdown("```\n<b>\n```", labels), /<code>&lt;b&gt;<\/code>/);
+});
+
+test("ends a bare URL where the sentence resumes after its query", () => {
+	const html = renderMarkdown("看 https://git.example.com/a/tree/x?ref_type=heads这个分支上，然后加一个流水线", labels);
+	assert.match(html, /href="https:\/\/git.example.com\/a\/tree\/x\?ref_type=heads"[^>]*>[^<]*<\/a>这个分支上，然后/);
+});

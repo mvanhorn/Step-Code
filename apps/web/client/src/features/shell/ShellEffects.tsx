@@ -108,7 +108,8 @@ function handleKeydown(event: KeyboardEvent): void {
 		event.preventDefault();
 		openSearch();
 	}
-	if (event.key === "Escape") handleEscape();
+	// A handled Escape (an overlay closed itself, or a field consumed it) closes nothing else.
+	if (event.key === "Escape" && !event.defaultPrevented) handleEscape();
 }
 
 export function ShellEffects() {

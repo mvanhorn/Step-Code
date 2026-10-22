@@ -78,13 +78,19 @@ export function recordedMessage(entry: SessionEntry): { role: string; content: u
 	return { role: message.role, content };
 }
 
+/** One-line preview of a recorded message, read as prose: Markdown emphasis, code ticks and line marks are dropped. */
 export function messagePreview(entry: SessionEntry): string {
 	const content = entry.message?.content;
-	if (typeof content === "string") return content;
-	return (
-		content
-			?.map((part) => part.text ?? part.name ?? "")
-			.filter(Boolean)
-			.join(" ") ?? ""
-	);
+	const text =
+		typeof content === "string"
+			? content
+			: (content
+					?.map((part) => part.text ?? part.name ?? "")
+					.filter(Boolean)
+					.join(" ") ?? "");
+	return text
+		.replace(/\*\*|__|`+/g, "")
+		.replace(/(^|\s)(#{1,6}|>|[-*+])\s+/g, "$1")
+		.replace(/\s+/g, " ")
+		.trim();
 }

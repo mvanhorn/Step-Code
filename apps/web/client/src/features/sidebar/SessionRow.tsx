@@ -1,5 +1,5 @@
 import type { KeyboardEvent, MouseEvent } from "react";
-import { formatRelativeTime, useT } from "../../i18n";
+import { formatRelativeTime, useRelativeTimeClock, useT } from "../../i18n";
 import { cx } from "../../lib/format";
 import { openSession, sessionTitle, taskStatus } from "../../state/session";
 import { mapWith, setState, shallowEqual, useAppStore } from "../../state/store";
@@ -21,6 +21,7 @@ export interface SessionRowProps {
 /** One conversation row (legacy `buildSessionRow`, 760-819). */
 export function SessionRow({ session, grouped = false, filteredOut = false }: SessionRowProps) {
 	const t = useT();
+	useRelativeTimeClock();
 	const row = useAppStore((state) => {
 		const tag = state.tags.get(session.id);
 		// The project and grouped views both render a row per session; only the visible one owns its menus.
@@ -28,7 +29,7 @@ export function SessionRow({ session, grouped = false, filteredOut = false }: Se
 		return {
 			status: taskStatus(state, session),
 			unread: state.unreadById.get(session.id) === true,
-			active: state.current?.id === session.id,
+			active: (state.ui.openingSession ?? state.current?.id) === session.id,
 			tag,
 			tagName: tag ? groupName(state.groups, tag) : "",
 			view: state.currentView,
@@ -104,8 +105,8 @@ export function SessionRow({ session, grouped = false, filteredOut = false }: Se
 						<button
 							className="session-tag-button"
 							type="button"
-							title={t("groups")}
-							aria-label={t("groups")}
+							title={t("setGroup")}
+							aria-label={t("setGroup")}
 							aria-haspopup="menu"
 							aria-expanded={row.tagPickerOpen}
 							aria-controls="tagPicker"
@@ -130,8 +131,8 @@ export function SessionRow({ session, grouped = false, filteredOut = false }: Se
 					<button
 						className="session-menu-button"
 						type="button"
-						title={t("settings")}
-						aria-label={t("settings")}
+						title={t("moreActions")}
+						aria-label={t("moreActions")}
 						aria-haspopup="menu"
 						aria-expanded={row.menuOpen}
 						aria-controls="sessionMenu"

@@ -6,7 +6,7 @@
 
 import { useT } from "../../i18n";
 import { useAppStore } from "../../state/store";
-import { IconButton, Toast } from "../../ui";
+import { Icon, IconButton, Toast } from "../../ui";
 import { toggleSidebar } from "./actions";
 
 /**
@@ -62,7 +62,9 @@ export function LoggedOutOverlay() {
 	return (
 		<div className="logged-out-overlay" id="loggedOutOverlay" hidden={!open}>
 			<div>
-				<div className="brand-mark">S</div>
+				<div className="brand-mark" aria-hidden="true">
+					<Icon name="stepcode" />
+				</div>
 				<h2>{t("loggedOut")}</h2>
 				<p>{t("loggedOutHint")}</p>
 			</div>

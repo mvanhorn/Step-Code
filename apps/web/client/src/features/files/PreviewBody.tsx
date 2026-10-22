@@ -10,7 +10,7 @@ import { basename, cx, formatBytes } from "../../lib/format";
 import { renderMarkdown } from "../../lib/markdown";
 import { copyText } from "../../state/session";
 import { type PreviewTab, useAppStore } from "../../state/store";
-import { MarkdownView } from "../../ui";
+import { Icon, MarkdownView } from "../../ui";
 import { openFileReference } from "./actions";
 import { codeViewHtml, isMarkdownPath, PREVIEW_LINE_LIMIT } from "./highlight";
 
@@ -114,7 +114,14 @@ export function PreviewBody({ hidden = false }: { readonly hidden?: boolean }) {
 
 	return (
 		<div className="preview-body" id="previewBody" ref={bodyRef} hidden={hidden}>
-			{tab ? <PreviewContent tab={tab} /> : <PreviewMessage>{t("rightNoFiles")}</PreviewMessage>}
+			{tab ? (
+				<PreviewContent tab={tab} />
+			) : (
+				<div className="preview-message changes-empty">
+					<Icon name="fileText" />
+					{t("rightNoFiles")}
+				</div>
+			)}
 		</div>
 	);
 }

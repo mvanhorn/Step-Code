@@ -867,14 +867,18 @@ export async function refreshWorkspaces(): Promise<void> {
 /** Open a session and follow its stream (legacy `openSession`, 3122-3130). */
 export async function openSession(id: string): Promise<void> {
 	choseSession = true;
-	setUi({ midView: null, childView: null });
+	setUi({ midView: null, childView: null, openingSession: id });
 	setState({ pendingTurn: null });
 	try {
 		const snapshot = await api<SessionSnapshot>(`/api/v1/sessions/${id}`);
+		// A later pick owns the pane; this answer arriving late must not repaint it.
+		if (getState().ui.openingSession !== id) return;
 		renderSnapshot(snapshot);
 		connectStream(id);
 	} catch (error) {
-		showError(errorMessage(error));
+		if (getState().ui.openingSession === id) showError(errorMessage(error));
+	} finally {
+		if (getState().ui.openingSession === id) setUi({ openingSession: null });
 	}
 }
 
@@ -908,8 +912,9 @@ export function startDraft(cwd: string = getState().bootstrapCwd): void {
 			draftCwd,
 		};
 	});
-	// A new conversation replaces whatever covers the pane (cron / plugin market, a child agent).
-	setUi({ midView: null, childView: null });
+	// A new conversation replaces whatever covers the pane (cron / plugin market, a child agent),
+	// and a session still loading from an earlier pick.
+	setUi({ midView: null, childView: null, openingSession: null });
 	requestPromptFocus();
 	void loadDraftModels(draftCwd);
 }

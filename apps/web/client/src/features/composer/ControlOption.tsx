@@ -141,6 +141,7 @@ export function ControlMenu({
 				className="control-popover"
 				id={popoverId}
 				role="listbox"
+				aria-label={title}
 				placement={placement}
 				open={open}
 				onClose={onClose}

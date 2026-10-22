@@ -99,7 +99,7 @@
 	padding: 4px 8px;
 	border-radius: var(--radius-surface);
 	text-align: left;
-	font-weight: 550;
+	font-weight: 500;
 	font-size: 13px;
 	transition: background-color var(--fast);
 }
@@ -160,7 +160,7 @@
 	width: 100%;
 	text-align: left;
 	color: var(--clarification-muted);
-	font-weight: 550;
+	font-weight: 500;
 	overflow-wrap: anywhere;
 }
 .composer .clarification-custom textarea {
@@ -183,7 +183,7 @@
 .clarification-actions button {
 	min-height: 28px;
 	padding: 3px 10px;
-	border-radius: var(--radius-pill);
+	border-radius: var(--radius-control);
 	font-size: 13px;
 	font-weight: 600;
 	white-space: nowrap;
@@ -195,8 +195,11 @@
 	background: var(--surface-soft);
 }
 .clarification-confirm {
-	background: var(--ink);
-	color: var(--surface);
+	background: var(--action);
+	color: var(--action-ink);
+}
+.clarification-confirm:hover:not(:disabled) {
+	background: var(--action-hover);
 }
 .clarification-confirm:disabled {
 	background: color-mix(in srgb, var(--ink-3) 85%, var(--surface));
