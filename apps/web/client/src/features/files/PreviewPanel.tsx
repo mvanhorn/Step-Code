@@ -93,7 +93,10 @@ export function PreviewPanel({ embedded = false }: { readonly embedded?: boolean
 	const t = useT();
 	const open = useAppStore((state) => state.preview.open);
 	const changes = useAppStore((state) => state.preview.mode === "changes");
+	const active = useActiveTab();
 	const panelRef = useRef<HTMLElement>(null);
+	// The panel names what it is showing: a file, a diff, or a side question.
+	const title = active?.kind === "btw" ? t("rightBtw") : t("filePreview");
 
 	// Before the first paint: restoring the width here avoids a jump from the default.
 	useLayoutEffect(() => {
@@ -103,14 +106,7 @@ export function PreviewPanel({ embedded = false }: { readonly embedded?: boolean
 	const panelWidth = () => panelRef.current?.getBoundingClientRect().width ?? PREVIEW_DEFAULT;
 
 	return (
-		<aside
-			className="preview-panel"
-			id="previewPanel"
-			ref={panelRef}
-			title={t("filePreview")}
-			aria-label={t("filePreview")}
-			hidden={!open}
-		>
+		<aside className="preview-panel" id="previewPanel" ref={panelRef} title={title} aria-label={title} hidden={!open}>
 			<ResizeHandle
 				bare
 				className="preview-resizer"

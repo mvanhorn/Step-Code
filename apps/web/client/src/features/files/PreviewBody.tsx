@@ -45,13 +45,15 @@ export function PreviewPath() {
 	);
 }
 
-/** The toolbar line of a side answer: what was asked, and by which model. */
+/**
+ * The toolbar line of a side answer. The question itself is the body's heading,
+ * so this only names the surface and the model that answered.
+ */
 function SideAnswerPath({ question, model }: { readonly question: string; readonly model?: string }) {
+	const t = useT();
 	return (
 		<div className="preview-path" id="previewPath" title={question}>
-			<span>
-				<bdi>{question.replace(/\s+/gu, " ").trim()}</bdi>
-			</span>
+			<strong>{t("rightBtw")}</strong>
 			{model ? <small>{model}</small> : null}
 		</div>
 	);
@@ -96,6 +98,7 @@ function SideAnswer({ tab }: { readonly tab: SideAnswerTab }) {
 	}
 	return (
 		<div className="side-answer" data-unavailable={tab.unavailable || undefined}>
+			<p className="side-answer-question">{tab.question}</p>
 			<MarkdownView
 				className="side-answer-body message-body"
 				html={html}

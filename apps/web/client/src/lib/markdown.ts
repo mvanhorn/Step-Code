@@ -214,19 +214,40 @@ export function renderMarkdown(value: unknown, labels: MarkdownLabels, options: 
 			return `\u0001${inlines.push(html) - 1}\u0001${suffix}`;
 		},
 	);
-	const html = renderInline(protectTables(inlineSource, blocks, labels).replace(/\n{3,}/g, "\n\n"))
+	// Blockquotes are extracted after inline protection and rendered as their own
+	// block: a quoted line is prose with inline formatting, not a stray ">".
+	const quotes: string[] = [];
+	const withoutQuotes = inlineSource.replace(/(?:^ {0,3}>[ \t]?.*(?:\n|$))+/gm, (block) => {
+		const inner = block.replace(/^ {0,3}>[ \t]?/gm, "").replace(/\n+$/, "");
+		return `\u0003${quotes.push(inner) - 1}\u0003`;
+	});
+	const html = renderInline(protectTables(withoutQuotes, blocks, labels).replace(/\n{3,}/g, "\n\n"))
 		.replace(/^### (.+)$/gm, "<h4>$1</h4>")
 		.replace(/^## (.+)$/gm, "<h3>$1</h3>")
 		.replace(/^# (.+)$/gm, "<h2>$1</h2>")
+		// A line of only -, * or _ is a rule, never a list item or emphasis.
+		.replace(/^ {0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$/gm, "<hr>")
+		// An indented item is nested; a numbered item keeps the number the model wrote.
+		.replace(/^(\s{2,})[-*] (.+)$/gm, '<span class="md-li md-li-nested">$2</span>')
+		.replace(
+			/^([ \t]*)(\d+)\. (.+)$/gm,
+			(_match, indent: string, number: string, body: string) =>
+				`<span class="md-li md-oli${indent.length >= 2 ? " md-li-nested" : ""}" data-n="${number}">${body}</span>`,
+		)
 		.replace(/^[-*] (.+)$/gm, '<span class="md-li">$1</span>')
 		// Headings and code blocks are blocks: the line breaks around them would only add empty lines.
-		.replace(/\n*(<h[234]>.*?<\/h[234]>|\u0000\d+\u0000)\n*/g, "$1")
+		.replace(/\n*(<h[234]>.*?<\/h[234]>|<hr>|\u0000\d+\u0000)\n*/g, "$1")
 		// List items are blocks too; only the line break after each one goes.
-		.replace(/(<span class="md-li">.*?<\/span>)\n(?!\n)/g, "$1")
+		.replace(/(<span class="md-li[^>]*>.*?<\/span>)\n(?!\n)/g, "$1")
 		// A blank line separates paragraphs with a small gap rather than a whole empty line.
 		.replace(/\n\n/g, '<span class="md-gap"></span>')
 		.replace(/\n/g, "<br>");
 	return html
+		.replace(
+			/\u0003(\d+)\u0003/g,
+			(_match, index: string) =>
+				`<blockquote>${renderInline(quotes[Number(index)] ?? "").replace(/\n/g, "<br>")}</blockquote>`,
+		)
 		.replace(/\u0000(\d+)\u0000/g, (_match, index: string) => blocks[Number(index)] ?? "")
 		.replace(/\u0001(\d+)\u0001/g, (_match, index: string) => inlines[Number(index)] ?? "");
 }

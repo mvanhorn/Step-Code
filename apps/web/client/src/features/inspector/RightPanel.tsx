@@ -16,6 +16,7 @@ import { BrowserPanel } from "../browser";
 import { ChildAgentView } from "../conversation";
 import { PreviewPanel } from "../files";
 import { applyPreviewWidth, PREVIEW_DEFAULT, restorePreviewWidth } from "../files/actions";
+import { useActiveTab } from "../files/PreviewBody";
 import { toggleTerminalDock } from "../terminal/actions";
 import { ContextPanel } from "./ContextPanel";
 import { SummaryBoard } from "./SummaryBoard";
@@ -68,6 +69,12 @@ export function RightToolRail() {
 export function RightPanel() {
 	const t = useT();
 	const panel = useAppStore(activeRightPanel);
+	// A side answer shares the preview panel; its header names the surface, not the files.
+	const activeTab = useActiveTab();
+	const panelTitle =
+		panel === "files" && activeTab?.kind === "btw"
+			? t("rightBtw")
+			: t(PANELS.find((entry) => entry.id === panel)?.label ?? "rightTools");
 	const expanded = useAppStore((state) => state.ui.rightPanelExpanded);
 	const currentId = useAppStore((state) => state.current?.id);
 	const activityTurn = useAppStore(summaryActivityTurn);
@@ -118,7 +125,7 @@ export function RightPanel() {
 			id="rightPanel"
 			ref={ref}
 			className={`right-panel${summary ? " summary-board" : ""}${panel === "browser" ? " is-browser" : ""}${expanded ? " is-expanded" : ""}`}
-			aria-label={t(PANELS.find((entry) => entry.id === panel)?.label ?? "rightTools")}
+			aria-label={panelTitle}
 			hidden={!panel}
 		>
 			<ResizeHandle
@@ -133,11 +140,7 @@ export function RightPanel() {
 				hidden={summary}
 			/>
 			<header className="right-panel-header">
-				{summary ? (
-					<SummaryHeader data={data} />
-				) : (
-					<h2>{t(PANELS.find((entry) => entry.id === panel)?.label ?? "rightTools")}</h2>
-				)}
+				{summary ? <SummaryHeader data={data} /> : <h2>{panelTitle}</h2>}
 				{showStats && !summary ? (
 					<Tooltip content={t("refresh")}>
 						<IconButton

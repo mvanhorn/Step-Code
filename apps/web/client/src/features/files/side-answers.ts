@@ -13,9 +13,23 @@ import { api, errorMessage } from "../../lib/api";
 import { createSessionIfNeeded, installSideAnswerTabs } from "../../state/session";
 import { getState, type SideAnswerTab, setPreview } from "../../state/store";
 import type { SideAnswer } from "../../state/types";
+import { applyPreviewWidth, PREVIEW_MIN } from "./actions";
 
 /** Tabs opened by this page that have not received an answer yet, newest first. */
 const pendingTabs: SideAnswerTab[] = [];
+
+/**
+ * A side answer is prose with code and tables; it needs more room than a file
+ * peek. Open the rail at this width unless the reader already chose wider.
+ */
+const SIDE_ANSWER_WIDTH = 560;
+
+function ensureWidth(): void {
+	// The panel is a browser surface; a non-DOM caller (a unit test, a future
+	// headless host) still gets the tab and its state.
+	if (typeof window === "undefined") return;
+	if ((getState().ui.previewWidth ?? PREVIEW_MIN) < SIDE_ANSWER_WIDTH) applyPreviewWidth(SIDE_ANSWER_WIDTH);
+}
 
 function tab(answer: SideAnswer): SideAnswerTab {
 	return {
@@ -78,6 +92,7 @@ export function beginSideAnswer(question: string): string {
 		pending: true,
 	};
 	pendingTabs.push(tab);
+	ensureWidth();
 	setPreview((preview) => {
 		const tabs = [...preview.tabs, tab];
 		return { ...preview, tabs, active: tabs.length - 1, open: true, mode: "files" };
@@ -101,6 +116,7 @@ export function failSideAnswer(question: string, message: string): void {
 export function openSideAnswerTab(answer: SideAnswer): void {
 	const pending = takePending(answer.question);
 	const next = tab(answer);
+	ensureWidth();
 	setPreview((preview) => {
 		if (pending) {
 			const index = preview.tabs.findIndex((item) => item.kind === "btw" && item.id === pending.id);

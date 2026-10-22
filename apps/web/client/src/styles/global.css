@@ -364,6 +364,7 @@ select {
 .message-body .md-li {
   position: relative;
   display: block;
+  margin: 3px 0;
   padding-left: 1.1em;
 }
 .message-body .md-li::before {
@@ -375,6 +376,39 @@ select {
 .message-body .md-gap {
   display: block;
   height: 10px;
+}
+/*
+ * A quote is set back from the prose with a rule, and a horizontal rule is a
+ * block: both appear in answers that talk *about* Markdown, and showing their
+ * source characters there reads as broken rendering.
+ */
+.message-body blockquote {
+  margin: 12px 0;
+  padding: 2px 0 2px 12px;
+  border-left: 3px solid var(--line-strong);
+  color: var(--ink-3);
+}
+.message-body hr {
+  margin: 16px 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+}
+/* A numbered item keeps the number its author wrote. */
+.message-body .md-li.md-oli {
+  padding-left: 1.55em;
+}
+.message-body .md-li.md-oli::before {
+  left: 0.1em;
+  content: attr(data-n) ".";
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+/* Two-space indentation is one nesting level. */
+.message-body .md-li.md-li-nested {
+  padding-left: 2.2em;
+}
+.message-body .md-li.md-li-nested.md-oli {
+  padding-left: 3em;
 }
 .message-body .md-table-wrap {
   max-width: 100%;
