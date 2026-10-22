@@ -62,7 +62,7 @@ export function SidebarActions() {
 				title={t("pluginMarket")}
 				onClick={() => openMidView("market")}
 			>
-				<Icon name="puzzle" />
+				<Icon name="pluginMarket" />
 				<span>{t("pluginMarket")}</span>
 			</button>
 			<button
