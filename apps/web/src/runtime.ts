@@ -432,6 +432,8 @@ export class WebSession {
 	private status: WebSessionStatus = "idle";
 	private readonly closeListeners = new Set<() => void>();
 	private unread = false;
+	/** Pages following this session's event stream right now; a run that ends in front of one is already seen. */
+	private viewers = 0;
 	private unsubscribeSession?: () => void;
 	private unsubscribeRuntimeSessionChange?: () => void;
 	private releaseWriterLease?: () => void;
@@ -715,19 +717,20 @@ export class WebSession {
 				}
 			}
 			if (event.type === "agent_start") {
-				this.setStatus("running");
+				// A new run supersedes the outcome that was waiting to be seen.
+				this.setStatus("running", false);
 				this.holdQueue = false;
 				this.lastRunFailed = false;
 				this.lastRunAborted = false;
 			}
-			if (event.type === "agent_settled") this.setStatus("completed", true);
+			if (event.type === "agent_settled") this.setStatus("completed", this.unseen());
 			if (event.type === "agent_end") {
 				const stops = event.messages.flatMap((message) =>
 					message.role === "assistant" ? [message.stopReason] : [],
 				);
 				// A failure the kernel is about to retry is not the run's outcome: the
 				// session keeps running through the backoff (`auto_retry_start` follows).
-				if (stops.includes("error") && !event.willRetry) this.setStatus("failed", true);
+				if (stops.includes("error") && !event.willRetry) this.setStatus("failed", this.unseen());
 				this.lastRunFailed = stops.includes("error") || stops.includes("aborted");
 				// An error may also carry `aborted` after a retry gave up; the user's
 				// own stop is the case with no error at all.
@@ -772,12 +775,38 @@ export class WebSession {
 
 	publishError(message: string): void {
 		this.emit({ type: "error", message });
-		this.setStatus("failed", true);
+		this.setStatus("failed", this.unseen());
+	}
+
+	/** An outcome nobody is watching stays unread until a page opens the session. */
+	private unseen(): boolean {
+		return this.viewers === 0;
+	}
+
+	/** Status and unread flag, for session rows that do not follow this session's stream. */
+	liveStatus(): { status: WebSessionStatus; unread: boolean } {
+		return { status: this.status, unread: this.unread };
 	}
 
 	subscribe(listener: (event: WebEvent) => void): () => void {
 		this.listeners.add(listener);
 		return () => this.listeners.delete(listener);
+	}
+
+	/**
+	 * A page opened this session and follows its stream: whatever it ended with
+	 * is now seen, and so is any outcome reached while the page stays. The
+	 * returned release must be called once, when that stream closes.
+	 */
+	watch(): () => void {
+		this.viewers += 1;
+		if (this.unread) this.setStatus(this.status, false);
+		let released = false;
+		return () => {
+			if (released) return;
+			released = true;
+			this.viewers -= 1;
+		};
 	}
 
 	/** Called once when the session is closed; an SSE stream ends so the page reconnects. */
@@ -1303,7 +1332,19 @@ class WebSessionMetadataStore {
 /** Where session managers report their file writes (the host's session index). */
 export type SessionIndexSink = Pick<SessionIndex, "notifyPersisted">;
 
-export type WebSessionInfo = Omit<SessionInfo, "allMessagesText"> & { archived: boolean; cwdAvailable: boolean };
+/** Live state of a session open in the host; absent from a listing for sessions that are not open. */
+export interface WebSessionLiveStatus {
+	readonly id: string;
+	readonly status: WebSessionStatus;
+	readonly unread: boolean;
+}
+
+export type WebSessionInfo = Omit<SessionInfo, "allMessagesText"> & {
+	archived: boolean;
+	cwdAvailable: boolean;
+	status?: WebSessionStatus;
+	unread?: boolean;
+};
 
 /**
  * Forget every idle session in `sessions` and close it.
@@ -1407,6 +1448,14 @@ export class WebSessionStore {
 		}
 	}
 
+	/**
+	 * Status of every session open in this host. A session that is not open has
+	 * no run in progress and nothing unread, so the page shows it as settled.
+	 */
+	statuses(): WebSessionLiveStatus[] {
+		return [...this.sessions].map(([id, session]) => ({ id, ...session.liveStatus() }));
+	}
+
 	async list(): Promise<Array<WebSessionInfo>> {
 		await this.metadata.load();
 		const sessions = await listAllStepSessions({ agentDir: resolveStepAgentDir(), recursive: true });
@@ -1423,7 +1472,8 @@ export class WebSessionStore {
 					}
 					// Full message text is for searching only; the session index serves search now.
 					const { allMessagesText: _allMessagesText, ...summary } = session;
-					return { ...summary, archived: this.metadata.isArchived(session.id), cwdAvailable };
+					const live = this.sessions.get(session.id)?.liveStatus();
+					return { ...summary, archived: this.metadata.isArchived(session.id), cwdAvailable, ...live };
 				}),
 		);
 	}

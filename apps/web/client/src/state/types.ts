@@ -151,6 +151,13 @@ export interface SessionSummary {
 	readonly [key: string]: unknown;
 }
 
+/** One row of GET /api/v1/session-status: a session open in the host (runtime.ts `WebSessionLiveStatus`). */
+export interface SessionLiveStatus {
+	readonly id: string;
+	readonly status: SessionStatus;
+	readonly unread: boolean;
+}
+
 /** One hit of GET /api/v1/search (session-search.ts `WebSearchHit`). */
 export interface SessionSearchHit {
 	readonly sessionId: string;

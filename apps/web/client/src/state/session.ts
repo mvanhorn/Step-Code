@@ -35,6 +35,7 @@ import type {
 	QueueState,
 	SelectionRequest,
 	SessionEntry,
+	SessionLiveStatus,
 	SessionRetry,
 	SessionSnapshot,
 	SessionStatus,
@@ -847,7 +848,70 @@ export function connectStream(id: string): void {
 /** Reload the session list (legacy `refreshSessions`, 3111-3115). */
 export async function refreshSessions(): Promise<void> {
 	const data = await api<{ sessions: SessionSummary[] }>("/api/v1/sessions");
-	setState({ sessions: data.sessions });
+	setState((state) => {
+		const live = data.sessions.flatMap((session): SessionLiveStatus[] =>
+			session.status ? [{ id: session.id, status: session.status, unread: session.unread === true }] : [],
+		);
+		return {
+			sessions: data.sessions,
+			...foldLiveStatuses(
+				state,
+				live,
+				data.sessions.map((session) => session.id),
+			),
+		};
+	});
+}
+
+/**
+ * Re-read the host's status of the sessions this page does not follow. Their
+ * rows otherwise keep whatever status they had when the page left them, so a
+ * run that ended in the background would still read "running".
+ */
+export async function refreshSessionStatuses(): Promise<void> {
+	const data = await api<{ sessions: SessionLiveStatus[] }>("/api/v1/session-status");
+	setState((state) => {
+		const known = new Set([...state.statusById.keys(), ...state.unreadById.keys()]);
+		for (const entry of data.sessions) known.add(entry.id);
+		return foldLiveStatuses(state, data.sessions, known);
+	});
+}
+
+/**
+ * Status and unread flags with the host's `live` answer applied to every
+ * session in `known` (the sessions that answer covers). One of them missing
+ * from `live` is not open in the host: nothing runs there and nothing is
+ * unread, so its row falls back to its saved state. The session this page
+ * follows is left alone; its own stream is the fresher source.
+ */
+export function foldLiveStatuses(
+	state: Pick<AppState, "current" | "statusById" | "unreadById">,
+	live: readonly SessionLiveStatus[],
+	known: Iterable<string>,
+): Pick<AppState, "statusById" | "unreadById"> {
+	const byId = new Map(live.map((entry) => [entry.id, entry]));
+	const statusById = new Map(state.statusById);
+	const unreadById = new Map(state.unreadById);
+	for (const id of known) {
+		if (id === state.current?.id) continue;
+		const entry = byId.get(id);
+		if (entry) {
+			statusById.set(id, entry.status);
+			unreadById.set(id, entry.unread);
+		} else {
+			statusById.delete(id);
+			unreadById.delete(id);
+		}
+	}
+	return { statusById, unreadById };
+}
+
+/** A session this page does not follow is still running or waiting, as far as the page knows. */
+export function backgroundSessionBusy(state: Pick<AppState, "current" | "statusById">): boolean {
+	for (const [id, status] of state.statusById) {
+		if (id !== state.current?.id && (status === "running" || status === "waiting")) return true;
+	}
+	return false;
 }
 
 /** Reload the current session's snapshot (legacy `refreshCurrent`, 3117-3120). */

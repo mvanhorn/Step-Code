@@ -6,8 +6,8 @@
 
 import { useEffect } from "react";
 import { activeRightPanel, closeRightPanel } from "../../state/right-panel";
-import { activeCwd, interruptCurrent } from "../../state/session";
-import { type AppState, getState, setUi } from "../../state/store";
+import { activeCwd, backgroundSessionBusy, interruptCurrent, refreshSessionStatuses } from "../../state/session";
+import { type AppState, getState, setUi, useAppStore } from "../../state/store";
 import { answerSelection, pendingSelection } from "../composer/actions";
 import { openTree, setPreviewOpen } from "../files/actions";
 import { closeTopmostSettingsLayer } from "../settings/actions";
@@ -111,11 +111,26 @@ function handleKeydown(event: KeyboardEvent): void {
 	if (event.key === "Escape") handleEscape();
 }
 
+/** How often the rows of sessions running in the background are re-read. */
+const BACKGROUND_STATUS_POLL_MS = 2000;
+
 export function ShellEffects() {
 	useEffect(() => {
 		document.addEventListener("keydown", handleKeydown);
 		return () => document.removeEventListener("keydown", handleKeydown);
 	}, []);
 	useEffect(() => watchSystemTheme(), []);
+	// The page follows only the open session's stream; a run left in another
+	// session is polled until it ends, so its row turns from the running pulse
+	// into the unread dot without a click.
+	const backgroundBusy = useAppStore(backgroundSessionBusy);
+	useEffect(() => {
+		if (!backgroundBusy) return;
+		const timer = setInterval(() => {
+			// A failed poll leaves the rows as they were; the next tick retries.
+			void refreshSessionStatuses().catch(() => {});
+		}, BACKGROUND_STATUS_POLL_MS);
+		return () => clearInterval(timer);
+	}, [backgroundBusy]);
 	return null;
 }
