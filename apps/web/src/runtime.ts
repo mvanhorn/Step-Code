@@ -73,6 +73,7 @@ import {
 } from "./message-queue.ts";
 import { RetryTracker } from "./retry-state.ts";
 import { SelectionBroker, type SelectionEvent, type SelectionRequest, selectionSelect } from "./selection.ts";
+import { generateSessionTitle, sessionTitleInput } from "./session-title.ts";
 import { type WebSkill, webSkills } from "./skills.ts";
 import { resolveSubagentCliPath } from "./subagent-cli.ts";
 import { projectSubagentNotification } from "./subagent-notification.ts";
@@ -275,9 +276,12 @@ export function pickFallbackModel<T extends { provider: string; id: string }>(
 type CatalogModel = ReturnType<ModelRuntime["getAvailableSnapshot"]>[number];
 
 /** Picker row for one catalog model; `thinkingLevels` lets a draft show effort before a session exists. */
-export function projectModel(model: CatalogModel) {
+export function projectModel(model: CatalogModel, providerName?: string) {
 	return {
 		provider: model.provider,
+		// The picker partitions the catalog by provider, ZCode-style; the declared
+		// name is the section heading, the id only its fallback.
+		...(providerName && providerName !== model.provider ? { providerName } : {}),
 		id: model.id,
 		name: model.name,
 		api: model.api,
@@ -296,6 +300,27 @@ export interface WebModelSource {
 	thinkingLevel?: string;
 	availableThinkingLevels: string[];
 	models: ReturnType<typeof projectModel>[];
+}
+
+/**
+ * The declared display name of every provider that has models in the snapshot,
+ * for the picker's per-provider section headings. An unknown provider keeps its
+ * id, which `getProvider` already falls back to.
+ */
+function providerNamesOf(modelRuntime: ModelRuntime): Map<string, string> {
+	const names = new Map<string, string>();
+	for (const model of modelRuntime.getAvailableSnapshot()) {
+		if (!names.has(model.provider)) {
+			names.set(model.provider, modelRuntime.getProvider(model.provider)?.name ?? model.provider);
+		}
+	}
+	return names;
+}
+
+/** Every catalog model with its provider's name attached, as both pickers paint them. */
+function projectedModels(modelRuntime: ModelRuntime): ReturnType<typeof projectModel>[] {
+	const names = providerNamesOf(modelRuntime);
+	return modelRuntime.getAvailableSnapshot().map((model) => projectModel(model, names.get(model.provider)));
 }
 
 /** The kernel's Full Access risk question, recognised by its exact option list. */
@@ -366,7 +391,7 @@ export async function predictDraftModel(
 		resolved && available.some((candidate) => modelsMatch(candidate, resolved))
 			? resolved
 			: pickFallbackModel(available, preferred);
-	const models = available.map(projectModel);
+	const models = projectedModels(modelRuntime);
 	if (!model) return { availableThinkingLevels: [], models };
 	const wanted =
 		modelThinkingLevels[`${model.provider}/${model.id}`] ??
@@ -385,6 +410,12 @@ function imagesOf(attachments: readonly WebAttachment[]): { type: "image"; data:
 	return attachments
 		.filter((attachment) => attachment.kind === "image")
 		.map((attachment) => ({ type: "image" as const, data: attachment.data, mimeType: attachment.mimeType }));
+}
+
+/** Whether an entry is a persisted user message, which is what makes a prompt not the first. */
+function isUserEntry(entry: SessionEntry): boolean {
+	if (entry.type !== "message") return false;
+	return (entry.message as { role?: unknown }).role === "user";
 }
 
 /** Same provider and model id, which is all a resolved model needs to match. */
@@ -472,6 +503,8 @@ export class WebSession {
 	private lastRunAborted = false;
 	/** The kernel's retry of a failed model request, while one is scheduled or running. */
 	private readonly retry = new RetryTracker();
+	/** One background attempt to name this session after its first prompt has run. */
+	private sessionTitleGenerated = false;
 
 	private constructor(
 		id: string,
@@ -859,12 +892,43 @@ export class WebSession {
 	async send(text: string, attachments: readonly WebAttachment[] = [], followUp = false): Promise<void> {
 		if (this.isReverting()) throw new Error("Wait for the revert to finish");
 		this.unread = false;
+		this.maybeGenerateSessionTitle(text);
 		const images = imagesOf(attachments);
 		await this.session.prompt(withTextAttachments(text, attachments), {
 			source: "rpc",
 			...(images.length ? { images } : {}),
 			...(followUp ? { streamingBehavior: "followUp" as const } : {}),
 		});
+	}
+
+	/**
+	 * Name the session after its first prompt, with a fire-and-forget sidecar
+	 * call on the session's own model. The sidebar already titles a nameless
+	 * session by its first message, so the generated title only has to beat
+	 * that raw prefix; a failure is dropped and the fallback stays. One
+	 * attempt per open session, and a name set while it runs (the user
+	 * renamed) always wins.
+	 */
+	private maybeGenerateSessionTitle(text: string): void {
+		if (this.sessionTitleGenerated || this.session.sessionName) return;
+		// A user message already on the branch means this send is not the first prompt.
+		if (this.session.sessionManager.getBranch().some(isUserEntry)) return;
+		const input = sessionTitleInput(text);
+		if (!input) return;
+		const model = this.session.model;
+		if (!model) return;
+		this.sessionTitleGenerated = true;
+		// The session under `this.session` can change while the call runs (fork,
+		// /new); the title belongs to the session whose first prompt seeded it.
+		const session = this.session;
+		void generateSessionTitle(this.modelRuntime, model, input)
+			.then((title) => {
+				if (!title || session !== this.session || session.sessionName) return;
+				session.setSessionName(title);
+			})
+			.catch(() => {
+				// Decoration only: a failed sidecar must not surface as a session error.
+			});
 	}
 
 	/** Hand `text` to the running turn, read before its next model call; refused for extension commands. */
@@ -1144,6 +1208,20 @@ export class WebSession {
 	}
 
 	/**
+	 * Re-read `models.json` and `auth.json` so a provider added in settings
+	 * reaches this open session's picker too, not just sessions started after it.
+	 *
+	 * Same sequence as a draft's catalog build (`draftModels`): the cache-only
+	 * pass reloads the declarations, then the Step catalog refresh restores what
+	 * the rebuild reset to the models.json baseline. Models a running turn is
+	 * already using are unaffected — a request resolves its model when it starts.
+	 */
+	async refreshModels(): Promise<void> {
+		await this.modelRuntime.refresh({ allowNetwork: false }).catch(() => {});
+		await refreshStepModelCatalog(this.modelRuntime);
+	}
+
+	/**
 	 * Set the reasoning effort for the current model. The kernel clamps an
 	 * unsupported level internally, so the caller only has to reject values that
 	 * are not thinking levels at all.
@@ -1206,7 +1284,7 @@ export class WebSession {
 			policies: webPermissionPresets(),
 			thinkingLevel: this.session.thinkingLevel,
 			availableThinkingLevels: this.session.getAvailableThinkingLevels(),
-			models: this.modelRuntime.getAvailableSnapshot().map(projectModel),
+			models: projectedModels(this.modelRuntime),
 		};
 	}
 
