@@ -102,7 +102,8 @@ import { observability } from "./observability.ts";
  * Step's product entrypoint. The process still runs pi's main implementation;
  * these defaults only isolate Step's persisted state from a user's pi install.
  */
-process.title = "step";
+// Setting a title registers Electron Node-mode children as foreground apps on macOS.
+if (!process.versions.electron) process.title = "step";
 process.env.AI_AGENT = "step";
 process.emitWarning = (() => {}) as typeof process.emitWarning;
 ensureStepGlobalConfig(process.env);
