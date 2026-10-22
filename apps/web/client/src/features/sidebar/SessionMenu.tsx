@@ -1,6 +1,6 @@
 import { t, useT } from "../../i18n";
 import { apiSend, errorMessage } from "../../lib/api";
-import { refreshSessions, sessionTitle, showError, startDraft } from "../../state/session";
+import { forgetUnlistedSession, refreshSessions, sessionTitle, showError, startDraft } from "../../state/session";
 import { getState } from "../../state/store";
 import type { SessionSummary } from "../../state/types";
 import { closeSessionMenu } from "./actions";
@@ -19,6 +19,7 @@ async function runSessionAction(action: SessionAction, session: SessionSummary):
 		}
 		if (action === "delete" && window.confirm(t("confirmDelete", { name: sessionTitle(session) }))) {
 			await apiSend(`/api/v1/sessions/${session.id}`, "DELETE");
+			forgetUnlistedSession(session.id);
 			const state = getState();
 			if (state.current?.id === session.id) startDraft(state.bootstrapCwd);
 		}

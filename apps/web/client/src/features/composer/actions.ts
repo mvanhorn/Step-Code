@@ -363,7 +363,7 @@ export async function sendMessage(text: string, files: readonly PromptFile[] = [
 			{ text, images: images.map(({ mimeType, data }) => ({ mimeType, data })) },
 		]);
 	try {
-		const session = await createSessionIfNeeded();
+		const session = await createSessionIfNeeded(text);
 		const endpoint = !active ? "messages" : steer ? "steer" : "queue";
 		// `files`: upload ids of the prompt's file chips; the host adds their content.
 		const body = JSON.stringify({ text, attachments, files: files.map((file) => file.id) });

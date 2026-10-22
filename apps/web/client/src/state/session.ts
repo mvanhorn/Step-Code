@@ -845,21 +845,29 @@ export function connectStream(id: string): void {
 
 /* ── Session list and current session ────────────────────────────────────── */
 
+/**
+ * Sessions this page created that the host does not list yet. The host lists
+ * session files, and a session's file is written only with its first assistant
+ * reply; until then a list refresh would drop the new conversation's row.
+ */
+const unlistedSessions = new Set<string>();
+
+/** Stop keeping `id` in the list before the host lists it (it was deleted). */
+export function forgetUnlistedSession(id: string): void {
+	unlistedSessions.delete(id);
+}
+
 /** Reload the session list (legacy `refreshSessions`, 3111-3115). */
 export async function refreshSessions(): Promise<void> {
 	const data = await api<{ sessions: SessionSummary[] }>("/api/v1/sessions");
 	setState((state) => {
+		const listed = new Set(data.sessions.map((session) => session.id));
+		for (const id of listed) unlistedSessions.delete(id);
+		const kept = state.sessions.filter((session) => unlistedSessions.has(session.id));
 		const live = data.sessions.flatMap((session): SessionLiveStatus[] =>
 			session.status ? [{ id: session.id, status: session.status, unread: session.unread === true }] : [],
 		);
-		return {
-			sessions: data.sessions,
-			...foldLiveStatuses(
-				state,
-				live,
-				data.sessions.map((session) => session.id),
-			),
-		};
+		return { sessions: [...kept, ...data.sessions], ...foldLiveStatuses(state, live, listed) };
 	});
 }
 
@@ -1004,9 +1012,9 @@ async function loadDraftModels(cwd: string): Promise<void> {
 /**
  * The current session, creating it from the draft (cwd, policy, model,
  * thinking level) when there is none yet (legacy `createSessionIfNeeded`,
- * 3153-3182).
+ * 3153-3182). `firstMessage` titles the new sidebar row until the host lists it.
  */
-export async function createSessionIfNeeded(): Promise<SessionSnapshot> {
+export async function createSessionIfNeeded(firstMessage?: string): Promise<SessionSnapshot> {
 	const state = getState();
 	if (state.current) return state.current;
 	let snapshot = await apiSend<SessionSnapshot>("/api/v1/sessions", "POST", {
@@ -1048,9 +1056,22 @@ export async function createSessionIfNeeded(): Promise<SessionSnapshot> {
 			level: state.draftThinking,
 		});
 	}
+	// Show the row now, titled by the message being sent; the host lists the
+	// session only after its first reply is saved (see `unlistedSessions`).
+	unlistedSessions.add(snapshot.id);
+	const now = new Date().toISOString();
+	setState((current) => ({
+		sessions: mergeSessionSummary(current.sessions, {
+			id: snapshot.id,
+			cwd: snapshot.cwd,
+			created: now,
+			modified: now,
+			...(firstMessage ? { firstMessage } : {}),
+		}),
+	}));
 	renderSnapshot(snapshot);
 	connectStream(snapshot.id);
-	await refreshSessions();
+	void refreshSessions().catch(() => {});
 	return snapshot;
 }
 
