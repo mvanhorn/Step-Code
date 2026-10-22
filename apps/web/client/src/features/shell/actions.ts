@@ -59,18 +59,6 @@ export function toggleSidebar(): void {
 	setUi((ui) => ({ sidebarHidden: !ui.sidebarHidden }));
 }
 
-/**
- * Open the sign-in gate from the shell, the way `step login` does.
- *
- * The gate normally appears only when no model can run; an account that can run
- * models (an API key, or a custom `models.json` provider) boots straight into the
- * app. Its "Not signed in" label is the entry point back to it, so signing in is
- * always one click away instead of requiring a terminal command.
- */
-export function requireSignIn(): void {
-	setUi({ accountMenuOpen: false, loginRequired: true });
-}
-
 /** Ask before logging out: opens `#logoutDialog`, which calls `confirmLogout`. */
 export function logout(): void {
 	setUi({ logoutConfirm: { pending: false } });

@@ -282,14 +282,3 @@
 		animation: none;
 	}
 }
-
-/* Without a credential the page leads to the shared sign-in gate. */
-.settings-account-link {
-	display: grid;
-	gap: 8px;
-	justify-items: start;
-	padding: 14px 0 4px;
-}
-.settings-account-link .settings-account-note {
-	margin: 0;
-}

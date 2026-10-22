@@ -6,7 +6,7 @@ import { setState, useAppStore } from "../../state/store";
 import type { LoginMethod, LoginReport } from "../../state/types";
 import { Icon, IconButton, Spinner, Tooltip } from "../../ui";
 import { cancelBrowserSignIn, openLoginPage, signInWithApiKey, signInWithBrowser } from "../login/actions";
-import { canLogout, logout, requireSignIn, stepPlanUrl } from "../shell/actions";
+import { canLogout, logout, stepPlanUrl } from "../shell/actions";
 import { useSettingsResource } from "./actions";
 import { PageHeader, ResourceState, SectionHeader, StatusDot } from "./parts";
 import "./account.css";
@@ -187,22 +187,6 @@ export function AccountPage() {
 					</button>
 				</Tooltip>
 			</section>
-			{/* One sign-in surface: without a credential this page leads to the same
-			    gate the sidebar button opens, instead of a second, differently-shaped form. */}
-			{!login?.configured && (
-				<div className="settings-account-link">
-					<button
-						type="button"
-						className="settings-btn primary"
-						id="settingsAccountSignIn"
-						onClick={requireSignIn}
-					>
-						<Icon name="accountSignIn" size="xs" />
-						{t("accountSignIn")}
-					</button>
-					<p className="settings-account-note">{t("settingsAccountSignInHint")}</p>
-				</div>
-			)}
 			{login?.configured &&
 				login.profile?.startsWith("step_plan") &&
 				(login.session?.state === "expired" || login.session?.state === "missing") && (

@@ -306,8 +306,9 @@ When to add or change one:
   expires the page cookie. Keep the launch cookie through a Step sign-out so
   Desktop reloads into `#loginGate` without a new terminal link. A Step account
   is optional: the gate opens only when no model can run (no Step credential
-  and `customModels: false`), and "Use your own models" (`#loginOwnModels`)
-  always leads past it to Settings > Models. Never remove custom providers on a
+  and `customModels: false`); the gate itself has no "Use your own models"
+  link. Signed out, the sidebar account menu's Sign in opens Settings >
+  Account, not the gate. Never remove custom providers on a
   Step sign-out. No
   balance/allowance placeholders.
 - Do not depend on `process.cwd()` being the workspace; the desktop starts the server elsewhere (macOS privacy

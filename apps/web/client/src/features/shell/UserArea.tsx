@@ -7,13 +7,8 @@
  * session (`GET /api/v1/account`). Without one (API-key sign-in, or the
  * developer center unreachable) it falls back to a label for the credential.
  * Pressing it opens `#accountMenu` above it: the account (avatar, name, id)
- * and the account actions, Upgrade and Log out; signed out, only Sign in.
- *
- * With no Step credential the same button is the sign-in entry point: it shows
- * "not signed in" and opens the sign-in gate, which lists the four `step login`
- * profiles. Its menu also offers Sign in rather than a Log out that has nothing
- * to remove, so `step login` is reachable from the app for an account that
- * already runs models from an API key or a custom `models.json` provider.
+ * and the account actions, Upgrade and Log out; signed out, only Sign in,
+ * which opens Settings > Account.
  */
 
 import { useState } from "react";
@@ -24,7 +19,7 @@ import type { AccountReport, LoginReport } from "../../state/types";
 import { Icon, IconButton, Menu, MenuDivider, MenuItem, Popover, Tooltip } from "../../ui";
 import { openLoginPage } from "../login/actions";
 import { openSettings } from "../settings/actions";
-import { canLogout, logout, requireSignIn, stepPlanUrl } from "./actions";
+import { canLogout, logout, stepPlanUrl } from "./actions";
 
 function isStepPlan(login: LoginReport | null): boolean {
 	return login?.source === "auth.json" && login.profile?.startsWith("step_plan") === true;
@@ -72,14 +67,22 @@ function accountLabel(t: TranslateFn, login: LoginReport | null, account: Accoun
 
 /**
  * Signed out there is no account to show and nothing to upgrade or sign out of,
- * so the menu is a single Sign in row. It opens the sign-in gate -- the same
- * four-profile page `step login` offers -- rather than a second form in settings.
+ * so the menu is a single Sign in row. It opens Settings > Account, the in-app
+ * sign-in: the startup gate is reserved for when no model can run at all.
  */
 function SignedOutMenu() {
 	const t = useT();
 	return (
 		<Menu bare role="menu" aria-label={t("footerAccount", { name: t("footerSignedOut") })}>
-			<MenuItem role="menuitem" id="accountSignInButton" icon="accountSignIn" onClick={() => requireSignIn()}>
+			<MenuItem
+				role="menuitem"
+				id="accountSignInButton"
+				icon="accountSignIn"
+				onClick={() => {
+					closeAccountMenu();
+					openSettings("account");
+				}}
+			>
 				{t("accountSignIn")}
 			</MenuItem>
 		</Menu>
@@ -157,7 +160,6 @@ export function UserArea() {
 	const login = useAppStore((state) => state.login);
 	const account = useAppStore((state) => state.account);
 	const name = accountLabel(t, login, account);
-	const signedIn = login?.configured === true;
 	const avatarUrl = login?.configured ? account?.account?.avatarUrl : undefined;
 	const uid = login?.configured ? account?.account?.uid : undefined;
 	const menuOpen = useAppStore((state) => state.ui.accountMenuOpen);
@@ -179,13 +181,11 @@ export function UserArea() {
 					type="button"
 					className="user-account"
 					id="userAccountButton"
-					aria-label={signedIn ? t("footerAccount", { name }) : t("accountSignIn")}
-					aria-haspopup={signedIn ? "menu" : undefined}
-					aria-expanded={signedIn ? menuOpen : undefined}
-					aria-controls={signedIn ? "accountMenu" : undefined}
-					// Without a credential there is no account to show: the button is
-					// the sign-in entry point itself, like `step login`.
-					onClick={() => (signedIn ? setUi((ui) => ({ accountMenuOpen: !ui.accountMenuOpen })) : requireSignIn())}
+					aria-label={t("footerAccount", { name })}
+					aria-haspopup="menu"
+					aria-expanded={menuOpen}
+					aria-controls="accountMenu"
+					onClick={() => setUi((ui) => ({ accountMenuOpen: !ui.accountMenuOpen }))}
 				>
 					<AccountAvatar name={name} url={avatarUrl} />
 					<span className="user-name">{name}</span>

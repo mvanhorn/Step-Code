@@ -207,10 +207,10 @@ ignored while it is open. The gate is enabled for Desktop, and for plain Web
 after an explicit Step sign-out; a first plain-Web visit can still sign in from
 Account settings.
 
-A Step account is not required. The gate's "Use your own models" link
-(`#loginOwnModels`) closes it, lets bootstrap continue, and opens Settings >
-Models, where a custom endpoint and key are configured (bring your own key).
-Once such a model is usable, later starts skip the gate.
+The gate offers only Step Plan and API-key sign-in, for the mainland or (via
+the link under the buttons) the international platform. Custom `models.json`
+models still count: once such a model is usable, later starts skip the gate.
+Signed out, the sidebar account menu's Sign in opens Settings > Account.
 
 A session fixes its model catalog and provider endpoint when it is built, so
 one opened before the credential existed (another tab, or a page loaded before
