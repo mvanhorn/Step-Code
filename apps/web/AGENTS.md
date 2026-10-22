@@ -57,6 +57,8 @@ apps/web/
     terminal-routes.ts, terminal-policy.ts  authenticated HTTP/SSE and shell/environment/input policy
     directory-picker.ts  server-side folder chooser
     settings.ts          settings back end: MCP servers, plugins/marketplaces, skills
+    model-providers.ts   model settings back end: models.json declarations, auth.json keys, model discovery
+    stepgo-import.ts     one-time import of a local stepgo launcher's providers and key (first start only)
     attachments.ts, feedback.ts, banner.ts, bootstrap.ts, writer-lease.ts
   client/
     index.html           <div id="root">, loads /src/main.tsx
@@ -198,7 +200,8 @@ When to add or change one:
   notification prose, infer per-task success from the parent tool, or add child execution controls in the inspector.
 - `features/inspector` owns the shared right rail, Summary and Context views.
   Summary uses DFSC's independent content-height floating board with a close-only
-  header, fixed compact width and an optional reading-space reservation; do not
+  header and fixed compact width; it always floats out of flow and never reserves
+  a grid column, so the conversation keeps its width whether it is open or not. Do not
   wrap it in the full-height inspector chrome used by the other panels.
   Summary's DFSC colors are scoped to that surface. Keep grid disclosures,
   fixed-slot completion motion and reduced-motion support; never replay a
@@ -264,8 +267,8 @@ When to add or change one:
   `STEPCODE_WEB_BROWSER_PATH` optionally names an installed Chrome/Edge/Chromium executable.
   The browser adapter detects common locations otherwise and reports missing engines without installing one.
   `STEPCODE_STEPGO_IMPORT=0` disables the one-time import of a local stepgo launcher's providers and key into
-  `models.json` / `auth.json` that runs before the host listens (see `docs/step-configuration.md`); hosts started by
-  tests must set it, because they inherit the developer's HOME.
+  `models.json` / `auth.json` that runs before the host listens (`src/stepgo-import.ts`, `docs/stepcode-web.md`);
+  hosts started by tests must set it, because they inherit the developer's HOME.
   Document new ones here and in `apps/desktop/README.md` if the desktop passes them through.
 - Opening a browser on start is **opt-in**, because Desktop shows the client in its own window and the tests must stay
   headless. `STEPCODE_WEB_OPEN=1|true|on` makes the host open the launch URL right after printing the banner; unset or

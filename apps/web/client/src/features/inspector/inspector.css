@@ -160,18 +160,12 @@
 	.right-panel { transition: opacity 180ms ease-out, transform 180ms ease-out; }
 }
 
-/* DFSC Summary is a content-height board beside the rail, not an inspector column. */
+/* DFSC Summary is a content-height board floating beside the rail: it never takes a grid column, so the conversation keeps its full width. */
 .app.has-right-rail.summary-open {
-	--summary-sidebar: var(--sidebar-width);
-	--summary-reserve: 0px;
-	grid-template-columns: var(--sidebar-width) minmax(0, 1fr) var(--summary-reserve) var(--rail-width);
+	grid-template-columns: var(--sidebar-width) minmax(0, 1fr) 0 var(--rail-width);
 }
 .app.has-right-rail.sidebar-hidden.summary-open {
-	--summary-sidebar: 0px;
-	grid-template-columns: 0 minmax(0, 1fr) var(--summary-reserve) var(--rail-width);
-}
-.app.has-right-rail.summary-open.summary-docked {
-	--summary-reserve: clamp(0px, calc(var(--composer-width) + 28px + 688px - 100vw + var(--summary-sidebar) + var(--rail-width)), 344px);
+	grid-template-columns: 0 minmax(0, 1fr) 0 var(--rail-width);
 }
 .app .right-panel.summary-board {
 	/* DFSC palette is local to this migrated surface, not a second app theme. */

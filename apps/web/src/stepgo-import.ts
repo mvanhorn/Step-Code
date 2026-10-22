@@ -5,6 +5,11 @@
  * providers: the user maintains them from the model settings page, and stepgo
  * is never read again.
  *
+ * This is a Web host concern, not a kernel one: it knows another tool's private
+ * file layout, and it only writes through the kernel's public `models.json` /
+ * `auth.json` APIs. Desktop runs this host, so it gets the import too; the CLI
+ * does not run it.
+ *
  * stepgo (`sc`, `stepgo`, `stepcode`) keeps its own state under `~/.stepgo`:
  *
  * - `config/config.json` holds the user's gateway `baseUrl` and `apiKey`.
@@ -34,13 +39,18 @@
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { Api } from "@step-harness/providers";
-import { AuthStorage, readStoredCredential } from "../core/auth-storage.ts";
-import { readModelsJsonProviders, updateModelsJsonProvider } from "../core/models-json.ts";
-import { normalizeProviderBaseUrl } from "../core/provider-base-url.ts";
-import { stripBom } from "../utils/text.ts";
-import { getStepAuthPath } from "./auth.ts";
-import { resolveStepAgentDir, resolveStepConfigRoot, resolveStepHomeDir } from "./environment.ts";
+import {
+	AuthStorage,
+	getStepAuthPath,
+	normalizeProviderBaseUrl,
+	readModelsJsonProviders,
+	readStoredCredential,
+	resolveStepAgentDir,
+	resolveStepConfigRoot,
+	resolveStepHomeDir,
+	stripBom,
+	updateModelsJsonProvider,
+} from "@step-harness/coding-agent";
 
 /** Marker file, beside the session data, recording the completed import. */
 export const STEPGO_MODEL_IMPORT_STATE_FILE = "stepgo-model-import.json";
@@ -103,7 +113,7 @@ interface ImportedModel {
 
 interface ImportedProvider {
 	readonly id: string;
-	readonly api: Api;
+	readonly api: string;
 	readonly baseUrl: string;
 	readonly models: readonly ImportedModel[];
 	readonly apiKey?: string;
@@ -215,7 +225,9 @@ function readStepgoProviders(stepgoHome: string): { providers: ImportedProvider[
 			warnings.push(`'${id}' uses an unsupported API '${api ?? "(none)"}'`);
 			continue;
 		}
-		const baseUrl = normalizeProviderBaseUrl(stringOf(raw.baseUrl) ?? stringOf(config?.baseUrl), api as Api);
+		// The same normalization the model settings form applies to a typed address.
+		const typedUrl = stringOf(raw.baseUrl) ?? stringOf(config?.baseUrl);
+		const baseUrl = typedUrl ? normalizeProviderBaseUrl(typedUrl, api) : undefined;
 		if (!baseUrl) {
 			warnings.push(`'${id}' has no API address`);
 			continue;
@@ -233,7 +245,7 @@ function readStepgoProviders(stepgoHome: string): { providers: ImportedProvider[
 			continue;
 		}
 		const apiKey = providerKey(raw, sharedKey);
-		providers.push({ id, api: api as Api, baseUrl, models, ...(apiKey ? { apiKey } : {}) });
+		providers.push({ id, api, baseUrl, models, ...(apiKey ? { apiKey } : {}) });
 	}
 	providers.sort((left, right) => left.id.localeCompare(right.id));
 	if (providers.length === 0) return warnings.length > 0 ? warnings.join("; ") : `${managedPath} has no providers`;

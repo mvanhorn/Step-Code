@@ -2002,11 +2002,12 @@ test("the conversation locator rail jumps to a query and follows the viewport", 
     const row = await until(() => $('.session-row[data-session-id="${sessionId}"]'), "session row");
     row.click();
     await until(() => $("#stream .message.user"), "messages to draw");
-    // With the sidebar shown at 1440px, the docked Summary (open by default on wide windows)
-    // narrows the middle column below the rail's minimum, so the ticks would cover the messages.
-    // Closing it brings the rail back; earlier tests may already have changed either panel.
+    // The Summary board floats over the stream's right edge, where the locator rail sits, so it
+    // would intercept the ticks. Close it first; it is closed on start but session activity or an
+    // earlier test may have opened it.
     await new Promise((resolve) => setTimeout(resolve, 300));
-    if (!$(".stream-nav") && $(".app").classList.contains("summary-docked")) $("[data-right-panel='summary']").click();
+    if ($(".app").classList.contains("right-panel-open") && $(".right-panel.summary-board:not([hidden])"))
+      $("[data-right-panel='summary']").click();
     const rail = await until(() => $(".stream-nav"), "locator rail");
     const stream = $("#stream");
     // Opening a session pins the bottom; back to the top the first tick is the active one.

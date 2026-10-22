@@ -846,15 +846,6 @@ export {
 	loadStepCodeConfig,
 	type StepCodeConfig,
 } from "./step/stepcode-config.ts";
-export {
-	importStepgoModels,
-	isStepgoModelImportDisabled,
-	resolveStepgoHome,
-	STEPGO_MODEL_IMPORT_ENV,
-	STEPGO_MODEL_IMPORT_STATE_FILE,
-	type StepgoModelImportOptions,
-	type StepgoModelImportResult,
-} from "./step/stepgo-model-import.ts";
 export { buildStepSystemPromptAppendix } from "./step/system-prompt.ts";
 export {
 	classifyStepEndpoint,
