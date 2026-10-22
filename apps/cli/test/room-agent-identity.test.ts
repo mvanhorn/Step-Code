@@ -129,9 +129,10 @@ describe("the saved room bot", () => {
 	});
 });
 
-/** The room command publishes a code before it ever needs the network service; keep it offline. */
+/** The room command refuses to start without a service; keep it offline but configured. */
 function stubRendezvous() {
 	return {
+		configured: true,
 		publish: async () => ({ ok: false as const, failure: { kind: "unavailable" as const, status: 0, message: "test" } }),
 		status: async () => ({ ok: false as const, failure: { kind: "unavailable" as const, status: 0, message: "test" } }),
 		claim: async () => ({ ok: false as const, failure: { kind: "unavailable" as const, status: 0, message: "test" } }),
