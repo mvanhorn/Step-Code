@@ -167,7 +167,7 @@ export function UserArea() {
 		<div className="user-area">
 			{/* Escape belongs to the shell's chain. */}
 			<Popover
-				className="account-menu"
+				className={login?.configured ? "account-menu" : "account-menu signed-out"}
 				id="accountMenu"
 				placement="top-start"
 				open={menuOpen}
