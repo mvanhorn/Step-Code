@@ -198,10 +198,6 @@
 	width: 248px;
 	--popover-gap: 6px;
 }
-/* Signed out the menu is a single Sign in row: half the account width. */
-.account-menu.signed-out {
-	width: 124px;
-}
 .account-menu-header {
 	display: flex;
 	align-items: center;

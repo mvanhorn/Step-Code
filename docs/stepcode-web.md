@@ -210,7 +210,7 @@ Account settings.
 The gate offers only Step Plan and API-key sign-in, for the mainland or (via
 the link under the buttons) the international platform. Custom `models.json`
 models still count: once such a model is usable, later starts skip the gate.
-Signed out, the sidebar account menu's Sign in opens Settings > Account.
+Signed out, the sidebar account button opens Settings > Account directly.
 
 A session fixes its model catalog and provider endpoint when it is built, so
 one opened before the credential existed (another tab, or a page loaded before
