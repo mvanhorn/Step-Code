@@ -559,6 +559,25 @@ select {
 [data-host="desktop"][data-platform="darwin"] .file-tree {
   top: calc(var(--brand-row-h) + var(--titlebar-inset));
 }
+/*
+ * The same title strip runs across the top of the main column, so the window
+ * drags (and double-click zooms) from above the conversation too, not only
+ * from the sidebar. The strip stops short of the right edge to leave the
+ * stream's scrollbar grabbable. Controls that land in it (the sidebar show
+ * button, market and cron headers, child-agent bar) opt out.
+ */
+[data-host="desktop"][data-platform="darwin"] .main::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 12px;
+  left: 0;
+  height: var(--titlebar-inset);
+  -webkit-app-region: drag;
+}
+[data-host="desktop"][data-platform="darwin"] .main :is(button, a, input, textarea, select, [role="button"]) {
+  -webkit-app-region: no-drag;
+}
 [data-host="desktop"][data-platform="darwin"]
   .app.sidebar-hidden
   .sidebar-show {
