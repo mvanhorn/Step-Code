@@ -17,7 +17,6 @@ import { useT } from "../../i18n";
 import { type ModeId, useAppStore } from "../../state/store";
 import type { IconName } from "../../ui";
 import { Icon, IconButton, Popover } from "../../ui";
-import { addAttachments } from "./actions";
 import { ControlOption, PopoverGroupLabel } from "./ControlOption";
 import { PluginsPanel, SessionsPanel, SkillsPanel } from "./PlusSubPanels";
 import type { ComposerMenuProps } from "./PolicyMenu";
@@ -52,6 +51,8 @@ export interface PlusMenuProps extends ComposerMenuProps {
 	readonly onPickPlugin: (name: string, installed: boolean) => void;
 	/** Packages the picked session's context into `#prompt` (see `Composer`). */
 	readonly onPickSession: (id: string) => void;
+	/** Stages files picked through `#attachInput` the same way as pasted or dropped ones (see `PromptInput`). */
+	readonly onFiles: (files: readonly File[]) => void;
 }
 
 export function PlusMenu({
@@ -62,6 +63,7 @@ export function PlusMenu({
 	onPickSkill,
 	onPickPlugin,
 	onPickSession,
+	onFiles: stageFiles,
 }: PlusMenuProps) {
 	const t = useT();
 	const input = useRef<HTMLInputElement | null>(null);
@@ -114,7 +116,7 @@ export function PlusMenu({
 	const onFiles = (event: ChangeEvent<HTMLInputElement>) => {
 		const files = [...(event.target.files ?? [])];
 		event.target.value = "";
-		if (files.length) void addAttachments(files);
+		if (files.length) stageFiles(files);
 	};
 
 	return (
