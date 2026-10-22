@@ -124,20 +124,6 @@ export function modelLabelParts(
  * the rest to fill the panel. Capped so a large catalog does not turn the
  * default view into a scroll.
  */
-export function compactCandidates(
-	models: readonly ModelInfo[],
-	pinned: readonly string[],
-	active: ModelInfo | undefined,
-): ModelInfo[] {
-	const chosen = models.filter((model) => pinned.includes(modelKey(model)));
-	if (active && !chosen.includes(active)) chosen.push(active);
-	for (const model of models) {
-		if (chosen.length >= COMPACT_MODEL_COUNT) break;
-		if (!chosen.includes(model)) chosen.push(model);
-	}
-	return chosen;
-}
-
 /** Catalog filter of the "all models" view: id, name or provider contains the query. */
 export function filterModels(models: readonly ModelInfo[], query: string): ModelInfo[] {
 	const needle = query.trim().toLowerCase();
@@ -148,4 +134,61 @@ export function filterModels(models: readonly ModelInfo[], query: string): Model
 			(model.name ?? "").toLowerCase().includes(needle) ||
 			model.provider.toLowerCase().includes(needle),
 	);
+}
+
+/** The provider id of the Step account's own catalog (`runtime.ts` registers it). */
+export const STEP_MODEL_PROVIDER = "step";
+
+/**
+ * Whether a model comes from the Step account rather than a provider the user
+ * configured in `models.json`. A Step Plan credential and custom providers can
+ * both be configured, and they are different sources, not alternatives: the
+ * panel lists them under their own headings instead of mixing one flat list.
+ */
+export function isStepModel(model: ModelInfo): boolean {
+	return model.provider === STEP_MODEL_PROVIDER;
+}
+
+export interface ModelGroup {
+	/** `account` for Step's own catalog, `custom` for `models.json` providers. */
+	readonly source: "account" | "custom";
+	readonly models: ModelInfo[];
+}
+
+/**
+ * Candidates split by source, account models first.
+ *
+ * The order matters: the flat list arrives in configuration order, so a large
+ * custom provider (a gateway exposing hundreds of ids) pushed the account's few
+ * models out of the compact view entirely. Grouping keeps both visible and puts
+ * the account's models where a signed-in user looks first.
+ */
+export function groupModelsBySource(models: readonly ModelInfo[]): ModelGroup[] {
+	const account = models.filter(isStepModel);
+	const custom = models.filter((model) => !isStepModel(model));
+	return [
+		...(account.length ? [{ source: "account" as const, models: account }] : []),
+		...(custom.length ? [{ source: "custom" as const, models: custom }] : []),
+	];
+}
+
+/**
+ * The compact view's rows: account models first, then the pinned and current
+ * ones, filled up to `COMPACT_MODEL_COUNT`. A signed-in account with models of
+ * its own always shows at least its first one, so "which account am I using" is
+ * answerable without opening the full list.
+ */
+export function compactCandidates(
+	models: readonly ModelInfo[],
+	pinned: readonly string[],
+	active: ModelInfo | undefined,
+): ModelInfo[] {
+	const ordered = groupModelsBySource(models).flatMap((group) => group.models);
+	const chosen = ordered.filter((model) => pinned.includes(modelKey(model)));
+	if (active && !chosen.includes(active)) chosen.push(active);
+	for (const model of ordered) {
+		if (chosen.length >= COMPACT_MODEL_COUNT) break;
+		if (!chosen.includes(model)) chosen.push(model);
+	}
+	return chosen;
 }

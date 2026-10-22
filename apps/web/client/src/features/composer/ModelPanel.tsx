@@ -11,6 +11,8 @@ import {
 	compactCandidates,
 	effortLabel,
 	filterModels,
+	groupModelsBySource,
+	isStepModel,
 	type ModelSource,
 	modelMeta,
 } from "./models";
@@ -138,27 +140,39 @@ function ModelRows({ candidates, pinned, currentKey, pinnable, onPin, onSelect }
 	const t = useT();
 	if (!candidates.length) return <PopoverHint>{t("noModels")}</PopoverHint>;
 	const rows: ReactNode[] = [];
-	let othersLabelled = false;
-	for (const model of candidates) {
-		const key = modelKey(model);
-		if (!othersLabelled && !pinned.includes(key)) {
-			rows.push(<PopoverGroupLabel key="others-label">{t("others")}</PopoverGroupLabel>);
-			othersLabelled = true;
+	// The account's own models and the ones from models.json are different
+	// sources; a signed-in user needs to see both, each under its own heading.
+	const grouped = groupModelsBySource(candidates);
+	const labelled = grouped.length > 1;
+	for (const group of grouped) {
+		if (labelled)
+			rows.push(
+				<PopoverGroupLabel key={`source-${group.source}`}>
+					{t(group.source === "account" ? "modelsFromAccount" : "modelsFromProviders")}
+				</PopoverGroupLabel>,
+			);
+		let othersLabelled = false;
+		for (const model of group.models) {
+			const key = modelKey(model);
+			if (!labelled && !othersLabelled && !pinned.includes(key)) {
+				rows.push(<PopoverGroupLabel key="others-label">{t("others")}</PopoverGroupLabel>);
+				othersLabelled = true;
+			}
+			rows.push(
+				<ControlOption
+					key={key}
+					id={key}
+					icon={isStepModel(model) ? "stepPlatform" : "cube"}
+					title={model.name || model.id}
+					description={model.id}
+					meta={modelMeta(model)}
+					selected={key === currentKey}
+					pinned={pinnable ? pinned.includes(key) : false}
+					onPin={pinnable ? () => onPin(key) : undefined}
+					onSelect={onSelect}
+				/>,
+			);
 		}
-		rows.push(
-			<ControlOption
-				key={key}
-				id={key}
-				icon="cube"
-				title={model.name || model.id}
-				description={model.id}
-				meta={modelMeta(model)}
-				selected={key === currentKey}
-				pinned={pinnable ? pinned.includes(key) : false}
-				onPin={pinnable ? () => onPin(key) : undefined}
-				onSelect={onSelect}
-			/>,
-		);
 	}
 	return rows;
 }
