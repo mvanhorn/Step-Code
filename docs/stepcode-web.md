@@ -118,7 +118,9 @@ renders that model, and the CLI keeps the default `session` rendering:
   `details` (`planFilePath`, `planContents`, `planHash`). The client renders
   those details as a review card — see [Plan review card](#plan-review-card) —
   and the prompt tells the model to end the turn there and wait for the user's
-  decision. Planning is scoped to the marked task, not to later messages.
+  decision. The pick marks one message, but plan mode itself stays on until the
+  model calls `exit_plan_mode` or the user toggles `/plan`. A picked skill rides
+  after the prefix (`/plan /skill:<name> <task>`); the plan command expands it.
 - **goal** — the goal is still how it always was: started once, then continued
   automatically at idle boundaries until complete (the one-shot pick changes
   only how the user starts it). The prompt forbids starting a goal on the
@@ -507,18 +509,29 @@ panel's history), appear in the snapshot so a reloaded page can show them again,
 and are cleared by `POST /sessions/{id}/side-answers/clear`.
 
 Plan mode is visible to the model as well as to the page. `/plan <task>` enters
-plan mode and sends the task as an ordinary user message, so a request-local
-`<system-reminder>` (never appended to the session) says the host entered plan
-mode for this turn — no `enter_plan_mode` call is expected — names the plan file,
-asks for `exit_plan_mode` when the proposal is written, and allows answering
-directly when the request turns out not to need a plan. Without it the model only
-noticed that some tools were missing and reported that it had never entered plan
-mode.
+plan mode and sends the task as an ordinary user message. Every model request
+while the mode is on carries a request-local `<system-reminder>` (never appended
+to the session; each request drops the previous copy) that states the mode as a
+fact: plan mode is ON, the host turned it on for the user's `/plan` request, and
+`enter_plan_mode` must not be called; it names the plan file
+(`.stepcode/plans/session-<id>.md`), says only that file may be written with
+`write_file` / `edit_file`, and asks for exactly one `exit_plan_mode` call once
+the proposal is written. A model that was only hinted at probed instead — it
+called `enter_plan_mode` to "confirm" (answered "Already in plan mode") and
+called `exit_plan_mode` again in later turns.
 
 Plan mode ends the way it does in the terminal: the model calls
 `exit_plan_mode`, or the user toggles `/plan`. A request that needs no proposal
-still calls the tool — with no plan file written there is nothing to review, so
-it simply leaves plan mode and the model answers directly. Leaving is never
+calls the tool once without writing the file; with nothing new to review it just
+leaves plan mode and the model answers directly. "Nothing new" includes a plan
+file that still holds the proposal already submitted in an earlier round
+(`submittedPlanHash` in the `step-plan` entry), so re-entering with the Plan
+chip never posts the old plan for review again. The terminal, which has a review
+dialog, keeps refusing a missing file and tells the model to let the user leave
+with `/plan`. Tool results say the outcome plainly and persist it: after a
+submit or a plain exit they report that plan mode (which the host turned on for
+`/plan`) is now off and not to call the tool again; `enter_plan_mode` while the
+mode is on says it changed nothing and was not needed. Leaving is never
 announced as a transcript row: the strip closing and (for a proposal) the review
 card are the whole report.
 

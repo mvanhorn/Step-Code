@@ -6,7 +6,7 @@
  * ExtensionAPI; there is no parallel plan state machine in the Step layer.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { AgentMessage } from "@step-harness/agent-core";
 import type { EventBus } from "../core/event-bus.ts";
@@ -15,6 +15,7 @@ import { type StepTelemetryReporter, trackStepTelemetry } from "../step/telemetr
 import { type LegacyPlanTodoFields, migrateLegacyPlanTodos } from "./plan-mode-migration.ts";
 import {
 	getPlanFilePath,
+	hashPlanContents,
 	registerPlanModeTools,
 	type StepPlanExitOutcome,
 	type StepPlanModeController,
@@ -49,6 +50,12 @@ interface PlanState {
 	planFilePath?: string;
 	/** "user" for /plan or --plan, "agent" for enter_plan_mode. */
 	planSource?: StepPlanSource;
+	/**
+	 * Hash of the proposal last handed to an external reviewer (rpc/headless).
+	 * Kept while plan mode is off, so a later plan round can tell an untouched
+	 * file from a new proposal.
+	 */
+	submittedPlanHash?: string;
 }
 
 function unique(values: readonly string[]): string[] {
@@ -132,6 +139,55 @@ function recordPlanUpdate(
 	trackStepTelemetry(telemetry, "plan_updated", { source: source ?? "unknown", created });
 }
 
+/** Hash of the plan file's current contents, or undefined when it cannot be read. */
+function readPlanHash(planFilePath: string): string | undefined {
+	try {
+		return hashPlanContents(readFileSync(planFilePath, "utf8"));
+	} catch {
+		// Missing or unreadable: there is no earlier proposal to warn about, and
+		// exit_plan_mode reports the real error if the model submits it.
+		return undefined;
+	}
+}
+
+/**
+ * The request-local reminder sent while plan mode is on.
+ *
+ * It states the mode as a fact, not a hint: a model that is unsure probes with
+ * enter_plan_mode and calls exit_plan_mode repeatedly, which users read as the
+ * plan command not working.
+ */
+function planModeReminder(options: {
+	planPath: string;
+	planSource: StepPlanSource;
+	canLeaveWithoutProposal: boolean;
+	holdsSubmittedProposal: boolean;
+}): string {
+	const origin =
+		options.planSource === "user"
+			? "The host turned it on because the user sent this request with /plan; you did not need to and must not call enter_plan_mode."
+			: options.planSource === "agent"
+				? "You turned it on with enter_plan_mode; do not call enter_plan_mode again."
+				: "It was turned on earlier in this session; do not call enter_plan_mode.";
+	const noPlan = options.canLeaveWithoutProposal
+		? "If the request needs no plan (a question, a trivial edit), say so, leave the plan file untouched, call exit_plan_mode once (it then only leaves plan mode), and answer directly."
+		: "If the request needs no plan (a question, a trivial edit), answer directly and tell the user they can turn plan mode off with /plan; exit_plan_mode only submits a written proposal here.";
+	return [
+		"<system-reminder>Plan mode is ON.",
+		origin,
+		"It stays on until you call exit_plan_mode or the user turns it off. This reminder is the current state: never call enter_plan_mode or exit_plan_mode to check it.",
+		`Plan file: ${JSON.stringify(options.planPath)}.`,
+		...(options.holdsSubmittedProposal
+			? ["It still holds the proposal already submitted earlier; overwrite it with the plan for this request."]
+			: []),
+		"Only this file may be written, with write_file or edit_file; every other file mutation is blocked.",
+		"Explore first, write the complete plan there (goal, ordered steps with file paths, validation, open questions), then call exit_plan_mode exactly once to submit it.",
+		"Do not carry the work out: implementation starts only after the user approves the plan.",
+		noPlan,
+		"</system-reminder>",
+	].join(" ");
+}
+
 /** Create Step's native plan extension. */
 export const createStepPlanExtension =
 	(options: { telemetry?: StepTelemetryReporter } = {}): ExtensionFactory =>
@@ -140,12 +196,19 @@ export const createStepPlanExtension =
 		let toolsBeforePlanMode: string[] | undefined;
 		let planFilePath: string | undefined;
 		let planSource: StepPlanSource | undefined;
+		let submittedPlanHash: string | undefined;
 		// The event bus is optional so minimal embedder/test harnesses that stub
 		// ExtensionAPI keep working without one.
 		const events = (pi as { events?: EventBus }).events;
 
 		const persistPlanState = (): void => {
-			pi.appendEntry("step-plan", { enabled, toolsBeforePlanMode, planFilePath, planSource });
+			pi.appendEntry("step-plan", {
+				enabled,
+				toolsBeforePlanMode,
+				planFilePath,
+				planSource,
+				...(submittedPlanHash ? { submittedPlanHash } : {}),
+			});
 		};
 		const enable = (): void => {
 			toolsBeforePlanMode ??= pi.getActiveTools();
@@ -177,19 +240,22 @@ export const createStepPlanExtension =
 			}
 			return planFilePath;
 		};
-		const exit = (outcome: StepPlanExitOutcome, ctx: ExtensionContext): void => {
+		const exit = (outcome: StepPlanExitOutcome, ctx: ExtensionContext, submittedHash?: string): void => {
 			recordPlanExit(options.telemetry, planSource, outcome);
 			enabled = false;
 			planSource = undefined;
+			if (submittedHash) submittedPlanHash = submittedHash;
 			restoreTools();
 			persistPlanState();
 			updateStatus(ctx, enabled, planSource);
 		};
 		const planModeController: StepPlanModeController = {
 			isPlanModeActive: () => enabled,
+			enteredByUser: () => enabled && planSource === "user",
 			enterPlanMode: (ctx) => enter("agent", ctx),
 			exitPlanMode: exit,
 			resolvePlanFilePath,
+			wasSubmitted: (planHash) => submittedPlanHash === planHash,
 		};
 
 		pi.registerFlag("plan", {
@@ -217,7 +283,13 @@ export const createStepPlanExtension =
 				// with the plan-mode tool set. Slash commands run even mid-stream; queue
 				// the task behind the current turn in that case instead of throwing.
 				if (!enabled) enter("user", ctx);
-				pi.sendUserMessage(prompt, ctx.isIdle() ? {} : { deliverAs: "followUp" });
+				// Expand a leading `/skill:` or prompt template in the task, as the
+				// same text sent without `/plan` would be (the Web composer puts its
+				// plan prefix in front of a picked skill).
+				pi.sendUserMessage(prompt, {
+					expandPromptTemplates: true,
+					...(ctx.isIdle() ? {} : { deliverAs: "followUp" as const }),
+				});
 			},
 		});
 		registerPlanModeTools(pi, planModeController);
@@ -243,12 +315,14 @@ export const createStepPlanExtension =
 		// A user who picks Plan sends `/plan <task>`: the command enters plan mode
 		// and hands the task over as an ordinary user message, so without this the
 		// model sees a normal request with a restricted tool set and can truthfully
-		// say it was never told about plan mode. The reminder is request-local (it
-		// is never appended to the session) and re-issued for each request while the
-		// mode is on, so it survives compaction and tool changes. The same filter
-		// drops the copies an earlier request added, and the hidden meta messages
-		// persisted by older versions of this extension.
-		pi.on("context", async (event) => {
+		// say it was never told about plan mode. A model that is not told plainly
+		// probes instead: it calls enter_plan_mode to "confirm" and exit_plan_mode
+		// more than once. The reminder is request-local (it is never appended to
+		// the session) and re-issued for each request while the mode is on, so it
+		// survives compaction and tool changes. The same filter drops the copies an
+		// earlier request added, and the hidden meta messages persisted by older
+		// versions of this extension.
+		pi.on("context", async (event, ctx) => {
 			const messages = event.messages.filter((message) => {
 				const candidate = message as AgentMessage & { customType?: string };
 				return (
@@ -256,7 +330,7 @@ export const createStepPlanExtension =
 				);
 			});
 			if (!enabled) return { messages };
-			const planPath = planFilePath ?? "(unknown path)";
+			const planPath = planFilePath ?? resolvePlanFilePath(ctx);
 			return {
 				messages: [
 					...messages,
@@ -267,14 +341,15 @@ export const createStepPlanExtension =
 						content: [
 							{
 								type: "text" as const,
-								text: [
-									"<system-reminder>Plan mode is active for this turn. The host entered it because the user marked this message for planning; no enter_plan_mode call is needed or expected.",
-									`Write the proposal to ${JSON.stringify(planPath)} with write_file or edit_file; every other file mutation is blocked while it is active.`,
-									"Explore first, then write the complete plan (goal, ordered steps with file paths, validation, open questions) and call exit_plan_mode to submit it for review.",
-									"Do not carry the work out: implementation starts only after the user approves the plan in the app.",
-									"If this request turns out not to need a plan (a question, a trivial edit), call exit_plan_mode anyway: with no proposal written it simply leaves plan mode, and you answer directly.",
-									"</system-reminder>",
-								].join(" "),
+								text: planModeReminder({
+									planPath,
+									planSource: planSource ?? "unknown",
+									// Where no review dialog can be shown, exit_plan_mode without a new
+									// proposal just leaves; the terminal refuses it and keeps planning.
+									canLeaveWithoutProposal: ctx.mode === "rpc" || !ctx.hasUI,
+									holdsSubmittedProposal:
+										submittedPlanHash !== undefined && readPlanHash(planPath) === submittedPlanHash,
+								}),
 							},
 						],
 						timestamp: Date.now(),
@@ -303,6 +378,7 @@ export const createStepPlanExtension =
 			toolsBeforePlanMode = savedTools ? unique([...savedTools, ...activePlanTaskTools]) : undefined;
 			planFilePath = restoredPlanState?.planFilePath;
 			planSource = enabled ? (restoredPlanState?.planSource ?? "unknown") : undefined;
+			submittedPlanHash = planStates.find((state) => state?.submittedPlanHash)?.submittedPlanHash;
 			if (enabled) {
 				planFilePath = resolvePlanFilePath(ctx);
 				enable();
