@@ -19,6 +19,7 @@ import {
 	createStepSessionManager,
 	createStepSessionManagerFactory,
 	createStepSettingsManager,
+	createStepToolProfile,
 	DEFAULT_THINKING_LEVEL,
 	DefaultResourceLoader,
 	type ExtensionUIContext,
@@ -841,9 +842,24 @@ export class WebSession {
 			// offline baseline and Step ships none, so an unrefreshed runtime offers
 			// zero models and the session is left on the `unknown` placeholder.
 			await refreshStepModelCatalog(this.modelRuntime);
+			// The Step model-facing tools, exactly as the CLI mounts them. Without
+			// this the host runs Pi's builtins (`read`/`write`/`edit`/`bash`) while the
+			// prompt, the plan extension and the CLI all name Step's tools
+			// (`read_file`/`write_file`/`run_command`), so plan mode activated tools
+			// that did not exist and the model could not write its own proposal.
+			const profileTools = createStepToolProfile(options.cwd, {
+				agentDir: options.agentDir,
+				searchWeb: { authPath: getStepAuthPath() },
+				read: { autoResizeImages: settingsManager.getImageAutoResize() },
+				bash: {
+					commandPrefix: settingsManager.getShellCommandPrefix(),
+					shellPath: settingsManager.getShellPath(),
+				},
+			});
 			const created = await createAgentSessionFromServices({
 				services,
 				sessionManager: options.sessionManager,
+				...(profileTools.length ? { customTools: profileTools, noTools: "builtin" as const } : {}),
 				sessionStartEvent: options.sessionStartEvent,
 				// Same defaults the CLI injects into argv (`withStepDefaults`): the
 				// persisted provider/model from config.toml, with the product

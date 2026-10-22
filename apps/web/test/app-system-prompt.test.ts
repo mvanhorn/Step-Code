@@ -34,3 +34,18 @@ test("the host passes the shared app prompt instead of assembling one", () => {
 	assert.match(normalized, /systemPromptProduct: STEP_APP_SYSTEM_PROMPT_PRODUCT,/u);
 	assert.doesNotMatch(normalized, /systemPromptProduct: \{/u);
 });
+
+test("the host mounts the Step tool profile, so tool names match the prompt and plan mode", () => {
+	// The prompt, the plan extension and the CLI all name Step's tools
+	// (`read_file`, `write_file`, `run_command`). Without the profile the host ran
+	// Pi's builtins instead, so plan mode activated tools that did not exist and a
+	// proposal could not be written at all ("Tool write_file not found").
+	const normalized = runtimeSource.replace(/\s+/gu, " ");
+	assert.match(normalized, /createStepToolProfile\(options\.cwd,/u);
+	assert.match(normalized, /customTools: profileTools, noTools: "builtin"/u);
+	assert.equal(
+		normalized.match(/createStepToolProfile\(/gu)?.length,
+		1,
+		"a second session-creation path needs the profile too",
+	);
+});

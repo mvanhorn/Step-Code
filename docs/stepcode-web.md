@@ -515,11 +515,17 @@ directly when the request turns out not to need a plan. Without it the model onl
 noticed that some tools were missing and reported that it had never entered plan
 mode.
 
-A `/plan <task>` turn owns plan mode for that one turn: when the run settles
-without a submitted proposal, the extension leaves plan mode, so the strip closes
-and file writes return to normal. An explicit `/plan` toggle is a standing choice
-and stays on across turns; a resumed session never revives a turn-scoped mode,
-because the turn it belonged to is gone.
+Plan mode ends the way it does in the terminal: the model calls
+`exit_plan_mode`, or the user toggles `/plan`. A request that needs no proposal
+still calls the tool — with no plan file written there is nothing to review, so
+it simply leaves plan mode and the model answers directly. Leaving is never
+announced as a transcript row: the strip closing and (for a proposal) the review
+card are the whole report.
+
+The host mounts the same tool profile as the CLI (`createStepToolProfile`), so
+the model is offered `read_file` / `write_file` / `edit_file` / `run_command`
+rather than Pi's builtins. Without it, plan mode enabled names that did not
+exist and a proposal could not be written at all ("Tool write_file not found").
 
 State the client already draws is never narrated into the conversation: plan mode
 (`snapshot.planMode` → the composer's `Plan · <file>` strip) and the permission

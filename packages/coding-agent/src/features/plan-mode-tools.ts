@@ -25,8 +25,8 @@ import { resolvePath } from "../utils/paths.ts";
 export type StepPlanExitOutcome =
 	| "approved"
 	| "toggled_off"
-	/** The one-message plan turn ended without a proposal, so the mode is over. */
-	| "turn_ended"
+	/** Left planning without writing anything: nothing to review, nothing approved. */
+	| "no_proposal"
 	| "auto_headless"
 	| "auto_rpc";
 
@@ -160,8 +160,16 @@ export function registerPlanModeTools(pi: ExtensionAPI, planMode: StepPlanModeCo
 			if (!planMode.isPlanModeActive()) return controlResult("Not in plan mode.");
 			const planFilePath = planMode.resolvePlanFilePath(ctx);
 			if (!existsSync(planFilePath)) {
+				// Nothing was written, so there is nothing to review and no decision for
+				// the user: an absent file means the model decided this request needs no
+				// plan. Leaving is the whole outcome. Requiring a file here trapped the
+				// session in plan mode — the model answered directly, nothing ever
+				// submitted, and every later file edit stayed blocked. A file that
+				// exists but is empty or unreadable is still refused below, because
+				// that is a proposal the model tried and failed to write.
+				planMode.exitPlanMode("no_proposal", ctx);
 				return controlResult(
-					`No plan file at ${planFilePath}. Check the path and permissions, then write it with write_file and call exit_plan_mode again.`,
+					`Plan mode exited: no proposal was written at ${planFilePath}, so there is nothing to review and the user is not being asked to approve anything. Answer the request directly. If the work does need a proposal after all, re-enter plan mode, write the plan, and submit it.`,
 				);
 			}
 			let planContents: string;
@@ -191,7 +199,9 @@ export function registerPlanModeTools(pi: ExtensionAPI, planMode: StepPlanModeCo
 				// proposal in their own UI, so the result must neither claim the user
 				// approved nor imply the work may start.
 				planMode.exitPlanMode("auto_rpc", ctx);
-				ctx.ui.notify("Plan mode exited: the proposal was submitted for the user's decision.", "info");
+				// No notice: leaving plan mode is state the host already draws (the strip
+				// closes, the review card appears). An announcement would be a row nobody
+				// typed, and the tool result already tells the model what happened.
 				return reviewedResult(
 					`Plan mode exited and the proposal was submitted for review. Exiting reports that the investigation is finished; it does not authorize implementation. Wait for the user's decision before changing files.\n\nPlan file: ${planFilePath}\n\nPlan contents:\n${planContents}`,
 					reviewed("external_approval_required"),
