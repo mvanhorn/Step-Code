@@ -2,6 +2,7 @@ import { type CSSProperties, useRef } from "react";
 import { Composer, ImagePreview, SelectionDialog, TextInputDialog } from "./features/composer";
 import { ConversationStream, FeedbackModal, StreamNav } from "./features/conversation";
 import { FileTreePanel } from "./features/files";
+import { BranchControl } from "./features/gitbranch";
 import { RightPanel, RightToolRail } from "./features/inspector";
 import { LoginGate } from "./features/login";
 import { CronView, MarketView } from "./features/market";
@@ -84,7 +85,7 @@ export function App() {
 					<ConversationStream />
 					<StreamNav />
 					<div className="composer-zone">
-						<Composer workspaceControl={<WorkspaceControl />} />
+						<Composer workspaceControl={<WorkspaceControl />} branchControl={<BranchControl />} />
 					</div>
 					<TerminalDock />
 					<ErrorToast />

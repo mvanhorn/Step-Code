@@ -184,6 +184,10 @@ export interface UiState {
 	readonly workspacePopoverOpen: boolean;
 	/** `#accountMenu`: the sidebar footer's account popover */
 	readonly accountMenuOpen: boolean;
+	/** `#branchPopover` visible: the composer's branch switcher. */
+	readonly branchPopoverOpen: boolean;
+	/** `#branchCreateDialog` visible: creating a branch from the switcher. */
+	readonly branchCreateOpen: boolean;
 	/** `#workspaceBrowserModal` visible */
 	readonly workspaceBrowserOpen: boolean;
 	readonly workspaceRemoval: { readonly path: string; readonly pending: boolean } | null;
@@ -427,6 +431,8 @@ export function createInitialState(): AppState {
 			searchOpen: false,
 			workspacePopoverOpen: false,
 			accountMenuOpen: false,
+			branchPopoverOpen: false,
+			branchCreateOpen: false,
 			workspaceBrowserOpen: false,
 			workspaceRemoval: null,
 			settingsPage: null,

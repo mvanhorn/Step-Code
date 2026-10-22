@@ -15,6 +15,25 @@
 	max-width: var(--composer-width);
 	margin: 0 auto;
 }
+/*
+ * The row above the card: the workspace pill, then the branch pill. The row owns
+ * the spacing under both, and each pill keeps its own popover positioning.
+ */
+.composer-pickers {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	margin-bottom: 8px;
+}
+.composer-pickers > .workspace-control {
+	margin: 0 0 0 6px;
+}
+.composer-pickers > .branch-control {
+	margin: 0;
+}
+.composer-pickers:has(#workspaceControl[hidden]) > .branch-control {
+	margin-left: 6px;
+}
 .composer-card {
 	position: relative;
 	z-index: 2;

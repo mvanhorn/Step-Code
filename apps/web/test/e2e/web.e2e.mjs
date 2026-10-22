@@ -11,7 +11,7 @@
  */
 
 import assert from "node:assert/strict"
-import { spawn } from "node:child_process"
+import { execFile, spawn } from "node:child_process"
 import { existsSync } from "node:fs"
 import {
   chmod,
@@ -28,6 +28,7 @@ import { tmpdir } from "node:os"
 import { delimiter, dirname, join } from "node:path"
 import { after, before, test } from "node:test"
 import { fileURLToPath } from "node:url"
+import { promisify } from "node:util"
 import { clarificationCompletion } from "./clarification-provider.mjs"
 
 const webRoot = fileURLToPath(new URL("../..", import.meta.url))
@@ -1568,11 +1569,10 @@ test("Full Access needs the risk dialog: the host asks, cancel keeps the tier, a
   const draft = await browser.run(`
     (await until(() => $("#newSession"), "new chat")).click();
     await until(() => !$("#workspaceControl").hidden, "draft composer");
-    // Above the card, not inside it. The queue dock sits between them but stays hidden while the queue is empty.
-    let nextShown = $("#workspaceControl").nextElementSibling;
-    while (nextShown?.hidden) nextShown = nextShown.nextElementSibling;
+    // Above the card, not inside it. The pill row (folder + branch) and the queue dock
+    // sit above the card; the dock stays hidden while the queue is empty.
     const pillAboveCard = $(".queue-dock").hidden
-      && nextShown === $(".composer-card")
+      && !$(".composer-card").contains($("#workspaceControl"))
       && $("#workspaceControl").getBoundingClientRect().bottom <= $(".composer-card").getBoundingClientRect().top;
     $("#workspaceButton").click();
     const popover = await until(() => $("#workspacePopover"), "workspace popover");
@@ -2200,4 +2200,117 @@ test("a subagent or workflow call opens its child agents' transcripts read-only 
     return [other.status, notChild.status];
   `)
   assert.deepEqual(refused, [404, 404])
+})
+
+test("an empty conversation switches and creates git branches without losing uncommitted work", { skip }, async () => {
+  const git = (...args) => promisify(execFile)("git", args, { cwd: repo })
+  const repo = join(base, "branch-repo")
+  await mkdir(repo)
+  await git("init", "--initial-branch=main")
+  await git("config", "user.name", "e2e")
+  await git("config", "user.email", "e2e@example.com")
+  await writeFile(join(repo, "a.txt"), "one\n")
+  await git("add", "a.txt")
+  await git("commit", "-m", "first")
+  // `other` changes a.txt, so switching to it would overwrite the edit below.
+  await git("switch", "-c", "other")
+  await writeFile(join(repo, "a.txt"), "theirs\n")
+  await git("commit", "-am", "other edit")
+  await git("switch", "main")
+  await writeFile(join(repo, "a.txt"), "local edit\n")
+
+  await browser.goto(`${origin}/`)
+  await browser.run(`
+    const response = await fetch("/api/v1/workspaces", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path: ${JSON.stringify(repo)} }) });
+    if (response.status !== 201) throw new Error("register " + response.status);
+  `)
+  await browser.goto(`${origin}/`)
+  const seen = await browser.run(`
+    const pickWorkspace = async (name) => {
+      $("#workspaceButton").click();
+      (await until(() => $$("#workspaceRecentList [role=option]").find((row) => row.querySelector("span")?.textContent === name), name)).click();
+      await until(() => $("#workspaceButtonName").textContent === name, "picked " + name);
+    };
+    const row = (name) => $$("#branchList [role=option]").find((item) => item.querySelector(".branch-item-name").textContent === name);
+    const type = (input, value) => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    (await until(() => $("#newSession"), "new chat")).click();
+    await until(() => !$("#workspaceControl").hidden, "draft composer");
+
+    // A folder outside a git work tree has no branch pill.
+    await pickWorkspace("project");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const hiddenOutsideRepo = $("#branchControl").hidden;
+
+    await pickWorkspace("branch-repo");
+    await until(() => !$("#branchControl").hidden && $("#branchButtonName").textContent === "main", "branch pill");
+    const pillBesideFolder = $("#branchControl").parentElement === $("#workspaceControl").parentElement;
+
+    $("#branchButton").click();
+    const panel = await until(() => $("#branchPopover"), "branch popover");
+    await until(() => $$("#branchList [role=option]").length === 2, "two branches");
+    const current = $("#branchList [aria-selected=true]");
+    const create = $("#branchCreateButton");
+    const layout = {
+      portaled: panel.parentElement === document.body,
+      createIsLast: panel.lastElementChild === create,
+      createOutsideScroll: !panel.querySelector(".branch-popover-scroll").contains(create),
+      current: current.querySelector(".branch-item-name").textContent,
+      dirty: current.querySelector(".branch-item-detail")?.textContent,
+    };
+
+    // git refuses: the reason shows in the list, which stays open on the same branch.
+    row("other").click();
+    const refusal = (await until(() => $(".branch-failure"), "refusal")).textContent;
+    const afterRefusal = { open: Boolean($("#branchPopover")), label: $("#branchButtonName").textContent };
+
+    // Create and checkout: a dialog outside the composer form, so submitting it never submits the composer.
+    $("#branchCreateButton").click();
+    await until(() => !$("#branchCreateDialog").hidden, "create dialog");
+    const dialogOutsideComposer = !$("#branchCreateDialog").closest("form#composer");
+    type($("#branchCreateInput"), "main");
+    await until(() => !$(".branch-dialog-submit").disabled, "submit enabled");
+    $(".branch-dialog-submit").click();
+    const duplicate = (await until(() => $("#branchCreateError"), "duplicate error")).textContent;
+    type($("#branchCreateInput"), "feat/e2e-new");
+    $(".branch-dialog-submit").click();
+    await until(() => $("#branchButtonName").textContent === "feat/e2e-new", "created branch");
+    return {
+      hiddenOutsideRepo,
+      pillBesideFolder,
+      layout,
+      refusal,
+      afterRefusal,
+      dialogOutsideComposer,
+      duplicate,
+      created: $("#branchButtonName").textContent,
+      dialogClosed: $("#branchCreateDialog").hidden,
+      noNavigation: !location.search,
+      stillDraft: !$("#workspaceControl").hidden,
+    };
+  `)
+  assert.deepEqual(seen, {
+    hiddenOutsideRepo: true,
+    pillBesideFolder: true,
+    layout: {
+      portaled: true,
+      createIsLast: true,
+      createOutsideScroll: true,
+      current: "main",
+      dirty: "未提交的更改：1 个文件",
+    },
+    refusal: "切换失败：以下文件有未提交的更改会被覆盖：a.txt。请先提交或暂存这些更改。",
+    afterRefusal: { open: true, label: "main" },
+    dialogOutsideComposer: true,
+    duplicate: "分支已存在，请换一个名称。",
+    created: "feat/e2e-new",
+    dialogClosed: true,
+    noNavigation: true,
+    stillDraft: true,
+  })
+  // On disk: the new branch is checked out and the uncommitted edit came along.
+  assert.equal((await git("branch", "--show-current")).stdout.trim(), "feat/e2e-new")
+  assert.equal(await readFile(join(repo, "a.txt"), "utf8"), "local edit\n")
 })

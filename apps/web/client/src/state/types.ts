@@ -788,3 +788,22 @@ export interface SettingsSkill {
 	readonly toggleable: boolean;
 	readonly deletable: boolean;
 }
+
+/** `GET /api/v1/workspace/git` state (src/git.ts `GitWorkspaceState`). */
+export interface GitWorkspaceState {
+	/** False for a folder that is not inside a git work tree, or when git is missing. */
+	readonly repository: boolean;
+	/** Repository root; present when `repository`. */
+	readonly root?: string;
+	/** Short branch name; absent on a detached HEAD. */
+	readonly branch?: string;
+	readonly detached?: boolean;
+	/** Modified, staged and untracked files in the repository. */
+	readonly dirtyFiles?: number;
+}
+
+/** One local branch from `GET /api/v1/workspace/git`. */
+export interface GitBranchEntry {
+	readonly name: string;
+	readonly upstream?: string;
+}

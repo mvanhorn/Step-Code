@@ -32,6 +32,7 @@ import {
 	readWorkspaceFile,
 	searchWorkspaceFiles,
 } from "./files.ts";
+import { createBranch, GitBranchError, listLocalBranches, readGitState, switchBranch } from "./git.ts";
 import { buildLoginReport, type LoginReport, loginMethods, WebLoginController } from "./login.ts";
 import { signOutStep } from "./logout.ts";
 import {
@@ -405,6 +406,47 @@ async function pickWorkspaceFolder(request: IncomingMessage, response: ServerRes
 }
 
 /**
+ * `/api/v1/workspace/git/*`: the composer branch pill (see git.ts). `parts`
+ * starts after `git`, URL-decoded: nothing (state + branches), `switch` or
+ * `branches`. A branch operation is a write, so it answers 400 with the code
+ * and blocking paths the client renders instead of a bare message.
+ */
+async function gitRoute(
+	parts: string[],
+	method: string,
+	url: URL,
+	request: IncomingMessage,
+	response: ServerResponse,
+): Promise<void> {
+	const cwd = await knownWorkspace(url.searchParams.get("cwd"));
+	if (!cwd) return error(response, 403, "Folder is not a known workspace");
+	try {
+		if (parts.length === 0 && method === "GET") {
+			const state = await readGitState(cwd);
+			if (!state.repository) return json(response, 200, { state, branches: [] });
+			const { branches } = await listLocalBranches(cwd, state);
+			return json(response, 200, { state, branches });
+		}
+		if (parts.length === 1 && parts[0] === "switch" && method === "POST") {
+			const input = await body(request);
+			if (typeof input.branch !== "string" || !input.branch.trim()) {
+				return error(response, 400, "branch is required");
+			}
+			const create = input.create === true;
+			const state = create
+				? await createBranch(cwd, input.branch, typeof input.from === "string" ? input.from : undefined)
+				: await switchBranch(cwd, input.branch);
+			return json(response, 200, { state });
+		}
+		return error(response, 404, "Not found");
+	} catch (caught) {
+		if (!(caught instanceof GitBranchError)) throw caught;
+		// Not a repository or no git on PATH is the caller's folder, not a server fault.
+		return json(response, 400, { error: caught.message, code: caught.code, paths: caught.paths });
+	}
+}
+
+/**
  * `/api/v1/settings/*`: the settings screen's MCP, plugin, marketplace and skill
  * management (see settings.ts). `parts` starts after `settings`, URL-decoded.
  */
@@ -692,6 +734,9 @@ const server = createServer(async (request, response) => {
 				// A bad path inside a valid workspace is the caller's mistake.
 				return error(response, 400, caught instanceof Error ? caught.message : String(caught));
 			}
+		}
+		if (parts[2] === "workspace" && parts[3] === "git") {
+			return await gitRoute(parts.slice(4).map(decodeURIComponent), method, url, request, response);
 		}
 		if (parts[2] === "settings" && parts[3]) {
 			return await settingsRoute(parts.slice(3).map(decodeURIComponent), method, url, request, response);

@@ -62,12 +62,17 @@ export interface ComposerProps {
 	 * not import the workspace feature.
 	 */
 	readonly workspaceControl?: ReactNode;
+	/**
+	 * `#branchControl` from the git branch feature: the branch pill beside the
+	 * workspace pill. Passed in for the same reason as `workspaceControl`.
+	 */
+	readonly branchControl?: ReactNode;
 }
 
 /** The three listbox popovers; only one is open at a time (legacy `setupPopover` `open()`). */
 type ComposerMenu = "policy" | "plus" | "model";
 
-export function Composer({ workspaceControl }: ComposerProps) {
+export function Composer({ workspaceControl, branchControl }: ComposerProps) {
 	const t = useT();
 	const form = useRef<HTMLFormElement | null>(null);
 	const prompt = useRef<HTMLDivElement | null>(null);
@@ -353,7 +358,10 @@ export function Composer({ workspaceControl }: ComposerProps) {
 			<SlashMenu handle={slash} query={query} promptRef={prompt} onPick={pickSlash} />
 			<FileMenu handle={files} cwd={cwd} query={pathQuery} promptRef={prompt} onPick={pickFile} />
 			<ClarificationPanel />
-			{workspaceControl}
+			<div className="composer-pickers" id="composerPickers">
+				{workspaceControl}
+				{branchControl}
+			</div>
 			<GoalStrip />
 			<PlanStrip />
 			<QueueDock />

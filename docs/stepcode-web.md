@@ -365,6 +365,22 @@ point out of the workspace.
   `binary` (NUL byte in the first 8 KB), or `too-large`; only `text` carries
   content. `raw` streams images, and nothing else, for the preview.
 
+An empty workspace also shows a branch switcher beside the folder pill, above
+the composer card. Both pickers choose where the next conversation starts, so
+both hide once a session is open: the session stays on the folder and branch it
+was created in. `GET /api/v1/workspace/git` takes the same `cwd` and answers
+with `state` (`repository`, `root`, `branch`, `detached`, `dirtyFiles`) plus
+the local `branches`, most recently committed first. `repository` is false for
+a folder outside a git work tree or when git is missing, and the pill hides.
+`POST /api/v1/workspace/git/switch` switches to an existing branch, or with
+`create: true` creates it at HEAD and switches. It runs `git switch` without
+`--force`, so a switch that would overwrite uncommitted work is refused instead
+of discarding it; the 400 body carries a stable `code` and the blocking `paths`,
+which the page renders in its own words. Git runs as an argv array with
+`--no-optional-locks` (a background read never takes `index.lock` from a
+session's own commit) and a timeout, and the branch name is validated before it
+reaches git.
+
 Clicking a file opens a preview panel on the right: one tab per file, line
 numbers, wrap toggle, reload, copy, a rendered view for Markdown, and inline
 images. Highlighting is a small regex tokenizer per language family (comments,

@@ -706,6 +706,43 @@ paths:
         - { name: q, in: query, required: true, schema: { type: string } }
       responses:
         "200": { description: "Name matches below the workspace root: entries and truncated" }
+  /api/v1/workspace/git:
+    get:
+      description: >-
+        Git state of a workspace plus its local branches, for the composer's branch pill. `state.repository` is
+        false when the folder is not inside a git work tree (or git is missing), and `branches` is empty then.
+        `state.dirtyFiles` counts modified, staged and untracked files; `state.branch` is absent on a detached HEAD.
+        Branches are local refs, most recently committed first.
+      parameters:
+        - { name: cwd, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: "state (repository, root, branch, detached, dirtyFiles) and branches (name, upstream)" }
+        "403": { description: cwd is not a known workspace }
+  /api/v1/workspace/git/switch:
+    post:
+      description: >-
+        Switch to an existing local branch, or with `create: true` create it at HEAD (or at `from`) and switch to it.
+        `git switch` runs without `--force`, so a switch that would overwrite uncommitted work is refused instead of
+        discarding it; the response then carries `paths`. A failure answers 400 with a `code` the client renders:
+        not-a-repository, git-unavailable, invalid-branch-name, branch-already-exists, target-branch-not-found,
+        tracked-changes-would-be-overwritten, untracked-changes-would-be-overwritten, conflicts-present,
+        operation-in-progress, branch-in-other-worktree, unknown.
+      parameters:
+        - { name: cwd, in: query, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [branch]
+              properties:
+                branch: { type: string, description: Branch to switch to, or to create when create=true }
+                create: { type: boolean, description: Create the branch before switching to it }
+                from: { type: string, description: Start point for create; default HEAD }
+      responses:
+        "200": { description: The new git state }
+        "400": { description: "Branch operation refused: error, code, and paths for an overwrite refusal" }
+        "403": { description: cwd is not a known workspace }
   /api/v1/models:
     get:
       description: >-

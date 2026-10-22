@@ -44,6 +44,8 @@ function handleEscape(): void {
 	else if (ui.workspaceBrowserOpen) setUi({ workspaceBrowserOpen: false });
 	else if (closeTopmostSettingsLayer()) return;
 	else if (ui.workspacePopoverOpen) setUi({ workspacePopoverOpen: false });
+	else if (ui.branchCreateOpen) setUi({ branchCreateOpen: false });
+	else if (ui.branchPopoverOpen) setUi({ branchPopoverOpen: false });
 	else if (ui.tagPicker) setUi({ tagPicker: null });
 	else if (ui.workspaceMenu) closeWorkspaceMenu(true);
 	else if (ui.sessionMenu) setUi({ sessionMenu: null });
