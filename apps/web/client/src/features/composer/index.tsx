@@ -13,6 +13,7 @@ import { activeCwd, interruptCurrent, sessionTitle, showError, timelineFromEntri
 import { getState, type ModeId, setUi, useAppStore } from "../../state/store";
 import type { SessionSnapshot, TreeEntry } from "../../state/types";
 import { Icon } from "../../ui";
+import { openFeedback } from "../conversation";
 import { AttachmentList } from "./Attachments";
 import {
 	type ContextPackage,
@@ -28,6 +29,7 @@ import {
 import { ClarificationPanel } from "./ClarificationPanel";
 import { FileMenu, type FileMenuHandle } from "./FileMenu";
 import { type FileQuery, fileCompletionText, sameFileQuery } from "./file-completion";
+import { GoalStrip } from "./GoalStrip";
 import { ModelMenu } from "./ModelMenu";
 import { PerformanceBar } from "./PerformanceBar";
 import { MODES, PlusMenu } from "./PlusMenu";
@@ -49,6 +51,7 @@ import { type SlashItem, SlashMenu, type SlashMenuHandle, slashQuery } from "./S
 
 export { ImagePreview } from "./ImagePreview";
 export { SelectionDialog } from "./SelectionDialog";
+export { TextInputDialog } from "./TextInputDialog";
 
 export interface ComposerProps {
 	/**
@@ -177,6 +180,13 @@ export function Composer({ workspaceControl }: ComposerProps) {
 			setPromptText(editor, "");
 			setHasText(false);
 			setUi({ slashMenu: "mcp" });
+		} else if (item.kind === "feedback") {
+			// The product's own feedback dialog, which POSTs to the same kernel
+			// submission the `/feedback` command uses. Nothing is sent as a prompt.
+			setPromptText(editor, "");
+			setHasText(false);
+			setUi({ slashMenu: null });
+			openFeedback();
 		} else {
 			// The kernel runs `/<command> [args]` and expands `/skill:<name> [request]`
 			// into the skill's instructions on send.
@@ -200,6 +210,16 @@ export function Composer({ workspaceControl }: ComposerProps) {
 			const text = promptText(editor).trim();
 			const files = promptFiles(editor);
 			if (!text) return;
+			if (text === "/feedback") {
+				// `/feedback` needs a dialog, not a turn: opening the product's
+				// feedback dialog keeps one submission path and sends no prompt.
+				setPromptText(editor, "");
+				setHasText(false);
+				setQuery(null);
+				setUi({ slashMenu: null });
+				openFeedback();
+				return;
+			}
 			/*
 			 * Staged chips shape the outgoing message: one command pick may lead
 			 * it (the kernel runs a single slash command per message, and only
@@ -321,6 +341,7 @@ export function Composer({ workspaceControl }: ComposerProps) {
 			<FileMenu handle={files} cwd={cwd} query={pathQuery} promptRef={prompt} onPick={pickFile} />
 			<ClarificationPanel />
 			{workspaceControl}
+			<GoalStrip />
 			<QueueDock />
 			<div className="composer-card">
 				<AttachmentList />

@@ -41,10 +41,11 @@ test("picking an active mode again removes it without sending a clear command", 
 
 test("each mode maps to the prefix the kernel reads for one turn", () => {
 	// `/goal <body>` starts a goal, `/plan <body>` plans that task, and the
-	// `ultraloop:` keyword is the kernel's own per-turn workflow opt-in.
+	// `ultracode:` keyword is the kernel's own per-turn workflow opt-in
+	// (`ultraloop` is its alias and the kernel matches both).
 	assert.equal(modePrefix("goal"), "/goal ");
 	assert.equal(modePrefix("plan"), "/plan ");
-	assert.match(modePrefix("ultraloop"), /^ultraloop: ?$/u);
+	assert.match(modePrefix("ultraloop"), /^ultracode: ?$/u);
 });
 
 test("sending consumes every staged mode", () => {

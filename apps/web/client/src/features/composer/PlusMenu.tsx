@@ -1,7 +1,7 @@
 /**
  * `#plusMenu`: the composer's add menu behind one `+` trigger. Holds everything
  * that used to sit in the control row or only in Settings: staging attachments,
- * the session modes (goal / plan / ultraloop, single-select, moved here from
+ * the session modes (goal / plan / ultracode, single-select, moved here from
  * `#modeMenu`), and three entries with ZCode-style secondary panels — plugins,
  * skills and other sessions' context. The permission preset stays a sibling
  * button, not an entry here.

@@ -453,6 +453,18 @@ test("status chip shows Planning with the source and clears when plan mode is of
 	expect(harness.statuses.get("plan-mode")).toBe("Planning (agent)");
 });
 
+test("the status chip does not require a theme from the host", async () => {
+	// The Web/Desktop host renders text, not a terminal. Before this, entering
+	// plan mode called `ctx.ui.theme.fg(...)` on a host that answered `undefined`
+	// and crashed the whole plan command with "reading 'fg'".
+	const harness = createHarness({ cwd: makeWorkspace() });
+	createStepPlanExtension()(harness.api);
+	const context = harness.ctx({ ui: { ...(harness.ctx().ui as object), theme: undefined } });
+
+	await expect(harness.commands.get("plan")!.handler("", context)).resolves.toBeUndefined();
+	expect(harness.statuses.get("plan-mode")).toBe("Planning (user)");
+});
+
 test("session_start restores the chip: user for --plan, unknown for persisted state without planSource", async () => {
 	const flagged = createHarness({ flags: { plan: true } });
 	createStepPlanExtension()(flagged.api);
@@ -525,7 +537,7 @@ test.each([true, false])("rpc-mode exit_plan_mode hands approval to the caller (
 	expect(result.content).toEqual([
 		{
 			type: "text",
-			text: `Cannot gate approval in rpc child context. Plan file at ${planPath}; caller should approve externally. Plan mode exited and file mutations are re-enabled.\n\nPlan contents:\n${planContents}`,
+			text: `Plan mode exited and the proposal was submitted for review. Exiting reports that the investigation is finished; it does not authorize implementation. Wait for the user's decision before changing files.\n\nPlan file: ${planPath}\n\nPlan contents:\n${planContents}`,
 		},
 	]);
 	expect(result.details).toEqual({
@@ -547,7 +559,7 @@ test.each([true, false])("rpc-mode exit_plan_mode hands approval to the caller (
 	expect(
 		harness.notifications.some(
 			(notification) =>
-				notification.type === "warning" && notification.message.includes("rpc child auto-approved plan mode exit"),
+				notification.type === "info" && notification.message.includes("submitted for the user's decision"),
 		),
 	).toBe(true);
 	expect(events.at(-1)).toEqual({

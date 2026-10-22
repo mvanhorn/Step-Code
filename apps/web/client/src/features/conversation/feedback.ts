@@ -38,7 +38,7 @@ export const FEEDBACK_TOPIC_LABELS: Readonly<Record<FeedbackTopic, string>> = {
 
 export interface FeedbackState {
 	readonly open: boolean;
-	/** Null until the dialog has been opened once (legacy `state.feedback` undefined). */
+	/** Null when the dialog was opened without a vote (`/feedback`): the user picks one there. */
 	readonly sentiment: Sentiment | null;
 	readonly topic: FeedbackTopic | null;
 	readonly comment: string;
@@ -60,15 +60,23 @@ export function useFeedbackState(): FeedbackState {
 	return useSyncExternalStore(feedbackStore.subscribe, feedbackStore.getState, feedbackStore.getState);
 }
 
-/** Open the dialog for a vote; the topic and comment start empty (legacy `openFeedback`). */
-export function openFeedback(sentiment: Sentiment): void {
+/**
+ * Open the dialog. The vote buttons pass their sentiment; `/feedback` opens it
+ * neutral and lets the user choose before submitting.
+ */
+export function openFeedback(sentiment?: Sentiment): void {
 	feedbackStore.setState((state) => ({
 		open: true,
-		sentiment,
+		sentiment: sentiment ?? null,
 		topic: null,
 		comment: "",
 		openSeq: state.openSeq + 1,
 	}));
+}
+
+/** Choose the sentiment inside an already-open dialog (`/feedback`). */
+export function setFeedbackSentiment(sentiment: Sentiment): void {
+	feedbackStore.setState({ sentiment });
 }
 
 export function closeFeedback(): void {

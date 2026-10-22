@@ -32,6 +32,7 @@ import type {
 	DraftModels,
 	FileChange,
 	LoginReport,
+	NoticeItem,
 	QueueState,
 	SelectionRequest,
 	SessionEntry,
@@ -40,6 +41,7 @@ import type {
 	SessionSnapshot,
 	SessionStatus,
 	SessionSummary,
+	TextInputRequest,
 	ThinkingTimings,
 	TimelineItem,
 	ToolArgs,
@@ -51,6 +53,32 @@ import type {
 
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 let toastSeq = 0;
+
+/** Notices are page-local command output; keep the newest so a chatty command cannot grow the list forever. */
+const NOTICE_LIMIT = 20;
+let noticeSeq = 0;
+
+/**
+ * Append a command notice to the transcript. Notices are this page's view of
+ * `ui.notify`: they are never persisted and never enter the model's context.
+ */
+export function pushNotice(level: NoticeItem["level"], text: string, options?: { readonly markdown?: boolean }): void {
+	const current = getState().current;
+	noticeSeq += 1;
+	const item: NoticeItem = {
+		id: `notice-${noticeSeq}`,
+		sessionId: current?.id ?? "",
+		level,
+		text,
+		...(options?.markdown ? { markdown: true } : {}),
+	};
+	setState((state) => ({ notices: [...state.notices, item].slice(-NOTICE_LIMIT) }));
+}
+
+/** Remove one notice the reader dismissed. */
+export function dismissNotice(id: string): void {
+	setState((state) => ({ notices: state.notices.filter((notice) => notice.id !== id) }));
+}
 
 /** Show the top-centre toast for 4.2s (legacy `showError`, 3184-3193). `danger=false` is the neutral tone. */
 export function showError(message: string, danger = true): void {
@@ -187,6 +215,51 @@ export function childAgents(name: string, details: unknown): Pick<ToolTimelineIt
 	return children.length ? { children } : {};
 }
 
+/**
+ * The proposal an `exit_plan_mode` call submitted.
+ *
+ * `details` is the only structured copy: the plan file may change afterwards,
+ * and `planHash` is what binds a decision to the text the user reviewed. A
+ * result without those fields is a guard result ("not in plan mode", unreadable
+ * file), which stays a plain tool row.
+ */
+export function planReview(details: unknown): Pick<ToolTimelineItem, "planReview"> {
+	if (!details || typeof details !== "object") return {};
+	const value = details as {
+		planFilePath?: unknown;
+		planContents?: unknown;
+		planHash?: unknown;
+		outcome?: unknown;
+	};
+	if (
+		typeof value.planFilePath !== "string" ||
+		typeof value.planContents !== "string" ||
+		typeof value.planHash !== "string"
+	) {
+		return {};
+	}
+	const outcome = value.outcome;
+	if (
+		outcome !== "approved" &&
+		outcome !== "feedback" &&
+		outcome !== "dismissed" &&
+		outcome !== "external_approval_required"
+	) {
+		return {};
+	}
+	return {
+		planReview: {
+			planFilePath: value.planFilePath,
+			planContents: value.planContents,
+			planHash: value.planHash,
+			outcome,
+			// Only a handoff to the user is actionable; the other outcomes were
+			// already resolved inside a host that could ask.
+			pending: outcome === "external_approval_required",
+		},
+	};
+}
+
 /** `{ args }` for a tool item when the call has arguments a row names, else nothing. */
 function withArgs(input: unknown): { args?: ToolArgs } {
 	const args = toolArgs(input);
@@ -202,6 +275,37 @@ function imageSources(content: unknown): string[] {
 			? [`data:${part.mimeType};base64,${part.data}`]
 			: [],
 	);
+}
+
+/**
+ * How many conversational messages a compaction replaced: everything since the
+ * previous compaction, before the first entry this one keeps. Earlier summaries
+ * are not counted again. The branch still holds the summarized entries, so this
+ * counts the transcript rows the summary stands in for, not the session file.
+ */
+function compactedMessageCount(
+	entries: readonly SessionEntry[],
+	compactionIndex: number,
+	firstKeptEntryId: unknown,
+): number {
+	// An earlier compaction already accounts for everything before it.
+	let start = 0;
+	for (let index = compactionIndex - 1; index >= 0; index -= 1) {
+		if (entries[index]?.type === "compaction") {
+			start = index + 1;
+			break;
+		}
+	}
+	const keptIndex =
+		typeof firstKeptEntryId === "string" ? entries.findIndex((entry) => entry.id === firstKeptEntryId) : -1;
+	const end = keptIndex >= 0 && keptIndex < compactionIndex ? keptIndex : compactionIndex;
+	let count = 0;
+	for (const entry of entries.slice(start, end)) {
+		if (entry.type === "message" && (entry.message?.role === "user" || entry.message?.role === "assistant")) {
+			count += 1;
+		}
+	}
+	return count;
 }
 
 /**
@@ -221,9 +325,23 @@ export function timelineFromEntries(entries: readonly SessionEntry[] = [], retry
 		}
 	}
 	const messages = entries.filter((entry) => entry.type === "message" && entry.message);
-	for (const [index, entry] of messages.entries()) {
+	const messagePosition = new Map(messages.map((entry, index) => [entry.id, index]));
+	for (const [entryIndex, entry] of entries.entries()) {
+		if (entry.type === "compaction") {
+			items.push({
+				itemId: `compaction-${entry.id}`,
+				kind: "compaction",
+				summary: typeof entry.summary === "string" ? entry.summary : "",
+				...(typeof entry.tokensBefore === "number" ? { tokensBefore: entry.tokensBefore } : {}),
+				removedMessages: compactedMessageCount(entries, entryIndex, entry.firstKeptEntryId),
+				...(typeof entry.timestamp === "string" ? { timestamp: entry.timestamp } : {}),
+			});
+			continue;
+		}
+		if (entry.type !== "message") continue;
 		const message = entry.message;
 		if (!message || message.role === "toolResult") continue;
+		const index = messagePosition.get(entry.id) ?? 0;
 		const text = contentText(message.content);
 		const images = message.role === "user" ? imageSources(message.content) : [];
 		// A failed request leaves an assistant message with no content; without a row the error was invisible.
@@ -425,6 +543,9 @@ export function renderSnapshot(snapshot: SessionSnapshot): void {
 			sessions: mergeSessionSummary(state.sessions, snapshot),
 			timelineItems,
 			pendingTurn,
+			// The snapshot is authoritative when the page (re)loads; live
+			// `compaction_start` / `compaction_end` events refine it afterwards.
+			compacting: snapshot.compacting === true,
 		};
 	});
 }
@@ -451,7 +572,7 @@ let stream: EventSource | null = null;
 export function closeStream(): void {
 	stream?.close();
 	stream = null;
-	setState({ performanceRun: null });
+	setState({ performanceRun: null, compacting: false });
 	liveApprovals.clear();
 	liveClarifications.clear();
 	resolvedClarifications.clear();
@@ -467,6 +588,9 @@ interface AgentStreamEvent {
 	readonly result?: { readonly content?: unknown; readonly details?: unknown };
 	readonly isError?: boolean;
 	readonly assistantMessageEvent?: { readonly type?: string; readonly contentIndex?: number };
+	/** `compaction_start` / `compaction_end` carry the reason and, on failure, the message. */
+	readonly reason?: string;
+	readonly errorMessage?: string;
 }
 
 function updateTimeline(update: (items: readonly TimelineItem[]) => readonly TimelineItem[]): void {
@@ -603,6 +727,20 @@ function handleAgentEvent(agentEvent: AgentStreamEvent, thinkingTimings?: Thinki
 			performanceRun: observePerformance(state.performanceRun, agentEvent, performance.now()),
 		}));
 	}
+	if (agentEvent.type === "compaction_start") {
+		// A manual compaction is answered by the compaction row, not by a turn, so
+		// the bubble drawn for `/compact` goes away. A threshold/overflow
+		// compaction happens inside a real turn (before `agent_start` is even
+		// announced), and that bubble must survive it.
+		const manual = agentEvent.reason === "manual";
+		setState({ compacting: true, ...(manual ? { pendingTurn: null } : {}) });
+	}
+	if (agentEvent.type === "compaction_end") {
+		setState({ compacting: false });
+		// A refusal or a failed summarization is command output: say why, where
+		// the command was typed. The row itself appears from the session entry.
+		if (agentEvent.errorMessage) pushNotice("warning", agentEvent.errorMessage);
+	}
 	if (agentEvent.type === "message_update") {
 		const event = agentEvent.assistantMessageEvent;
 		scheduleLiveMessage(
@@ -693,6 +831,7 @@ function handleAgentEvent(agentEvent: AgentStreamEvent, thinkingTimings?: Thinki
 			outputSummary: compact(output),
 			outputDetail: clipDetail(output),
 			...childAgents(item.toolName, agentEvent.result?.details),
+			...(item.toolName === "exit_plan_mode" ? planReview(agentEvent.result?.details) : {}),
 			...(item.toolName === "subagent"
 				? {
 						subagentTasks: subagentTasks(
@@ -710,6 +849,9 @@ function handleAgentEvent(agentEvent: AgentStreamEvent, thinkingTimings?: Thinki
 		agentEvent.type === "entry_appended" ||
 		agentEvent.type === "session_info_changed" ||
 		agentEvent.type === "agent_settled" ||
+		// The compaction entry is written without `entry_appended`; the end event
+		// is what makes the new row and the lowered context usage visible.
+		agentEvent.type === "compaction_end" ||
 		// The snapshot carries the retry (attempt, backoff) and folds the failures it retries.
 		agentEvent.type === "auto_retry_start" ||
 		agentEvent.type === "auto_retry_end"
@@ -829,6 +971,57 @@ export function connectStream(id: string): void {
 							pendingSelections: (state.current.pendingSelections ?? []).filter((item) => item.id !== requestId),
 						}
 					: state.current,
+		}));
+	});
+	source.addEventListener("text_input_required", (event) => {
+		const request = JSON.parse((event as MessageEvent).data).input as TextInputRequest;
+		if (stream !== source || request.sessionId !== id) return;
+		setState((state) => ({
+			current:
+				state.current?.id === id
+					? {
+							...state.current,
+							pendingTextInputs: [
+								...(state.current.pendingTextInputs ?? []).filter((item) => item.id !== request.id),
+								request,
+							],
+						}
+					: state.current,
+		}));
+	});
+	source.addEventListener("text_input_resolved", (event) => {
+		if (stream !== source) return;
+		const requestId = JSON.parse((event as MessageEvent).data).id as string;
+		setState((state) => ({
+			current:
+				state.current?.id === id
+					? {
+							...state.current,
+							pendingTextInputs: (state.current.pendingTextInputs ?? []).filter((item) => item.id !== requestId),
+						}
+					: state.current,
+		}));
+	});
+	// Command output (`ui.notify`). It is a notice row, not a message: it never
+	// enters the session file, so it lives for this page load only.
+	source.addEventListener("notice", (event) => {
+		if (stream !== source) return;
+		const notice = JSON.parse((event as MessageEvent).data) as {
+			level?: string;
+			text?: string;
+			markdown?: boolean;
+		};
+		if (typeof notice.text !== "string" || !notice.text) return;
+		const level =
+			notice.level === "warning" || notice.level === "error" || notice.level === "info" ? notice.level : "info";
+		pushNotice(level, notice.text, notice.markdown ? { markdown: true } : undefined);
+		// A command answered in place (`/btw`, `/status`, a refusal) starts no turn,
+		// so the optimistic bubble that `sendMessage` drew would otherwise sit
+		// under a "thinking" indicator forever. Only a command can be answered
+		// this way: a prompt's notices (session start, permission) belong to a
+		// turn whose bubble must stay until its message is recorded.
+		setState((state) => ({
+			pendingTurn: /^\s*\/[A-Za-z0-9]/u.test(state.pendingTurn?.text ?? "") ? null : state.pendingTurn,
 		}));
 	});
 	source.addEventListener("web_error", (event) => {

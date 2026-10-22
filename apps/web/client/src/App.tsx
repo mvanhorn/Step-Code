@@ -1,5 +1,5 @@
 import { type CSSProperties, useRef } from "react";
-import { Composer, ImagePreview, SelectionDialog } from "./features/composer";
+import { Composer, ImagePreview, SelectionDialog, TextInputDialog } from "./features/composer";
 import { ConversationStream, FeedbackModal, StreamNav } from "./features/conversation";
 import { FileTreePanel } from "./features/files";
 import { RightPanel, RightToolRail } from "./features/inspector";
@@ -99,6 +99,7 @@ export function App() {
 			<WorkspaceBrowserModal />
 			<RemoveWorkspaceModal />
 			<SelectionDialog />
+			<TextInputDialog />
 			<ImagePreview />
 			<LogoutDialog />
 			<LoginGate />

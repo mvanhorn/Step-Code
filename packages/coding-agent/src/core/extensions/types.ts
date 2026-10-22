@@ -155,6 +155,12 @@ export interface ExtensionNotifyOptions {
 	 * entered. Modes without a transcript ignore it.
 	 */
 	echoesInput?: boolean;
+	/**
+	 * The message is Markdown and may be long (e.g. a `/btw` answer). Hosts with
+	 * a transcript render it as a notice block; a terminal notification renders
+	 * it verbatim.
+	 */
+	markdown?: boolean;
 }
 
 /** Raw terminal input listener for extensions. */

@@ -3,7 +3,10 @@ import { useLocale, useT } from "../../i18n";
 import { collectTurnChanges } from "../../lib/turn-changes";
 import { setUi, useAppStore } from "../../state/store";
 import type { SteeringMessage, TimelineItem } from "../../state/types";
+import { CompactionRow, CompactionRunningRow } from "./CompactionRow";
 import { MessageActions, MessageItem } from "./MessageItem";
+import { NoticeRow } from "./NoticeRow";
+import { PlanReviewCard } from "./PlanReviewCard";
 import { ProcessGroup } from "./ProcessGroup";
 import {
 	groupProcessRows,
@@ -72,6 +75,8 @@ export function ConversationStream() {
 	const sessionId = useAppStore((state) => state.current?.id ?? "");
 	const cwd = useAppStore((state) => state.current?.cwd ?? "");
 	const status = useAppStore((state) => state.current?.status);
+	const compacting = useAppStore((state) => state.compacting);
+	const notices = useAppStore((state) => state.notices);
 	const revertedTurns = useAppStore((state) => state.current?.revertedTurns);
 	// Shown with a sent message's timestamp; the transcript stores no per-message model.
 	const modelId = useAppStore((state) => state.current?.model?.id);
@@ -85,6 +90,11 @@ export function ConversationStream() {
 	const innerRef = useRef<HTMLDivElement>(null);
 	const stick = useRef(true);
 	const previousRows = useRef<readonly (IndexedTimelineRow | ProcessGroupRow)[]>([]);
+	// Notices belong to the page, not the session file: show only this session's.
+	const sessionNotices = useMemo(
+		() => notices.filter((notice) => notice.sessionId === sessionId),
+		[notices, sessionId],
+	);
 	const turns = useMemo(() => collectTurnChanges(items, cwd), [items, cwd]);
 	const footerAfter = useMemo(
 		() => new Map(collectTurnFooters(items, status, pendingTurn !== null).map((turn) => [turn.lastIndex, turn])),
@@ -153,7 +163,7 @@ export function ConversationStream() {
 	return (
 		<div className="stream" id="stream" ref={streamRef} onScroll={onScroll}>
 			<div className="stream-inner" id="streamInner" ref={innerRef}>
-				{items.length || pendingTurn || steering.length ? (
+				{items.length || pendingTurn || steering.length || compacting || sessionNotices.length ? (
 					<>
 						{presentation.map((row) => {
 							const card = cardAfter.get(row.lastIndex);
@@ -169,11 +179,16 @@ export function ConversationStream() {
 									) : row.item.kind === "message" ? (
 										<MessageItem item={row.item} model={modelId} />
 									) : row.item.kind === "tool" ? (
-										<ToolRow item={row.item} />
+										<>
+											<ToolRow item={row.item} />
+											{row.item.planReview ? <PlanReviewCard review={row.item.planReview} /> : null}
+										</>
 									) : row.item.kind === "thinking" ? (
 										<ThinkingDisclosure item={row.item} active={running} />
 									) : row.item.kind === "retry" ? (
 										<RetryRow item={row.item} />
+									) : row.item.kind === "compaction" ? (
+										<CompactionRow item={row.item} />
 									) : (
 										<ApprovalCard approval={row.item.approval} />
 									)}
@@ -198,6 +213,7 @@ export function ConversationStream() {
 								</Fragment>
 							);
 						})}
+						{compacting ? <CompactionRunningRow /> : null}
 						{steering.map((message, index) => (
 							<MessageItem
 								// Kernel texts carry no id; equal texts are interchangeable here.
@@ -226,6 +242,9 @@ export function ConversationStream() {
 							/>
 						) : null}
 						{thinking ? <ThinkingIndicator /> : null}
+						{sessionNotices.map((notice) => (
+							<NoticeRow key={notice.id} notice={notice} />
+						))}
 					</>
 				) : (
 					<EmptyConversation />

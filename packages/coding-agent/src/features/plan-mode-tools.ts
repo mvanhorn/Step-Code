@@ -180,11 +180,14 @@ export function registerPlanModeTools(pi: ExtensionAPI, planMode: StepPlanModeCo
 				// An rpc child has a dialog bridge (hasUI is true) but no real user
 				// behind it, so its extension_ui_request select can be auto-cancelled
 				// to "Stay", leaving the child idle in plan mode forever. Exit plan mode
-				// and hand approval to the caller.
+				// and hand approval to the caller. Interactive hosts that drive the
+				// session over rpc (StepCode Web/Desktop) land here too: they show the
+				// proposal in their own UI, so the result must neither claim the user
+				// approved nor imply the work may start.
 				planMode.exitPlanMode("auto_rpc", ctx);
-				ctx.ui.notify("rpc child auto-approved plan mode exit — user oversight was not gated", "warning");
+				ctx.ui.notify("Plan mode exited: the proposal was submitted for the user's decision.", "info");
 				return reviewedResult(
-					`Cannot gate approval in rpc child context. Plan file at ${planFilePath}; caller should approve externally. Plan mode exited and file mutations are re-enabled.\n\nPlan contents:\n${planContents}`,
+					`Plan mode exited and the proposal was submitted for review. Exiting reports that the investigation is finished; it does not authorize implementation. Wait for the user's decision before changing files.\n\nPlan file: ${planFilePath}\n\nPlan contents:\n${planContents}`,
 					reviewed("external_approval_required"),
 				);
 			}

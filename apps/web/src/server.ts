@@ -864,6 +864,15 @@ const server = createServer(async (request, response) => {
 					return error(response, 404, "Selection not found");
 				return json(response, 200, session.snapshot());
 			}
+			if (parts[4] === "text-inputs" && parts[5] === "response" && parts.length === 6 && method === "POST") {
+				const input = await body(request);
+				if (typeof input.id !== "string") return error(response, 400, "Text input id is required");
+				// An absent value means the user dismissed the dialog; "" is a real answer.
+				if (input.value !== undefined && typeof input.value !== "string")
+					return error(response, 400, "value must be a string");
+				if (!session.respondTextInput(input.id, input.value)) return error(response, 404, "Text input not found");
+				return json(response, 200, session.snapshot());
+			}
 			if (parts[4] === "approvals" && parts[5] === "decision" && method === "POST") {
 				const input = await body(request);
 				const verdict = input.verdict;
@@ -944,6 +953,28 @@ const server = createServer(async (request, response) => {
 					// from), not a server fault.
 					return error(response, 400, caught instanceof Error ? caught.message : String(caught));
 				}
+			}
+			if (parts[4] === "goal" && method === "PATCH") {
+				const input = await body(request);
+				const action = input.action;
+				if (
+					action !== "start" &&
+					action !== "pause" &&
+					action !== "resume" &&
+					action !== "edit" &&
+					action !== "clear"
+				) {
+					return error(response, 400, "action must be start, pause, resume, edit or clear");
+				}
+				const objective = typeof input.objective === "string" ? input.objective : undefined;
+				if ((action === "start" || action === "edit") && !objective?.trim()) {
+					return error(response, 400, "objective is required to start or edit a goal");
+				}
+				// Slash commands, so fire-and-forget like /messages.
+				void session
+					.controlGoal(action, objective)
+					.catch((caught) => session.publishError(caught instanceof Error ? caught.message : String(caught)));
+				return json(response, 202, { ok: true });
 			}
 			if (parts[4] === "mode" && method === "PATCH") {
 				const input = await body(request);

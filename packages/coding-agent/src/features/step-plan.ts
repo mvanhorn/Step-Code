@@ -61,6 +61,37 @@ export function getStepPlanMode(manager: object): string {
 	return value === undefined ? "Unknown" : value ? "Plan" : "Default";
 }
 
+/** Latest plan state recorded on the branch, for hosts that render it. */
+export interface StepPlanState {
+	enabled: boolean;
+	planFilePath?: string;
+	planSource: StepPlanSource;
+}
+
+/**
+ * Plan mode as of the latest `step-plan` entry on the branch.
+ *
+ * Reads persisted state rather than the in-memory WeakMap, so a host that
+ * restores a session before the extension replays `session_start` still sees
+ * the right answer. Undefined when the branch records no plan state at all.
+ */
+export function getStepPlanState(
+	entries: readonly { type: string; customType?: string; data?: unknown }[],
+): StepPlanState | undefined {
+	for (let index = entries.length - 1; index >= 0; index -= 1) {
+		const entry = entries[index]!;
+		if (entry.type !== "custom" || entry.customType !== "step-plan") continue;
+		const data = entry.data as PlanState | undefined;
+		if (!data || typeof data.enabled !== "boolean") continue;
+		return {
+			enabled: data.enabled,
+			...(typeof data.planFilePath === "string" ? { planFilePath: data.planFilePath } : {}),
+			planSource: data.planSource ?? "unknown",
+		};
+	}
+	return undefined;
+}
+
 /**
  * Status-bar chip: "Planning (user|agent|unknown)" while plan mode is on,
  * cleared (normal) otherwise.
@@ -68,7 +99,11 @@ export function getStepPlanMode(manager: object): string {
 function updateStatus(ctx: ExtensionContext, enabled: boolean, planSource: StepPlanSource | undefined): void {
 	publishedPlanModes.set(ctx.sessionManager, enabled);
 	if (enabled) {
-		ctx.ui.setStatus("plan-mode", ctx.ui.theme.fg("warning", `Planning (${planSource ?? "unknown"})`));
+		const label = `Planning (${planSource ?? "unknown"})`;
+		// Styling is a presentation nicety: a host without a terminal theme must
+		// still get the chip, not a crash inside its status update.
+		const theme = ctx.ui.theme;
+		ctx.ui.setStatus("plan-mode", theme ? theme.fg("warning", label) : label);
 	} else {
 		ctx.ui.setStatus("plan-mode", undefined);
 	}

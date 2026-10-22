@@ -28,6 +28,7 @@ import type {
 	SelectionRequest,
 	SessionSnapshot,
 	SteeringMessage,
+	TextInputRequest,
 	TimelineItem,
 	UploadedFile,
 } from "../../state/types";
@@ -131,6 +132,40 @@ export async function answerSelection(request: SelectionRequest, value: string |
 	}
 }
 
+/* ── Kernel text prompts (`ui.input`) ─────────────────────────────────────── */
+
+/** The text prompt to show, if any (a `/feedback` step and other input-taking commands). */
+export function pendingTextInput(state: AppState): TextInputRequest | undefined {
+	return state.current?.pendingTextInputs?.[0];
+}
+
+const answeringTextInputs = new Set<string>();
+
+/**
+ * Answer a pending kernel text prompt. `undefined` dismisses it, which the
+ * kernel reads as "cancelled"; an empty string is a submitted empty answer.
+ * The host replies once the command has applied it.
+ */
+export async function answerTextInput(request: TextInputRequest, value: string | undefined): Promise<boolean> {
+	// Escape (ShellEffects) and the dialog's buttons can both answer.
+	if (answeringTextInputs.has(request.id)) return false;
+	answeringTextInputs.add(request.id);
+	try {
+		const snapshot = await apiSend<SessionSnapshot>(
+			`/api/v1/sessions/${request.sessionId}/text-inputs/response`,
+			"POST",
+			{ id: request.id, ...(value === undefined ? {} : { value }) },
+		);
+		renderSnapshot(snapshot);
+		return true;
+	} catch (error) {
+		showError(errorMessage(error));
+		return false;
+	} finally {
+		answeringTextInputs.delete(request.id);
+	}
+}
+
 /* ── Model and thinking effort (legacy selectModel / selectEffort, 2746-2776) ── */
 
 /**
@@ -185,12 +220,13 @@ export async function selectEffort(level: string): Promise<boolean> {
  * The prefix is what the kernel reads for that one turn:
  * - `/plan ` — plan this task;
  * - `/goal ` — start a goal with the message body;
- * - the `ultraloop` keyword — the kernel's own per-turn workflow opt-in.
+ * - the `ultracode` keyword — the kernel's own per-turn workflow opt-in
+ *   (`ultraloop` is its alias; the kernel matches both).
  */
 const MODE_PREFIX: Readonly<Record<ModeId, string>> = {
 	goal: "/goal ",
 	plan: "/plan ",
-	ultraloop: "ultraloop: ",
+	ultraloop: "ultracode: ",
 };
 
 /** The leading text `id` contributes to the message it is staged on. */
@@ -324,9 +360,24 @@ export function removeAttachment(index: number): void {
 
 /* ── Sending (legacy `#composer` submit, 3523-3549) ──────────────────────── */
 
-/** A turn is in progress (running or waiting on the user), so a new message has to wait for it. */
+/** A turn is in progress (running, waiting on the user, or compacting), so a new message has to wait for it. */
 export function turnActive(state: AppState): boolean {
-	return state.current?.status === "running" || state.current?.status === "waiting";
+	return state.compacting || state.current?.status === "running" || state.current?.status === "waiting";
+}
+
+/**
+ * Commands that answer immediately and so must not wait behind a running turn.
+ *
+ * The kernel runs extension commands before its streaming gate; queueing one
+ * would delay it to the end of the turn, which defeats `/btw` ("ask a side
+ * question without interrupting the work"). Only commands that neither start a
+ * turn nor mutate the session may be listed here.
+ */
+const IMMEDIATE_COMMANDS: ReadonlySet<string> = new Set(["btw"]);
+
+function immediateCommand(text: string): boolean {
+	const match = /^\s*\/([A-Za-z0-9][\w.:-]*)(?:\s|$)/u.exec(text);
+	return match?.[1] !== undefined && IMMEDIATE_COMMANDS.has(match[1]);
 }
 
 /**
@@ -364,7 +415,7 @@ export async function sendMessage(text: string, files: readonly PromptFile[] = [
 		]);
 	try {
 		const session = await createSessionIfNeeded(text);
-		const endpoint = !active ? "messages" : steer ? "steer" : "queue";
+		const endpoint = !active || immediateCommand(text) ? "messages" : steer ? "steer" : "queue";
 		// `files`: upload ids of the prompt's file chips; the host adds their content.
 		const body = JSON.stringify({ text, attachments, files: files.map((file) => file.id) });
 		const result = await api<QueueState | { ok: true }>(`/api/v1/sessions/${session.id}/${endpoint}`, {

@@ -847,12 +847,33 @@ paths:
             Session snapshot including pendingClarifications and pendingSelections (in-memory requests restored after
             page reload). `permissionPreset` is the tier the kernel enforces now, which can differ from the Step
             settings (a "this session" Full Access grant is not persisted).
+            `goal` is the running goal the client draws above the composer (absent when the session has none), and
+            `planMode` reports whether plan mode is active; both are read from the session branch, not from UI state.
           content:
             application/json:
               schema:
                 type: object
                 properties:
                   permissionPreset: { type: string, enum: [ask, approve-for-me, full-access] }
+                  goal:
+                    type: object
+                    description: The session's goal (runtime.ts `projectGoal`); absent when there is none.
+                    properties:
+                      id: { type: string }
+                      objective: { type: string }
+                      status:
+                        type: string
+                        enum: [active, paused, blocked, usage_limited, budget_limited, complete]
+                      tokensUsed: { type: integer }
+                      tokenBudget: { type: integer }
+                      rounds: { type: integer, description: "Completed agent runs; progress, not a stop condition" }
+                  planMode:
+                    type: object
+                    description: Plan mode state (runtime.ts `projectPlanMode`).
+                    properties:
+                      enabled: { type: boolean }
+                      planFilePath: { type: string }
+                      planSource: { type: string, enum: [user, agent, unknown] }
                   entries:
                     type: array
                     items:
@@ -879,6 +900,10 @@ paths:
                   pendingSelections:
                     type: array
                     items: { $ref: "#/components/schemas/SelectionRequest" }
+                  pendingTextInputs:
+                    type: array
+                    description: Kernel text prompts (`ui.input`) waiting for an answer (in memory, restored after reload)
+                    items: { $ref: "#/components/schemas/TextInputRequest" }
                   pendingClarifications:
                     type: array
                     items: { $ref: "#/components/schemas/ClarificationRequest" }
@@ -962,8 +987,13 @@ paths:
         "200":
           description: >-
             SSE snapshot and agent/status/approval/clarification_required/clarification_resolved/selection_required/
-            selection_resolved/queue events. clarification_required carries clarification and selection_required carries
-            selection; the resolved events carry id; queue carries a QueueState (queued, steering).
+            selection_resolved/text_input_required/text_input_resolved/notice/queue events.
+            clarification_required carries clarification and selection_required carries selection; the resolved events
+            carry id. text_input_required carries `input` (id, sessionId, title, placeholder) and
+            text_input_resolved carries id. `notice` carries level (info|warning|error), text and optional markdown:
+            it is command output from the kernel's `ui.notify`, shown in the transcript but never persisted and never
+            part of the model's context. A failure the host cannot attribute to a request is sent as `web_error` with
+            a message. queue carries a QueueState (queued, steering).
             Agent envelopes optionally carry thinkingTimings, keyed by original content-block index, with host-observed
             epoch-millisecond startedAt/endedAt fields. Live intervals may omit endedAt; saved intervals are complete.
   /api/v1/sessions/{id}/messages:
@@ -1114,6 +1144,36 @@ paths:
         - { $ref: "#/components/parameters/SessionId" }
       responses:
         "200": { description: Agent interrupted }
+  /api/v1/sessions/{id}/fork:
+    post:
+      description: >-
+        Branch the session at `entryId` (a recorded turn) or at its last user message, and rebind this host session to
+        the new branch. The kernel always creates a new session id and file; `sessionId` in the response is that new id,
+        which is immediately readable through `GET /sessions/{id}`. The new session is named after the parent's current
+        title plus `_fork`, so forking a fork appends again (`title_fork_fork`). Refused while a turn runs or while
+        another fork is in progress.
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                entryId: { type: string, description: Entry to branch at; omit to use the last user message }
+      responses:
+        "200":
+          description: Fork result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cancelled: { type: boolean }
+                  sessionId:
+                    type: string
+                    description: The session now bound — the new branch on success, the previous id otherwise
+        "400": { description: The entry cannot be forked, a turn is running, or a fork is already in progress }
   /api/v1/sessions/{id}/name:
     patch:
       parameters:
@@ -1619,6 +1679,31 @@ paths:
         "200": { description: Session snapshot after the answer was applied }
         "400": { description: Missing id or a non-string value }
         "404": { description: Selection no longer pending, or the value was not offered; the question stays open }
+  /api/v1/sessions/{id}/text-inputs/response:
+    post:
+      description: >-
+        Answer a kernel text prompt (`ui.input`), such as the `/feedback` comment field. Resolves after the command
+        that asked has applied the answer.
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id]
+              properties:
+                id: { type: string }
+                value:
+                  type: string
+                  description: >-
+                    The submitted text; an empty string is a real answer. Omit to dismiss the prompt (the kernel treats
+                    it as cancelled).
+      responses:
+        "200": { description: Session snapshot after the answer was applied }
+        "400": { description: Missing id or a non-string value }
+        "404": { description: Text input no longer pending }
   /api/v1/sessions/{id}/clarifications/response:
     post:
       parameters:
@@ -1652,6 +1737,50 @@ paths:
         "200": { description: Response accepted; resumes the existing clarify_user call }
         "400": { description: Invalid or incomplete answers; request remains pending }
         "404": { description: Request no longer pending in this session }
+  /api/v1/sessions/{id}/goal:
+    patch:
+      description: |
+        One control from the goal strip. Each action runs the same `/goal` slash
+        command the CLI issues (`start`, `pause`, `resume`, `edit`, `clear`), so
+        there is one implementation of goal control. Answered 202 because a slash
+        command is a kernel prompt; the resulting goal arrives in the session
+        snapshot's `goal`.
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action: { type: string, enum: [start, pause, resume, edit, clear] }
+                objective: { type: string, description: "Required for start and edit" }
+      responses:
+        "202": { description: Goal control accepted }
+        "400": { description: "Unknown action, or a missing objective for start/edit" }
+  /api/v1/sessions/{id}/mode:
+    patch:
+      description: |
+        Start or stop a composer mode. `plan` toggles plan mode; `ultraloop` is
+        rejected by hosts that offer per-turn opt-in only; `goal` starts or clears
+        the goal and needs `goal` text when enabling.
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mode, enabled]
+              properties:
+                mode: { type: string, enum: [goal, plan, ultraloop] }
+                enabled: { type: boolean }
+                goal: { type: string }
+      responses:
+        "202": { description: Mode command accepted }
   /api/v1/sessions/{id}/model:
     patch:
       parameters:
@@ -1944,6 +2073,17 @@ components:
         sessionId: { type: string }
         title: { type: string }
         options: { type: array, items: { type: string } }
+    TextInputRequest:
+      type: object
+      required: [id, sessionId, title]
+      description: >-
+        A kernel `ui.input` prompt. The title and placeholder are the kernel's own wording; answer through
+        `text-inputs/response`.
+      properties:
+        id: { type: string }
+        sessionId: { type: string }
+        title: { type: string }
+        placeholder: { type: string }
     ClarificationRequest:
       type: object
       required: [id, sessionId, questions]

@@ -8,7 +8,7 @@ import { useEffect } from "react";
 import { activeRightPanel, closeRightPanel } from "../../state/right-panel";
 import { activeCwd, backgroundSessionBusy, interruptCurrent, refreshSessionStatuses } from "../../state/session";
 import { type AppState, getState, setUi, useAppStore } from "../../state/store";
-import { answerSelection, pendingSelection } from "../composer/actions";
+import { answerSelection, answerTextInput, pendingSelection, pendingTextInput } from "../composer/actions";
 import { openTree, setPreviewOpen } from "../files/actions";
 import { closeTopmostSettingsLayer } from "../settings/actions";
 import { closeSearch, closeWorkspaceMenu, openSearch } from "../sidebar/actions";
@@ -29,7 +29,9 @@ function handleEscape(): void {
 	// A kernel question blocks its session and sits above everything else;
 	// Escape dismisses it, which the kernel reads as "cancel".
 	const selection = pendingSelection(state);
+	const textInput = pendingTextInput(state);
 	if (selection) void answerSelection(selection, undefined);
+	else if (textInput) void answerTextInput(textInput, undefined);
 	else if (ui.logoutConfirm) closeLogoutConfirm();
 	else if (ui.imagePreview) setUi({ imagePreview: null });
 	else if (ui.accountMenuOpen) setUi({ accountMenuOpen: false });

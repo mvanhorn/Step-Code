@@ -513,7 +513,12 @@ export {
 } from "./features/step-cron.ts";
 // Plan mode and the Ultracode/Ultraloop opt-in are product capabilities the Web
 // host has to install alongside the others, so they need the same public entry.
-export { createStepPlanExtension, stepPlanExtension } from "./features/step-plan.ts";
+export {
+	createStepPlanExtension,
+	getStepPlanState,
+	type StepPlanState,
+	stepPlanExtension,
+} from "./features/step-plan.ts";
 export { createStepProviderConfig, STEP_PROVIDER_ID } from "./features/step-provider/index.ts";
 export {
 	CreateGoalParams,
@@ -522,6 +527,7 @@ export {
 	createStepScheduleExtension,
 	GetGoalParams,
 	type GoalContinuation,
+	getStepGoal,
 	getStepGoalStatus,
 	type StepGoalClearSnapshot,
 	type StepGoalExtensionOptions,
@@ -846,7 +852,10 @@ export {
 	loadStepCodeConfig,
 	type StepCodeConfig,
 } from "./step/stepcode-config.ts";
-export { buildStepSystemPromptAppendix } from "./step/system-prompt.ts";
+export {
+	buildStepSystemPromptAppendix,
+	STEP_APP_SYSTEM_PROMPT_PRODUCT,
+} from "./step/system-prompt.ts";
 export {
 	classifyStepEndpoint,
 	type StepModelRequestEventName,
@@ -914,7 +923,9 @@ export {
 	initTheme,
 	loadThemeFromPath,
 	onThemeChange,
+	PlainTheme,
 	parseAutoThemeSetting,
+	plainTheme,
 	resolveThemeSetting,
 	setRegisteredThemes,
 	setTheme,

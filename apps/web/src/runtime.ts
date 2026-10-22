@@ -15,19 +15,19 @@ import {
 	createStepCronExtension,
 	createStepExtensionInline,
 	createStepGoalExtension,
-	createStepPlanExtension,
 	createStepProviderConfig,
 	createStepSessionManager,
 	createStepSessionManagerFactory,
 	createStepSettingsManager,
-	createUltraloopOptInExtension,
 	DEFAULT_THINKING_LEVEL,
 	DefaultResourceLoader,
 	type ExtensionUIContext,
 	FULL_ACCESS_RISK_OPTIONS,
 	findInitialModel,
 	getStepAuthPath,
+	getStepGoal,
 	getStepMcpStatuses,
+	getStepPlanState,
 	getSupportedThinkingLevels,
 	type InlineExtension,
 	isChildAgentSession,
@@ -36,6 +36,7 @@ import {
 	NOOP_OBSERVABILITY_PROVIDER,
 	normalizeFeedbackCategory,
 	openStepSession,
+	plainTheme,
 	readFeedbackUsername,
 	readGlobalStepDefaults,
 	resolveFeedbackEndpoint,
@@ -46,10 +47,12 @@ import {
 	type SessionEntry,
 	type SessionIndex,
 	type SessionInfo,
+	STEP_APP_SYSTEM_PROMPT_PRODUCT,
 	STEP_DEFAULT_MODEL,
 	STEP_PERMISSION_PRESETS,
 	STEP_PROVIDER_ID,
 	type StepGlobalDefaults,
+	type StepGoalRecord,
 	type StepMcpStatus,
 	type StepPermissionPresetId,
 	type StepSettingsManager,
@@ -77,6 +80,7 @@ import { generateSessionTitle, sessionTitleInput } from "./session-title.ts";
 import { type WebSkill, webSkills } from "./skills.ts";
 import { resolveSubagentCliPath } from "./subagent-cli.ts";
 import { projectSubagentNotification } from "./subagent-notification.ts";
+import { TextInputBroker, type TextInputEvent, textInput } from "./text-input.ts";
 import { savedThinkingTimings, THINKING_TIMING_TYPE, ThinkingClock, type ThinkingTimings } from "./thinking-timing.ts";
 import {
 	revertedTurnIds,
@@ -123,8 +127,20 @@ async function refreshStepModelCatalog(modelRuntime: ModelRuntime): Promise<void
 export type WebEvent =
 	| ClarificationEvent
 	| SelectionEvent
+	| TextInputEvent
 	| { type: "agent"; event: AgentSessionEvent; thinkingTimings?: ThinkingTimings }
 	| { type: "approval_required"; approval: ApprovalRequest }
+	| {
+			/**
+			 * Command output the kernel published through `ui.notify`. It is a
+			 * notice in the transcript, never a prompt: nothing here enters the
+			 * model's context or the session file.
+			 */
+			type: "notice";
+			level: "info" | "warning" | "error";
+			text: string;
+			markdown?: boolean;
+	  }
 	| { type: "status"; status: WebSessionStatus; unread: boolean }
 	| ({ type: "queue" } & WebQueueState)
 	| { type: "error"; message: string };
@@ -152,6 +168,9 @@ export function mcpStatuses(): StepMcpStatus[] {
 /** The session modes the composer can toggle. Each is independent of the others. */
 export type WebMode = "goal" | "plan" | "ultraloop";
 
+/** What the goal strip's buttons and edit form ask for. */
+export type WebGoalAction = "start" | "pause" | "resume" | "edit" | "clear";
+
 /**
  * The official StepCode CLI currently persists sessions through Pi's native
  * SessionManager (JSONL v3). This registry prevents two Web sessions in the
@@ -163,6 +182,8 @@ function webUiContext(
 	broker: ApprovalBroker,
 	clarifications: ClarificationBroker,
 	selections: SelectionBroker,
+	textInputs: TextInputBroker,
+	notify: (notice: { level: "info" | "warning" | "error"; text: string; markdown?: boolean }) => void,
 ): ExtensionUIContext {
 	const unsupported = async <T>(fallback: T): Promise<T> => fallback;
 	return {
@@ -170,8 +191,15 @@ function webUiContext(
 		select: selectionSelect(selections),
 		confirm: (title, message, options) =>
 			broker.confirm(title.replace(/^Approve |^Dangerous /u, ""), message, options?.signal),
-		input: async () => undefined,
-		notify: () => {},
+		input: textInput(textInputs),
+		// A command's answer is a notice in the transcript, not a prompt: it never
+		// reaches the model or the session file.
+		notify: (message, type, options) =>
+			notify({
+				level: type ?? "info",
+				text: message,
+				...(options?.markdown ? { markdown: true } : {}),
+			}),
 		onTerminalInput: () => () => {},
 		setStatus: () => {},
 		setWorkingMessage: () => {},
@@ -191,7 +219,10 @@ function webUiContext(
 		setEditorComponent: () => {},
 		getEditorComponent: () => undefined,
 		get theme() {
-			return undefined as never;
+			// `ExtensionUIContext.theme` is required, and extensions style status
+			// text unconditionally. Identity styling keeps those calls working
+			// without emitting ANSI into HTML or a notice.
+			return plainTheme;
 		},
 		getAllThemes: () => [],
 		getTheme: () => undefined,
@@ -201,7 +232,15 @@ function webUiContext(
 	};
 }
 
-function makeExtensions(
+/**
+ * Extensions the Web/Desktop host mounts, in registration order.
+ *
+ * Exported for the assembly regression test: the list used to lose `goal` and
+ * `cron` silently, which unregistered their slash commands and tools — `/goal`
+ * then reached the model as ordinary text. Keep the test's expectations in step
+ * with this list rather than re-deriving it at each call site.
+ */
+export function webExtensions(
 	settingsManager: StepSettingsManager,
 	broker: ApprovalBroker,
 	onPermissionChange: (preset: StepPermissionPresetId) => void,
@@ -219,9 +258,6 @@ function makeExtensions(
 			pi.on("tool_call", (event) => {
 				broker.captureToolCall(event.toolCallId, event.toolName, event.input);
 			});
-			pi.on("session_start", (_event, context) => {
-				context.ui.notify("StepCode Web session ready");
-			});
 		},
 	};
 	return [
@@ -233,12 +269,21 @@ function makeExtensions(
 			onPermissionChange,
 			traceHeaderPolicy: NOOP_OBSERVABILITY_PROVIDER.traceHeaderPolicy(),
 		}),
-		createStepCapabilitiesExtensionInline({ telemetry, cliPath: resolveSubagentCliPath() }),
+		// The client's ultraloop pick rides one message; the host offers no
+		// standing `/ultraloop on` switch to revoke, so neither register it nor
+		// revive a standing entry carried in from a CLI session.
+		//
+		// Capabilities registers plan, tasks, subagent, workflow, and ultraloop —
+		// but NOT goal or cron. Those are separate extensions, and omitting one
+		// leaves its tools and slash commands unregistered: `/goal` then reaches
+		// the model as ordinary text, and the session has no create_goal.
+		createStepCapabilitiesExtensionInline({
+			telemetry,
+			cliPath: resolveSubagentCliPath(),
+			ultraloopSessionMode: false,
+		}),
 		createStepCronExtension({ telemetry }),
 		createStepGoalExtension({ telemetry }),
-		createStepPlanExtension({ telemetry }),
-		// Ultracode/Ultraloop takes no telemetry option of its own.
-		createUltraloopOptInExtension(),
 	];
 }
 
@@ -436,7 +481,15 @@ export function projectEntry(entry: SessionEntry): Record<string, unknown> {
 		...(usage ? { usage } : {}),
 		...(entry.type === "custom_message" ? { content: entry.content, customType: entry.customType } : {}),
 		...(notification ? { details: notification } : {}),
-		...(entry.type === "compaction" ? { summary: entry.summary } : {}),
+		// A compaction row shows what it replaced: the summary, the prompt volume
+		// before it, and the entry that stays canonical after it.
+		...(entry.type === "compaction"
+			? {
+					summary: entry.summary,
+					tokensBefore: entry.tokensBefore,
+					firstKeptEntryId: entry.firstKeptEntryId,
+				}
+			: {}),
 		...(entry.type === "branch_summary" ? { summary: entry.summary } : {}),
 	};
 }
@@ -453,10 +506,62 @@ export function projectEntries(entries: readonly SessionEntry[]): Record<string,
 	});
 }
 
+/** The goal strip's data, or undefined when the session has no goal to show. */
+export function projectGoal(goal: StepGoalRecord | undefined): Record<string, unknown> | undefined {
+	if (!goal) return undefined;
+	return {
+		id: goal.id,
+		objective: goal.objective,
+		status: goal.status,
+		tokensUsed: goal.tokensUsed,
+		...(goal.tokenBudget === undefined ? {} : { tokenBudget: goal.tokenBudget }),
+		// Completed runs, not a stop condition: the client shows it as progress.
+		rounds: goal.iteration,
+	};
+}
+
+/**
+ * Plan mode as a client reads it. `enabled` drives the composer's plan affordance;
+ * `planFilePath` is the file an open plan is drafting into.
+ */
+export function projectPlanMode(
+	state: { enabled: boolean; planFilePath?: string; planSource: string } | undefined,
+): Record<string, unknown> {
+	return {
+		enabled: state?.enabled ?? false,
+		...(state?.planFilePath ? { planFilePath: state.planFilePath } : {}),
+		...(state?.enabled ? { planSource: state.planSource } : {}),
+	};
+}
+
+/** The text of a recorded user message, whichever shape the kernel stored. */
+function userMessageText(content: string | readonly { readonly type: string; readonly text?: string }[]): string {
+	if (typeof content === "string") return content;
+	return content.flatMap((part) => (part.type === "text" && part.text ? [part.text] : [])).join(" ");
+}
+
+/** The entry a nameless fork starts from: the last thing the user said. */
+function lastUserEntryId(session: AgentSession): string | undefined {
+	const branch = session.sessionManager.getBranch();
+	return [...branch].reverse().find((entry) => entry.type === "message" && entry.message.role === "user")?.id;
+}
+
+/** Appended to the parent title by every fork, so a fork of a fork reads `_fork_fork`. */
+const FORK_SUFFIX = "_fork";
+/** Keep the suffix visible: a fork of a very long title is shortened, not truncated past the suffix. */
+const FORK_TITLE_MAX = 96;
+
+function forkTitleOf(parent: string): string {
+	const room = FORK_TITLE_MAX - FORK_SUFFIX.length;
+	const base = parent.length <= room ? parent : `${parent.slice(0, room - 1).trimEnd()}…`;
+	return `${base}${FORK_SUFFIX}`;
+}
+
 export class WebSession {
 	readonly broker: ApprovalBroker;
 	readonly clarifications: ClarificationBroker;
 	readonly selections: SelectionBroker;
+	readonly textInputs: TextInputBroker;
 	private readonly listeners = new Set<(event: WebEvent) => void>();
 	private runtime!: AgentSessionRuntime;
 	private session!: AgentSession;
@@ -468,11 +573,18 @@ export class WebSession {
 	private unsubscribeSession?: () => void;
 	private unsubscribeRuntimeSessionChange?: () => void;
 	private releaseWriterLease?: () => void;
+	/**
+	 * Set by the store: re-keys a session after a fork, when the same object
+	 * starts advertising the new session id.
+	 */
+	adopt?: (previousId: string, id: string, session: WebSession) => void;
 	/** Receives this session's file writes, including those of forks and /new. */
 	private index?: SessionIndexSink;
 	private writerLeasePath?: string;
 	private archived = false;
 	private readonly reverter = new TurnReverter();
+	/** Set while `fork` swaps the session, so a second click cannot branch again. */
+	private forking = false;
 	/** Status a pending selection interrupted, restored once it is answered. */
 	private statusBeforeSelection?: WebSessionStatus;
 	/** Set while `setPolicy` waits to learn whether its command raised a dialog. */
@@ -554,10 +666,36 @@ export class WebSession {
 				if (
 					event.type === "selection_resolved" &&
 					!this.selections.pendingRequests().length &&
+					!this.textInputs.pendingRequests().length &&
 					!this.clarifications.pendingRequests().length &&
 					!this.broker.pendingRequests().length
 				) {
 					this.setStatus(this.statusBeforeSelection ?? "idle", false);
+					this.statusBeforeSelection = undefined;
+				}
+			},
+		);
+		// A kernel text prompt is a wait too: the command is suspended until the
+		// answer arrives. It shares the "waiting" projection with selectors so the
+		// composer does not start a second turn behind a half-answered dialog.
+		this.textInputs = new TextInputBroker(
+			() => this.id,
+			(event) => {
+				if (event.type === "text_input_required" && this.status !== "waiting") {
+					this.statusBeforeSelection = this.status;
+					this.setStatus("waiting", false);
+				}
+				this.emit(event);
+				if (
+					event.type === "text_input_resolved" &&
+					!this.textInputs.pendingRequests().length &&
+					!this.selections.pendingRequests().length &&
+					!this.clarifications.pendingRequests().length &&
+					!this.broker.pendingRequests().length
+				) {
+					// The saved status can be stale: the run may have settled while the
+					// dialog was open. The live session knows whether one is active.
+					this.setStatus(this.session.isStreaming ? "running" : (this.statusBeforeSelection ?? "idle"), false);
 					this.statusBeforeSelection = undefined;
 				}
 			},
@@ -658,7 +796,7 @@ export class WebSession {
 				settingsManager,
 				modelRuntime: this.modelRuntime,
 				resourceLoaderOptions: {
-					extensionFactories: makeExtensions(settingsManager, this.broker, (preset) => {
+					extensionFactories: webExtensions(settingsManager, this.broker, (preset) => {
 						this.livePermission = preset;
 					}),
 				},
@@ -677,12 +815,10 @@ export class WebSession {
 				// carries the persisted thinking level, so it is not repeated here.
 				defaultProvider: defaults.provider,
 				...(defaults.modelId ? { defaultModelId: defaults.modelId } : {}),
-				systemPromptProduct: {
-					name: "StepCode",
-					role: "a local coding agent",
-					introduction: "You are StepCode Web. Work in the selected workspace and explain what you do.",
-					includeDocumentation: false,
-				},
+				// The app identity and the Step operating contract come from
+				// coding-agent: Desktop runs this host, so both share one definition
+				// instead of the host assembling a prompt of its own.
+				systemPromptProduct: STEP_APP_SYSTEM_PROMPT_PRODUCT,
 			});
 			return { ...created, services, diagnostics: services.diagnostics };
 		};
@@ -710,9 +846,14 @@ export class WebSession {
 		// A replaced session's dialogs answer nothing: the kernel's generation
 		// guard already ignores them. Dismiss them so the new session starts clean.
 		this.selections.clear();
+		this.textInputs.clear();
 		this.livePermission = undefined;
 		// Keep the advertised id in step with the session actually bound, so a
 		// fork or /new does not leave the UI pointing at the previous session.
+		//
+		// The store key is deliberately not moved here: only `fork()` returns an
+		// id the client navigates to. A `/clear` or `switchSession` keeps its key
+		// pointing at this object, which is what the open page still polls.
 		this.id = session.sessionManager.getSessionId();
 		const sessionFile = session.sessionManager.getSessionFile();
 		const resolvedSessionFile = sessionFile ? resolve(sessionFile) : undefined;
@@ -780,10 +921,18 @@ export class WebSession {
 				// and an extension may have started a follow-up run in the meantime.
 				if (!hold) setImmediate(() => this.dispatchQueued());
 			}
+			// A manual compaction settles no run, so queued messages wait for this
+			// event instead. Auto compaction is part of a run: its retry continues
+			// the turn, and `agent_settled` dispatches the queue after that.
+			if (event.type === "compaction_end" && event.reason === "manual" && !this.session.isStreaming) {
+				setImmediate(() => this.dispatchQueued());
+			}
 		});
 		void session.bindExtensions({
 			mode: "rpc",
-			uiContext: webUiContext(this.broker, this.clarifications, this.selections),
+			uiContext: webUiContext(this.broker, this.clarifications, this.selections, this.textInputs, (notice) =>
+				this.emit({ type: "notice", ...notice }),
+			),
 			commandContextActions: {
 				waitForIdle: () => session.waitForIdle(),
 				newSession: (options) => this.runtime.newSession(options),
@@ -956,9 +1105,9 @@ export class WebSession {
 		}));
 	}
 
-	/** Whether a message sent now has to wait: a run is active or the session waits on the user. */
+	/** Whether a message sent now has to wait: a run is active, the context is being compacted, or the session waits on the user. */
 	private mustQueue(): boolean {
-		return this.session.isStreaming || this.status === "waiting" || this.isReverting();
+		return this.session.isStreaming || this.session.isCompacting || this.status === "waiting" || this.isReverting();
 	}
 
 	/**
@@ -1112,6 +1261,15 @@ export class WebSession {
 	}
 
 	/**
+	 * Answer a kernel text prompt (`ui.input`). `undefined` dismisses it and an
+	 * empty string is a submitted empty answer, which is how the kernel tells
+	 * "the user cancelled" from "the user typed nothing".
+	 */
+	respondTextInput(id: string, value: string | undefined): boolean {
+		return this.textInputs.respond(id, value);
+	}
+
+	/**
 	 * Submit feedback about this conversation.
 	 *
 	 * The kernel accepts five coarse categories and rejects anything else, while
@@ -1157,23 +1315,69 @@ export class WebSession {
 	}
 
 	/**
-	 * Fork the conversation at an entry, or from the current turn when omitted.
-	 * Returns the session id now bound, which differs after a successful fork.
+	 * Branch this session at `entryId`, or retry the last turn when omitted.
+	 *
+	 * The kernel always creates a new session id and file. `this.id` therefore
+	 * moves with the rebind (`bindSession`), and the returned id is the new one:
+	 * returning the old id made the client navigate to a session that does not
+	 * exist. `adopt` registers the new id in the store so `GET` and the inspector
+	 * reach the session that was just bound.
 	 */
 	async fork(entryId?: string): Promise<{ cancelled: boolean; sessionId: string }> {
-		if (entryId) {
-			// Forking at a named turn keeps that turn in the new branch; the default
-			// "before" position only accepts a user message.
-			const result = await this.runtime.fork(entryId, { position: "at" });
-			return { cancelled: result.cancelled, sessionId: this.id };
+		// A fork swaps the session under the page. Refusing a concurrent one keeps
+		// a double click from creating two branches and binding the wrong one.
+		if (this.forking) throw new Error("A fork is already in progress");
+		if (this.status === "running" || this.status === "waiting" || this.session.isCompacting)
+			throw new Error("Stop the running turn before forking");
+		this.forking = true;
+		const previousId = this.id;
+		try {
+			const targetEntryId = entryId ?? lastUserEntryId(this.session);
+			if (!targetEntryId) return { cancelled: true, sessionId: previousId };
+			const childTitle = forkTitleOf(this.forkTitle());
+			// An entry keeps that turn in the new branch ("at"); the implicit last
+			// user message means "retry this turn", so the branch ends before it.
+			const result = await this.runtime.fork(targetEntryId, {
+				position: entryId ? "at" : "before",
+			});
+			if (result.cancelled) return { cancelled: true, sessionId: previousId };
+			const childId = this.session.sessionManager.getSessionId();
+			try {
+				// Named after the branch exists, so the write lands in the child file.
+				// Derived from the parent's current title, so forking a fork appends
+				// again: `xxx` -> `xxx_fork` -> `xxx_fork_fork`.
+				this.session.setSessionName(childTitle);
+			} catch (error) {
+				// The branch is usable; a title that did not persist must not be
+				// reported as a failed fork, but it must not be silent either.
+				this.publishError(
+					`Forked session ${childId.slice(0, 8)} but could not name it: ${
+						error instanceof Error ? error.message : String(error)
+					}`,
+				);
+			}
+			// A branch is a new session file: the parent's archive flag is not its own.
+			this.archived = false;
+			this.adopt?.(previousId, childId, this);
+			return { cancelled: false, sessionId: childId };
+		} finally {
+			this.forking = false;
 		}
-		// No target: fork from the last thing the user said.
-		const branch = this.session.sessionManager.getBranch();
-		const lastUserEntry = [...branch]
-			.reverse()
+	}
+
+	/** The parent title a fork extends: the name, else the first user message, else the id. */
+	private forkTitle(): string {
+		const named = this.session.sessionName?.trim();
+		if (named) return named;
+		const firstUser = this.session.sessionManager
+			.getBranch()
 			.find((entry) => entry.type === "message" && entry.message.role === "user");
-		const result = lastUserEntry ? await this.runtime.fork(lastUserEntry.id) : { cancelled: true };
-		return { cancelled: result.cancelled, sessionId: this.id };
+		const first =
+			firstUser?.type === "message" && firstUser.message.role === "user"
+				? userMessageText(firstUser.message.content)
+				: "";
+		const trimmed = first.replace(/\s+/gu, " ").trim();
+		return trimmed || `Session ${this.id.slice(0, 8)}`;
 	}
 
 	async decideApproval(id: string, verdict: "approve" | "approve_for_session" | "deny"): Promise<boolean> {
@@ -1257,6 +1461,31 @@ export class WebSession {
 		await this.session.prompt(prompt, { source: "rpc", streamingBehavior: "followUp" });
 	}
 
+	/**
+	 * Apply one goal-strip control from the client.
+	 *
+	 * These run the same `/goal` subcommands the CLI's TUI issues, so pausing,
+	 * rewording, and clearing have exactly one implementation. They are slash
+	 * commands, not agent turns, so they can be sent while a turn runs.
+	 */
+	async controlGoal(action: WebGoalAction, objective?: string): Promise<void> {
+		const text = objective?.trim();
+		if ((action === "edit" || action === "start") && !text) {
+			throw new Error("A goal objective is required");
+		}
+		const prompt =
+			action === "start"
+				? `/goal ${text}`
+				: action === "edit"
+					? `/goal edit ${text}`
+					: action === "pause"
+						? "/goal pause"
+						: action === "resume"
+							? "/goal resume"
+							: "/goal clear";
+		await this.session.prompt(prompt, { source: "rpc", streamingBehavior: "followUp" });
+	}
+
 	snapshot(): Record<string, unknown> {
 		const manager = this.session.sessionManager;
 		return {
@@ -1269,10 +1498,12 @@ export class WebSession {
 			archived: this.archived,
 			revertedTurns: revertedTurnIds(manager.getBranch()),
 			lastRunAborted: this.lastRunAborted,
+			compacting: this.session.isCompacting,
 			entries: projectEntries(manager.getBranch()),
 			pendingApprovals: this.broker.pendingRequests(),
 			pendingClarifications: this.clarifications.pendingRequests(),
 			pendingSelections: this.selections.pendingRequests(),
+			pendingTextInputs: this.textInputs.pendingRequests(),
 			queuedMessages: this.queue.views(),
 			steeringMessages: this.steeringViews(),
 			retry: this.retry.view(),
@@ -1285,6 +1516,10 @@ export class WebSession {
 			thinkingLevel: this.session.thinkingLevel,
 			availableThinkingLevels: this.session.getAvailableThinkingLevels(),
 			models: projectedModels(this.modelRuntime),
+			// Goal and plan mode are host-rendered state, not transcript text: the
+			// client draws a goal strip and a plan review card from these.
+			goal: projectGoal(getStepGoal(manager.getBranch(), manager.getSessionId())),
+			planMode: projectPlanMode(getStepPlanState(manager.getBranch())),
 		};
 	}
 
@@ -1342,6 +1577,7 @@ export class WebSession {
 	async close(): Promise<void> {
 		this.clarifications.clear();
 		this.selections.clear();
+		this.textInputs.clear();
 		this.broker.clear();
 		this.unsubscribeSession?.();
 		await this.runtime.dispose();
@@ -1459,8 +1695,24 @@ export class WebSessionStore {
 	async create(cwd: string): Promise<WebSession> {
 		await this.metadata.load();
 		const session = await WebSession.create({ cwd, index: this.index });
+		session.adopt = (previousId, id, adopted) => this.adopt(previousId, id, adopted);
 		this.sessions.set(session.id, session);
 		return session;
+	}
+
+	/**
+	 * Re-key a session after a fork: it now advertises the child id, so the old
+	 * key must stop resolving to it (a `GET /sessions/{old}` that answered with
+	 * the child would be a lie) and the new id must resolve immediately.
+	 */
+	private adopt(previousId: string, id: string, session: WebSession): void {
+		const existing = this.sessions.get(id);
+		// A fresh branch id is unique; anything else would mean two live objects
+		// claim one session, which must not be resolved by picking one. Checked
+		// before the old key is dropped, so a refusal leaves the map consistent.
+		if (existing && existing !== session) throw new Error(`Session id already open: ${id}`);
+		if (this.sessions.get(previousId) === session) this.sessions.delete(previousId);
+		this.sessions.set(id, session);
 	}
 
 	/**
@@ -1504,6 +1756,7 @@ export class WebSessionStore {
 			if (!info && unsavedCwd !== undefined) {
 				this.unsaved.delete(id);
 				const recreated = await WebSession.create({ cwd: unsavedCwd, sessionId: id, index: this.index });
+				recreated.adopt = (previousId, nextId, adopted) => this.adopt(previousId, nextId, adopted);
 				this.sessions.set(recreated.id, recreated);
 				return recreated;
 			}
@@ -1514,6 +1767,7 @@ export class WebSessionStore {
 				sessionId: info.id,
 				index: this.index,
 			});
+			opened.adopt = (previousId, nextId, adopted) => this.adopt(previousId, nextId, adopted);
 			opened.setArchived(this.metadata.isArchived(opened.id));
 			this.sessions.set(opened.id, opened);
 			return opened;

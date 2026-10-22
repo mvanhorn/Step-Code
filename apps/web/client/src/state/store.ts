@@ -10,6 +10,7 @@ import type {
 	DirectoryListing,
 	DraftModels,
 	LoginReport,
+	NoticeItem,
 	PolicyPreset,
 	SelectionRequest,
 	SessionSnapshot,
@@ -241,6 +242,10 @@ export interface AppState {
 	/** Current selection's locally observed run; cleared on replacement or stream interruption. */
 	readonly performanceRun: PerformanceRun | null;
 	readonly timelineItems: readonly TimelineItem[];
+	/** `ui.notify` output for this page load, shown after the timeline and never persisted. */
+	readonly notices: readonly NoticeItem[];
+	/** The kernel is compacting the context right now (host event, mirrored by the snapshot). */
+	readonly compacting: boolean;
 	/**
 	 * A message sent but not yet in the session entries. The composer sets it on
 	 * Enter so the stream shows the message and a thinking indicator at once,
@@ -341,6 +346,8 @@ export function createInitialState(): AppState {
 		current: null,
 		performanceRun: null,
 		timelineItems: [],
+		notices: [],
+		compacting: false,
 		pendingTurn: null,
 		bootstrapCwd: "",
 		draftCwd: "",

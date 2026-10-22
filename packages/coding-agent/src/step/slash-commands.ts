@@ -181,6 +181,11 @@ const BTW_SYSTEM_REMINDER = [
  * credentials, no agent and no session, so there is nothing to append and
  * nothing to rewind. A main turn in flight is untouched, because this never
  * enters the agent loop at all.
+ *
+ * Presentation is the only host difference: a terminal host answers in place in
+ * a panel that can be re-read and cleared, every other host gets the answer as
+ * a notice. Both keep the same guarantee — the answer never joins the
+ * transcript the model sees.
  */
 async function handleStepBtwCommand(args: string, ctx: ExtensionCommandContext): Promise<void> {
 	const question = args.trim();
@@ -188,7 +193,7 @@ async function handleStepBtwCommand(args: string, ctx: ExtensionCommandContext):
 		ctx.ui.notify("Usage: /btw <question>", "warning");
 		return;
 	}
-	if (!ctx.hasUI || ctx.mode !== "tui") {
+	if (!ctx.hasUI) {
 		ctx.ui.notify("/btw requires an interactive UI.", "warning");
 		return;
 	}
@@ -198,8 +203,6 @@ async function handleStepBtwCommand(args: string, ctx: ExtensionCommandContext):
 		return;
 	}
 
-	// Aborted when the panel closes, so esc does not leave a request in flight.
-	const controller = new AbortController();
 	const context = {
 		systemPrompt: ctx.getSystemPrompt(),
 		messages: [
@@ -212,6 +215,37 @@ async function handleStepBtwCommand(args: string, ctx: ExtensionCommandContext):
 			},
 		],
 	};
+
+	if (ctx.mode !== "tui") {
+		// A non-terminal host has no panel to close, so the request runs to
+		// completion; cancelling the turn (Esc) aborts it, and it must not
+		// outlive the command either, so the signal is combined with one the
+		// handler owns.
+		const controller = new AbortController();
+		const signal = ctx.signal ? AbortSignal.any([ctx.signal, controller.signal]) : controller.signal;
+		try {
+			if (signal.aborted) {
+				ctx.ui.notify(BTW_CANCELLED, "warning");
+				return;
+			}
+			const message = await ctx.modelRegistry.complete(model, context, { signal, maxTokens: 2048 });
+			btwHistory.append(question, message);
+			ctx.ui.notify(assistantText(message) || BTW_NO_ANSWER, "info", { markdown: true });
+		} catch (error) {
+			// A cancelled request is not a failure. Anything else — a missing key,
+			// a provider refusal — is worth showing instead of a generic line.
+			ctx.ui.notify(
+				signal.aborted ? BTW_CANCELLED : (error instanceof Error && error.message) || BTW_NO_ANSWER,
+				"warning",
+			);
+		} finally {
+			controller.abort();
+		}
+		return;
+	}
+
+	// Aborted when the panel closes, so esc does not leave a request in flight.
+	const controller = new AbortController();
 
 	let panel: BtwPanel | undefined;
 	const answer = ctx.modelRegistry

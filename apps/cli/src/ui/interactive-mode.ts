@@ -6812,16 +6812,6 @@ ${followUpRow}| \`${dequeue}\` | Restore queued messages |
 		this.redraw.requestRender();
 	}
 
-	async handleCompactCommand(customInstructions?: string): Promise<void> {
-		this.clearStatusIndicator();
-
-		try {
-			await this.session.compact(customInstructions);
-		} catch {
-			// Ignore, will be emitted as an event
-		}
-	}
-
 	stop(fullscreenExitOutput = this.settingsManager.getFullscreenExitOutput()): void {
 		this.withExtensionDialogsBlocked(() => {
 			this.stepWelcome?.dispose();
