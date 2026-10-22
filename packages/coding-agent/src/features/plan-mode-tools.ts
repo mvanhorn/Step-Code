@@ -49,6 +49,13 @@ export interface StepPlanModeController {
 	resolvePlanFilePath(extensionContext: ExtensionContext): string;
 	/** The proposal with this hash was already handed to an external reviewer. */
 	wasSubmitted(planHash: string): boolean;
+	/**
+	 * The plan file still holds exactly what it held when this round entered plan
+	 * mode, so the round produced no proposal. A file left over from an earlier
+	 * round is not an answer to the current request, even when this process has
+	 * no record of it being submitted.
+	 */
+	unchangedSinceEnter(planHash: string): boolean;
 }
 
 /** Identity of a proposal's exact text, as reported in review details. */
@@ -217,6 +224,11 @@ export function registerPlanModeTools(pi: ExtensionAPI, planMode: StepPlanModeCo
 				);
 			}
 			const planHash = hashPlanContents(planContents);
+			if (external && planMode.unchangedSinceEnter(planHash)) {
+				return leaveWithoutProposal(
+					`${planFilePath} still holds the content it had before this request and nothing new was written`,
+				);
+			}
 			if (external && planMode.wasSubmitted(planHash)) {
 				return leaveWithoutProposal(
 					`${planFilePath} still holds the proposal already submitted earlier and nothing new was written`,

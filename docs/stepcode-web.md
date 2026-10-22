@@ -167,17 +167,23 @@ inferred from UI text.
 ### Plan review card
 
 An `exit_plan_mode` result without a host dialog is a decision waiting for the
-user. The client turns the tool's `details` into `#planReviewCard`: the pending
-proposal, "view full plan", and two buttons.
+user. The client turns the tool's persisted `details` into `#planReviewCard`: the
+proposal, "view full plan", and two buttons. The card is projected from the tool
+result in the session entries, not only from the live stream event, because every
+finished message refreshes the snapshot; a card that existed only on the stream
+disappeared before anyone could answer it, and a reopened session showed none.
 
-- **Request changes** sends the user's notes as a normal message, the same
-  steering path the TUI's review dialog uses.
+- **Request changes** sends the notes through `/plan`, so the revision round is
+  planned again and produces a new proposal. Plan mode is already off when this
+  card is shown, and a plain message would have let the model implement instead
+  of revise.
 - **Approve and run** sends a normal message that authorizes implementation.
 
 Both are ordinary user messages: the decision is in the transcript, starts one
-turn, and needs no separate execution channel. `planHash` identifies the reviewed
-text, so a card whose proposal was superseded stays inert; the card is only
-actionable while `outcome` is `external_approval_required`.
+turn, and needs no separate execution channel. Only the newest proposal without a
+user message after it is actionable; an older or already-decided card stays in the
+transcript as the record of that round but offers no buttons. `planHash` identifies
+the reviewed text.
 
 Building a prompt runs `git symbolic-ref` and `git status` synchronously, now in
 the multi-session host rather than a single CLI process. The appendix bounds each
@@ -523,10 +529,13 @@ called `exit_plan_mode` again in later turns.
 Plan mode ends the way it does in the terminal: the model calls
 `exit_plan_mode`, or the user toggles `/plan`. A request that needs no proposal
 calls the tool once without writing the file; with nothing new to review it just
-leaves plan mode and the model answers directly. "Nothing new" includes a plan
-file that still holds the proposal already submitted in an earlier round
-(`submittedPlanHash` in the `step-plan` entry), so re-entering with the Plan
-chip never posts the old plan for review again. The terminal, which has a review
+leaves plan mode and the model answers directly. "Nothing new" means the plan
+file still holds the content it had when this round entered plan mode
+(`planHashAtEnter` in the `step-plan` entry) or the proposal already submitted in
+an earlier round (`submittedPlanHash`). The first check covers a file left over
+from an earlier round or from an older build, which the submitted hash alone
+cannot recognise; either way, re-entering with the Plan chip never posts the old
+plan for review again. The terminal, which has a review
 dialog, keeps refusing a missing file and tells the model to let the user leave
 with `/plan`. Tool results say the outcome plainly and persist it: after a
 submit or a plain exit they report that plan mode (which the host turned on for

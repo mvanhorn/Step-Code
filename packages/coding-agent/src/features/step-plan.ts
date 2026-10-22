@@ -56,6 +56,13 @@ interface PlanState {
 	 * file from a new proposal.
 	 */
 	submittedPlanHash?: string;
+	/**
+	 * Hash of the plan file when this round entered plan mode (absent when there
+	 * was no file). A proposal is new only if the model changed the file during
+	 * the round: a leftover plan from an earlier round is not this request's
+	 * answer, even when this process never saw it submitted.
+	 */
+	planHashAtEnter?: string;
 }
 
 function unique(values: readonly string[]): string[] {
@@ -161,7 +168,7 @@ function planModeReminder(options: {
 	planPath: string;
 	planSource: StepPlanSource;
 	canLeaveWithoutProposal: boolean;
-	holdsSubmittedProposal: boolean;
+	holdsEarlierPlan: boolean;
 }): string {
 	const origin =
 		options.planSource === "user"
@@ -177,8 +184,8 @@ function planModeReminder(options: {
 		origin,
 		"It stays on until you call exit_plan_mode or the user turns it off. This reminder is the current state: never call enter_plan_mode or exit_plan_mode to check it.",
 		`Plan file: ${JSON.stringify(options.planPath)}.`,
-		...(options.holdsSubmittedProposal
-			? ["It still holds the proposal already submitted earlier; overwrite it with the plan for this request."]
+		...(options.holdsEarlierPlan
+			? ["It still holds content from before this request; overwrite it with the plan for this request."]
 			: []),
 		"Only this file may be written, with write_file or edit_file; every other file mutation is blocked.",
 		"Explore first, write the complete plan there (goal, ordered steps with file paths, validation, open questions), then call exit_plan_mode exactly once to submit it.",
@@ -197,6 +204,7 @@ export const createStepPlanExtension =
 		let planFilePath: string | undefined;
 		let planSource: StepPlanSource | undefined;
 		let submittedPlanHash: string | undefined;
+		let planHashAtEnter: string | undefined;
 		// The event bus is optional so minimal embedder/test harnesses that stub
 		// ExtensionAPI keep working without one.
 		const events = (pi as { events?: EventBus }).events;
@@ -208,6 +216,7 @@ export const createStepPlanExtension =
 				planFilePath,
 				planSource,
 				...(submittedPlanHash ? { submittedPlanHash } : {}),
+				...(planHashAtEnter ? { planHashAtEnter } : {}),
 			});
 		};
 		const enable = (): void => {
@@ -225,6 +234,10 @@ export const createStepPlanExtension =
 			enabled = true;
 			planSource = source;
 			planFilePath = resolvePlanFilePath(ctx);
+			// What the file held before this round: an exit that finds the same
+			// content has no proposal for this request, even if the file predates
+			// the round (a previous plan, possibly from an older build).
+			planHashAtEnter = readPlanHash(planFilePath);
 			enable();
 			recordPlanEnter(options.telemetry, source);
 			updateStatus(ctx, enabled, planSource);
@@ -244,6 +257,7 @@ export const createStepPlanExtension =
 			recordPlanExit(options.telemetry, planSource, outcome);
 			enabled = false;
 			planSource = undefined;
+			planHashAtEnter = undefined;
 			if (submittedHash) submittedPlanHash = submittedHash;
 			restoreTools();
 			persistPlanState();
@@ -256,6 +270,7 @@ export const createStepPlanExtension =
 			exitPlanMode: exit,
 			resolvePlanFilePath,
 			wasSubmitted: (planHash) => submittedPlanHash === planHash,
+			unchangedSinceEnter: (planHash) => planHashAtEnter !== undefined && planHashAtEnter === planHash,
 		};
 
 		pi.registerFlag("plan", {
@@ -331,6 +346,7 @@ export const createStepPlanExtension =
 			});
 			if (!enabled) return { messages };
 			const planPath = planFilePath ?? resolvePlanFilePath(ctx);
+			const planHash = readPlanHash(planPath);
 			return {
 				messages: [
 					...messages,
@@ -347,8 +363,9 @@ export const createStepPlanExtension =
 									// Where no review dialog can be shown, exit_plan_mode without a new
 									// proposal just leaves; the terminal refuses it and keeps planning.
 									canLeaveWithoutProposal: ctx.mode === "rpc" || !ctx.hasUI,
-									holdsSubmittedProposal:
-										submittedPlanHash !== undefined && readPlanHash(planPath) === submittedPlanHash,
+									holdsEarlierPlan:
+										planHash !== undefined &&
+										(planHash === submittedPlanHash || planModeController.unchangedSinceEnter(planHash)),
 								}),
 							},
 						],
@@ -379,6 +396,7 @@ export const createStepPlanExtension =
 			planFilePath = restoredPlanState?.planFilePath;
 			planSource = enabled ? (restoredPlanState?.planSource ?? "unknown") : undefined;
 			submittedPlanHash = planStates.find((state) => state?.submittedPlanHash)?.submittedPlanHash;
+			planHashAtEnter = enabled ? planStates.find((state) => state?.planHashAtEnter)?.planHashAtEnter : undefined;
 			if (enabled) {
 				planFilePath = resolvePlanFilePath(ctx);
 				enable();

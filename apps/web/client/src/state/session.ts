@@ -477,6 +477,10 @@ export function timelineFromEntries(entries: readonly SessionEntry[] = [], retry
 					...withArgs(block.arguments),
 					...(change ? { change } : {}),
 					...links,
+					// The proposal comes from the persisted result, not the live event, so
+					// a snapshot refresh (which follows every finished message) keeps the
+					// review card. Without this it flashed once and vanished.
+					...(block.name === "exit_plan_mode" ? planReview(result?.details) : {}),
 					...(block.name === "subagent"
 						? {
 								subagentTasks: subagentTasks(
@@ -508,7 +512,7 @@ export function timelineFromEntries(entries: readonly SessionEntry[] = [], retry
 		else items.push({ itemId: "retry-live", kind: "retry", errors: [retry.errorMessage], live: retry });
 	}
 	const background = backgroundSubagentStatuses(entries);
-	return items.map((item) =>
+	const rows = items.map((item) =>
 		item.kind === "tool" && item.subagentTasks
 			? {
 					...item,
@@ -528,6 +532,29 @@ export function timelineFromEntries(entries: readonly SessionEntry[] = [], retry
 				}
 			: item,
 	);
+	return settlePlanReviews(rows);
+}
+
+/**
+ * A plan review is actionable only while nothing has superseded it.
+ *
+ * Each decision the card sends is an ordinary user message, so a user message
+ * after the proposal is the decision. A newer `exit_plan_mode` proposal
+ * supersedes an older one. The card itself stays in the transcript as the
+ * record of that round; it just stops offering buttons.
+ */
+function settlePlanReviews(items: TimelineItem[]): TimelineItem[] {
+	let latest = -1;
+	items.forEach((item, index) => {
+		if (item.kind === "tool" && item.planReview) latest = index;
+	});
+	if (latest < 0) return items;
+	const decided = items.some((item, index) => index > latest && item.kind === "message" && item.role === "user");
+	return items.map((item, index) => {
+		if (item.kind !== "tool" || !item.planReview) return item;
+		const pending = item.planReview.pending && index === latest && !decided;
+		return pending === item.planReview.pending ? item : { ...item, planReview: { ...item.planReview, pending } };
+	});
 }
 
 /**

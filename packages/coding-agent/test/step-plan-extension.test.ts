@@ -602,7 +602,7 @@ test("a later /plan round does not resubmit the untouched earlier proposal", asy
 	await runTool(harness, "exit_plan_mode", {}, context);
 
 	await harness.commands.get("plan")!.handler("what does this repo do?", context);
-	expect(await planReminder(harness, context)).toContain("still holds the proposal already submitted earlier");
+	expect(await planReminder(harness, context)).toContain("still holds content from before this request");
 	const left = (await runTool(harness, "exit_plan_mode", {}, context)) as {
 		content: Array<{ text: string }>;
 		details?: PlanReviewDetails;
@@ -621,6 +621,69 @@ test("a later /plan round does not resubmit the untouched earlier proposal", asy
 	const resubmitted = (await runTool(harness, "exit_plan_mode", {}, context)) as { details?: PlanReviewDetails };
 	expect(resubmitted.details?.outcome).toBe("external_approval_required");
 	expect(resubmitted.details?.planContents).toContain("CHANGELOG");
+});
+
+test("a round that only inherits an earlier plan file has nothing to submit", async () => {
+	// The plan file outlives the thread and the process. A request that needs no
+	// proposal (`/plan` on a question) must not hand the previous round's plan to
+	// the user as this request's answer — the hash of the file at entry is what
+	// makes "untouched" mean untouched, even when this process never recorded a
+	// submitted hash (a session written by an older build).
+	const cwd = makeWorkspace();
+	const harness = createHarness({ cwd });
+	createStepPlanExtension()(harness.api);
+	const context = harness.ctx({ mode: "rpc", hasUI: true });
+	const planPath = path.join(cwd, ".stepcode", "plans", "session-sess-1.md");
+	mkdirSync(path.dirname(planPath), { recursive: true });
+	writeFileSync(planPath, "# Earlier plan\n1. Old work\n");
+
+	await harness.commands.get("plan")!.handler("what is this repo's structure?", context);
+	expect(await planReminder(harness, context)).toContain("still holds content from before this request");
+	const left = (await runTool(harness, "exit_plan_mode", {}, context)) as {
+		content: Array<{ text: string }>;
+		details?: PlanReviewDetails;
+	};
+	expect(left.content[0]?.text).toContain("nothing to review");
+	expect(left.details).toBeUndefined();
+	expect(lastPlanEntry(harness)).toMatchObject({ enabled: false });
+
+	// A proposal written during the round is new, even if the file existed before it.
+	await harness.commands.get("plan")!.handler("plan the parser change", context);
+	writeFileSync(planPath, "# Plan\n1. Update the parser\n");
+	const submitted = (await runTool(harness, "exit_plan_mode", {}, context)) as { details?: PlanReviewDetails };
+	expect(submitted.details?.outcome).toBe("external_approval_required");
+	expect(submitted.details?.planContents).toContain("Update the parser");
+});
+
+test("an entry-state hash survives a restore while plan mode is on", async () => {
+	// A host restart mid-round must not turn the unchanged file into a proposal.
+	const cwd = makeWorkspace();
+	const planPath = path.join(cwd, ".stepcode", "plans", "session-sess-1.md");
+	mkdirSync(path.dirname(planPath), { recursive: true });
+	writeFileSync(planPath, "# Earlier plan\n1. Old work\n");
+	const hash = createHash("sha256").update(fs.readFileSync(planPath, "utf8"), "utf8").digest("hex");
+	const harness = createHarness({
+		cwd,
+		entries: [
+			{
+				type: "custom",
+				customType: "step-plan",
+				data: { enabled: true, planFilePath: planPath, planSource: "user", planHashAtEnter: hash },
+			},
+		],
+	});
+	createStepPlanExtension()(harness.api);
+	const context = harness.ctx({ mode: "rpc", hasUI: true });
+	await harness.emit({ type: "session_start", reason: "resume" }, context);
+
+	const left = (await runTool(harness, "exit_plan_mode", {}, context)) as { details?: PlanReviewDetails };
+	expect(left.details).toBeUndefined();
+	expect(lastPlanEntry(harness)).toMatchObject({ enabled: false });
+
+	await harness.commands.get("plan")!.handler("plan the rewrite", context);
+	writeFileSync(planPath, "# Plan\n1. Rewritten\n");
+	const submitted = (await runTool(harness, "exit_plan_mode", {}, context)) as { details?: PlanReviewDetails };
+	expect(submitted.details?.outcome).toBe("external_approval_required");
 });
 
 test("the status chip does not require a theme from the host", async () => {
