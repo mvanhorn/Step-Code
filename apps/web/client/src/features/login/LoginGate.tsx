@@ -1,9 +1,10 @@
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { useT } from "../../i18n";
 import { errorMessage } from "../../lib/api";
+import { cx } from "../../lib/format";
 import { useAppStore } from "../../state/store";
 import type { LoginMethod } from "../../state/types";
-import { Spinner } from "../../ui";
+import { Icon, Spinner } from "../../ui";
 import {
 	cancelBrowserSignIn,
 	continueWithOwnModels,
@@ -13,8 +14,18 @@ import {
 	signInWithBrowser,
 } from "./actions";
 
-type Region = LoginMethod["region"];
 type View = { readonly kind: "choose" } | { readonly kind: "apiKey" } | { readonly kind: "browser"; authUrl: string };
+
+/**
+ * Stable element ids for the two ways per region, so tests and old links keep
+ * working: `loginStepPlan` / `loginStepPlanGlobal`, `loginApiKey` / `loginApiKeyGlobal`.
+ */
+const LOGIN_METHOD_IDS: Readonly<Record<string, string>> = {
+	step_plan: "loginStepPlan",
+	step_plan_oversea: "loginStepPlanGlobal",
+	platform_cn: "loginApiKey",
+	platform_oversea: "loginApiKeyGlobal",
+};
 
 /** Placeholder brand mark: the purple "C" ring with the yellow prompt chevron. */
 function StepCodeMark({ className }: { readonly className?: string }) {
@@ -39,10 +50,6 @@ function StepCodeMark({ className }: { readonly className?: string }) {
 	);
 }
 
-function methodFor(methods: readonly LoginMethod[], region: Region, source: LoginMethod["credentialSource"]) {
-	return methods.find((method) => method.region === region && method.credentialSource === source);
-}
-
 /**
  * The sign-in gate (`#loginGate`). Shown while bootstrap waits because no model
  * can run: no Step credential and no usable custom model. There is no close
@@ -58,47 +65,69 @@ export function LoginGate() {
 	const t = useT();
 	const open = useAppStore((state) => state.ui.loginRequired);
 	const [methods, setMethods] = useState<readonly LoginMethod[]>([]);
-	const [region, setRegion] = useState<Region>("cn");
+	const [methodsStatus, setMethodsStatus] = useState<"idle" | "loading" | "failed">("idle");
 	const [view, setView] = useState<View>({ kind: "choose" });
-	const [keyRegion, setKeyRegion] = useState<Region>("cn");
+	// The profile a sign-in is running for, so its own row shows the wait.
+	const [pendingId, setPendingId] = useState<LoginMethod["id"] | undefined>(undefined);
+	// The method whose API key is being entered.
+	const [keyMethodId, setKeyMethodId] = useState<LoginMethod["id"] | undefined>(undefined);
 	const [apiKey, setApiKey] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [error, setError] = useState("");
 	const keyInput = useRef<HTMLInputElement>(null);
 
 	useEffect(() => {
-		if (!open || methods.length) return;
-		loadLoginMethods().then(setMethods, (caught: unknown) => setError(errorMessage(caught)));
-	}, [open, methods.length]);
+		if (!open || methods.length || methodsStatus === "loading") return;
+		setMethodsStatus("loading");
+		loadLoginMethods().then(
+			(found) => {
+				setMethods(found);
+				setMethodsStatus("idle");
+			},
+			(caught: unknown) => {
+				setMethodsStatus("failed");
+				setError(errorMessage(caught));
+			},
+		);
+	}, [open, methods.length, methodsStatus]);
 
 	useEffect(() => {
 		if (view.kind === "apiKey") keyInput.current?.focus();
 	}, [view.kind]);
 
-	const plan = methodFor(methods, region, "browser");
-	const keyMethod = methodFor(methods, keyRegion, "apiKey");
+	// The API-key form targets the row that was chosen, not a region toggle.
+	const keyMethod = methods.find((method) => method.id === keyMethodId);
 
 	const backToChoice = () => {
 		if (view.kind === "browser") cancelBrowserSignIn();
 		setView({ kind: "choose" });
 		setBusy(false);
+		setPendingId(undefined);
 		setError("");
 	};
 
-	const startPlan = async () => {
-		if (!plan) return;
+	/** Step Plan in the system browser for the chosen region. */
+	const startPlan = async (method: LoginMethod) => {
+		if (busy) return;
 		setError("");
+		setBusy(true);
+		setPendingId(method.id);
 		setView({ kind: "browser", authUrl: "" });
 		try {
-			await signInWithBrowser(plan.id, (authUrl) => setView({ kind: "browser", authUrl }));
+			const outcome = await signInWithBrowser(method.id, (authUrl) => setView({ kind: "browser", authUrl }));
+			// A cancelled sign-in returns to the choice; a completed one closes the gate.
+			if (outcome.outcome === "cancelled") backToChoice();
 		} catch (caught) {
 			setView({ kind: "choose" });
+			setBusy(false);
+			setPendingId(undefined);
 			setError(t("loginBrowserFailed", { error: errorMessage(caught) }));
 		}
 	};
 
-	const openApiKey = () => {
-		setKeyRegion(region);
+	/** Paste a platform key for the chosen region. */
+	const openApiKey = (method: LoginMethod) => {
+		setKeyMethodId(method.id);
 		setApiKey("");
 		setError("");
 		setView({ kind: "apiKey" });
@@ -133,45 +162,64 @@ export function LoginGate() {
 
 				{view.kind === "choose" && (
 					<div className="login-body">
-						<button
-							type="button"
-							className="login-button primary"
-							id="loginStepPlan"
-							disabled={!plan}
-							onClick={() => void startPlan()}
-						>
-							<StepCodeMark className="login-button-mark" />
-							<span>{t("loginStepPlan")}</span>
-							<span className="login-badge">{t(region === "cn" ? "loginRegionCn" : "loginRegionGlobal")}</span>
-						</button>
-						<button
-							type="button"
-							className="login-button secondary"
-							id="loginApiKey"
-							disabled={!methods.length}
-							onClick={openApiKey}
-						>
-							{t("loginApiKey")}
-						</button>
+						{/*
+						 * All four `step login` profiles at once, the same four the settings
+						 * page lists: region and method are one choice, not two nested steps.
+						 * Choosing says what happens next instead of making the user infer it
+						 * from a "region" switch.
+						 */}
+						<fieldset className="login-methods" aria-label={t("loginMethodsTitle")}>
+							{methods.map((method) => {
+								const id = LOGIN_METHOD_IDS[method.id] ?? method.id;
+								const plan = method.credentialSource === "browser";
+								const regionLabel = t(method.region === "cn" ? "loginRegionCn" : "loginRegionGlobal");
+								return (
+									<button
+										type="button"
+										key={method.id}
+										id={id}
+										data-login-profile={method.id}
+										data-pending={pendingId === method.id || undefined}
+										className={cx("login-method", plan && "plan")}
+										disabled={busy}
+										onClick={() => (plan ? void startPlan(method) : openApiKey(method))}
+									>
+										<span className="login-method-icon" aria-hidden="true">
+											{pendingId === method.id ? (
+												<Spinner />
+											) : plan ? (
+												<StepCodeMark className="login-method-mark" />
+											) : (
+												<Icon name="keyRound" size="sm" />
+											)}
+										</span>
+										<span className="login-method-text">
+											<strong>{plan ? t("loginStepPlan") : t("loginApiKey")}</strong>
+											<small>{regionLabel}</small>
+										</span>
+										<small className="login-method-hint">
+											{t(
+												plan
+													? method.region === "cn"
+														? "loginMethodPlanCnHint"
+														: "loginMethodPlanGlobalHint"
+													: method.region === "cn"
+														? "loginMethodKeyCnHint"
+														: "loginMethodKeyGlobalHint",
+											)}
+										</small>
+									</button>
+								);
+							})}
+						</fieldset>
+						{methodsStatus !== "idle" && !methods.length ? (
+							<p className="login-hint">{methodsStatus === "loading" ? <Spinner /> : t("loginMethodsFailed")}</p>
+						) : null}
 						{error && (
 							<p className="login-error" role="alert">
 								{error}
 							</p>
 						)}
-						<p className="login-switch">
-							{t(region === "cn" ? "loginSwitchToGlobalHint" : "loginSwitchToCnHint")}{" "}
-							<button
-								type="button"
-								className="login-link"
-								id="loginSwitchRegion"
-								onClick={() => {
-									setRegion(region === "cn" ? "global" : "cn");
-									setError("");
-								}}
-							>
-								{t(region === "cn" ? "loginSwitchToGlobal" : "loginSwitchToCn")}
-							</button>
-						</p>
 						<p className="login-switch login-own-models">
 							{t("loginOwnModelsHint")}{" "}
 							<button type="button" className="login-link" id="loginOwnModels" onClick={continueWithOwnModels}>

@@ -8,6 +8,12 @@
  * developer center unreachable) it falls back to a label for the credential.
  * Pressing it opens `#accountMenu` above it: the account (avatar, name, id)
  * and the account actions, Upgrade and Log out.
+ *
+ * With no Step credential the same button is the sign-in entry point: it shows
+ * "not signed in" and opens the sign-in gate, and its menu offers Sign in rather
+ * than a Log out that has nothing to remove. That keeps `step login` reachable
+ * from the app for an account that already runs models from an API key or a
+ * custom `models.json` provider.
  */
 
 import { useState } from "react";
@@ -18,7 +24,7 @@ import type { AccountReport, LoginReport } from "../../state/types";
 import { Icon, IconButton, Menu, MenuDivider, MenuItem, Popover, Tooltip } from "../../ui";
 import { openLoginPage } from "../login/actions";
 import { openSettings } from "../settings/actions";
-import { canLogout, logout, stepPlanUrl } from "./actions";
+import { canLogout, logout, requireSignIn, stepPlanUrl } from "./actions";
 
 function isStepPlan(login: LoginReport | null): boolean {
 	return login?.source === "auth.json" && login.profile?.startsWith("step_plan") === true;
@@ -58,6 +64,12 @@ function AccountAvatar({ name, url, className }: { name: string; url: string | u
 
 const closeAccountMenu = () => setUi({ accountMenuOpen: false });
 
+/** The button label for the current credential state. */
+function accountLabel(t: TranslateFn, login: LoginReport | null, account: AccountReport | null): string {
+	if (!login?.configured) return t("footerSignIn");
+	return accountName(t, login, account);
+}
+
 function AccountMenu({
 	name,
 	avatarUrl,
@@ -70,6 +82,25 @@ function AccountMenu({
 	const t = useT();
 	const planUrl = useAppStore((state) => stepPlanUrl(state.login));
 	const removable = useAppStore((state) => canLogout(state.login));
+	const signedIn = useAppStore((state) => state.login?.configured === true);
+	if (!signedIn)
+		return (
+			<>
+				<div className="account-menu-header">
+					<AccountAvatar name={name} url={avatarUrl} className="large" />
+					<div className="account-menu-identity">
+						<span className="account-menu-name">{name}</span>
+					</div>
+				</div>
+				<MenuDivider />
+				{/* Signing in is the only account action without a credential. */}
+				<Menu bare role="menu" aria-label={t("footerAccount", { name })}>
+					<MenuItem id="accountSignInButton" role="menuitem" icon="login" onClick={() => requireSignIn()}>
+						{t("footerSignIn")}
+					</MenuItem>
+				</Menu>
+			</>
+		);
 	return (
 		<>
 			<div className="account-menu-header">
@@ -128,7 +159,8 @@ export function UserArea() {
 	const t = useT();
 	const login = useAppStore((state) => state.login);
 	const account = useAppStore((state) => state.account);
-	const name = accountName(t, login, account);
+	const name = accountLabel(t, login, account);
+	const signedIn = login?.configured === true;
 	const avatarUrl = login?.configured ? account?.account?.avatarUrl : undefined;
 	const uid = login?.configured ? account?.account?.uid : undefined;
 	const menuOpen = useAppStore((state) => state.ui.accountMenuOpen);
@@ -148,11 +180,13 @@ export function UserArea() {
 					type="button"
 					className="user-account"
 					id="userAccountButton"
-					aria-label={t("footerAccount", { name })}
-					aria-haspopup="menu"
-					aria-expanded={menuOpen}
-					aria-controls="accountMenu"
-					onClick={() => setUi((ui) => ({ accountMenuOpen: !ui.accountMenuOpen }))}
+					aria-label={signedIn ? t("footerAccount", { name }) : t("footerSignIn")}
+					aria-haspopup={signedIn ? "menu" : undefined}
+					aria-expanded={signedIn ? menuOpen : undefined}
+					aria-controls={signedIn ? "accountMenu" : undefined}
+					// Without a credential there is no account to show: the button is
+					// the sign-in entry point itself, like `step login`.
+					onClick={() => (signedIn ? setUi((ui) => ({ accountMenuOpen: !ui.accountMenuOpen })) : requireSignIn())}
 				>
 					<AccountAvatar name={name} url={avatarUrl} />
 					<span className="user-name">{name}</span>
