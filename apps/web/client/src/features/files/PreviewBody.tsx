@@ -10,9 +10,10 @@ import { basename, cx, formatBytes } from "../../lib/format";
 import { renderMarkdown } from "../../lib/markdown";
 import { copyText } from "../../state/session";
 import { type FilePreviewTab, type PreviewTab, type SideAnswerTab, useAppStore } from "../../state/store";
-import { MarkdownView } from "../../ui";
+import { MarkdownView, Spinner } from "../../ui";
 import { openFileReference } from "./actions";
 import { codeViewHtml, isMarkdownPath, PREVIEW_LINE_LIMIT } from "./highlight";
+import { sideAnswerHtml } from "./side-answer-html";
 
 /** The tab the preview shows, or undefined when there are no tabs. */
 export function useActiveTab(): PreviewTab | undefined {
@@ -79,9 +80,20 @@ function CodeView({ content, path }: { readonly content: string; readonly path: 
 function SideAnswer({ tab }: { readonly tab: SideAnswerTab }) {
 	const t = useT();
 	const html = useMemo(
-		() => renderMarkdown(tab.text, { code: t("code"), copy: t("copy"), table: t("markdownTable") }),
+		() => sideAnswerHtml(tab.text, { code: t("code"), copy: t("copy"), table: t("markdownTable") }),
 		[tab.text, t],
 	);
+	if (tab.pending) {
+		return (
+			<div className="side-answer" data-pending="true">
+				<p className="side-answer-question">{tab.question}</p>
+				<output className="side-answer-waiting" aria-live="polite">
+					<Spinner />
+					<span>{t("btwWaiting")}</span>
+				</output>
+			</div>
+		);
+	}
 	return (
 		<div className="side-answer" data-unavailable={tab.unavailable || undefined}>
 			<MarkdownView

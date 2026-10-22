@@ -14,6 +14,7 @@ import { getState, type ModeId, setUi, useAppStore } from "../../state/store";
 import type { SessionSnapshot, TreeEntry } from "../../state/types";
 import { Icon } from "../../ui";
 import { openFeedback } from "../conversation";
+import { askSideQuestion } from "../files";
 import { AttachmentList } from "./Attachments";
 import {
 	type ContextPackage,
@@ -211,6 +212,17 @@ export function Composer({ workspaceControl }: ComposerProps) {
 			const text = promptText(editor).trim();
 			const files = promptFiles(editor);
 			if (!text) return;
+			// `/btw` is a side question, not a message: it opens its own rail tab and
+			// never becomes a user turn (the kernel command is the same one the CLI runs).
+			const sideQuestion = /^\/btw(?:\s+([\s\S]+))?$/u.exec(text)?.[1]?.trim();
+			if (sideQuestion) {
+				setPromptText(editor, "");
+				setHasText(false);
+				setQuery(null);
+				setUi({ slashMenu: null });
+				void askSideQuestion(sideQuestion);
+				return;
+			}
 			if (text === "/feedback") {
 				// `/feedback` needs a dialog, not a turn: opening the product's
 				// feedback dialog keeps one submission path and sends no prompt.

@@ -113,6 +113,12 @@ export interface SideAnswerTab {
 	readonly model?: string;
 	readonly unavailable?: boolean;
 	readonly createdAt: number;
+	/**
+	 * Waiting for the model. The tab opens as soon as the question is sent, so
+	 * the reader sees where the answer will appear instead of watching the
+	 * conversation for it.
+	 */
+	readonly pending?: boolean;
 }
 
 export type PreviewTab = FilePreviewTab | SideAnswerTab;

@@ -238,18 +238,47 @@ export const createStepPlanExtension =
 			};
 		});
 
-		// Plan-mode state is carried by the enter_plan_mode/exit_plan_mode tool
-		// results; nothing is injected into the context. This hook only scrubs
-		// the hidden meta messages persisted by sessions from older versions of
-		// this extension.
+		// Plan mode has to be visible to the model, not only to the UI.
+		//
+		// A user who picks Plan sends `/plan <task>`: the command enters plan mode
+		// and hands the task over as an ordinary user message, so without this the
+		// model sees a normal request with a restricted tool set and can truthfully
+		// say it was never told about plan mode. The reminder is request-local (it
+		// is never appended to the session) and re-issued for each request while the
+		// mode is on, so it survives compaction and tool changes. The same filter
+		// drops the copies an earlier request added, and the hidden meta messages
+		// persisted by older versions of this extension.
 		pi.on("context", async (event) => {
+			const messages = event.messages.filter((message) => {
+				const candidate = message as AgentMessage & { customType?: string };
+				return (
+					candidate.customType !== "step-plan-context" && candidate.customType !== "step-plan-execution-context"
+				);
+			});
+			if (!enabled) return { messages };
+			const planPath = planFilePath ?? "(unknown path)";
 			return {
-				messages: event.messages.filter((message) => {
-					const candidate = message as AgentMessage & { customType?: string };
-					return (
-						candidate.customType !== "step-plan-context" && candidate.customType !== "step-plan-execution-context"
-					);
-				}),
+				messages: [
+					...messages,
+					{
+						role: "custom" as const,
+						customType: "step-plan-context",
+						display: false,
+						content: [
+							{
+								type: "text" as const,
+								text: [
+									"<system-reminder>Plan mode is on for this task.",
+									`Write the proposal to ${JSON.stringify(planPath)} with write_file or edit_file; every other file mutation is blocked.`,
+									"Explore first, then write the complete plan (goal, ordered steps with file paths, validation, open questions) and call exit_plan_mode to submit it for review.",
+									"Do not carry the work out: implementation starts only after the user approves the plan in the app.",
+									"</system-reminder>",
+								].join(" "),
+							},
+						],
+						timestamp: Date.now(),
+					},
+				],
 			};
 		});
 

@@ -56,10 +56,12 @@ function fakeRuntime(models: ReturnType<typeof catalogModel>[]): ModelRuntime {
 	const runtime = {
 		getAvailableSnapshot: () => models,
 		getModel: (provider: string, id: string) => models.find((model) => model.provider === provider && model.id === id),
-		getProvider: (providerId: string) => ({ id: providerId, name: providerId === STEP_PROVIDER_ID ? "StepFun" : providerId }),
+		// The picker labels each provider section with its declared name.
+		getProvider: (providerId: string) => ({
+			id: providerId,
+			name: providerId === STEP_PROVIDER_ID ? "StepFun" : providerId,
+		}),
 		hasConfiguredAuth: () => true,
-		// The picker labels each provider section; an unknown provider keeps its id.
-		getProvider: () => undefined,
 	};
 	return runtime as unknown as ModelRuntime;
 }

@@ -14,7 +14,7 @@ import { ancestorPaths } from "../../lib/format";
 import { readStoredInt, STORAGE_KEYS, writeStorage } from "../../lib/storage";
 import { collectTurnChanges } from "../../lib/turn-changes";
 import { activeRightPanel, closeRightPanel, openRightPanel } from "../../state/right-panel";
-import { copyText, forgetSideAnswer, installSideAnswerTabs, showError } from "../../state/session";
+import { copyText, forgetSideAnswer, showError } from "../../state/session";
 import {
 	emptyTree,
 	type FilePreviewTab,
@@ -22,7 +22,6 @@ import {
 	mapWith,
 	mapWithout,
 	type PreviewTab,
-	type SideAnswerTab,
 	setPreview,
 	setState,
 	setToggled,
@@ -32,7 +31,7 @@ import {
 	setWithout,
 	type TreeState,
 } from "../../state/store";
-import type { SideAnswer, TreeEntry, WorkspaceFile } from "../../state/types";
+import type { TreeEntry, WorkspaceFile } from "../../state/types";
 
 /* ── Signals for the tree component ──────────────────────────────────────── */
 
@@ -393,85 +392,6 @@ export function copyActivePreview(): void {
 	}
 	const file = tab?.file;
 	if (file?.kind === "text") void copyText(file.content);
-}
-
-/* ── Side answers (`/btw`) ───────────────────────────────────────────────── */
-
-/**
- * Show one side answer in the tab strip, reusing its tab when the same answer
- * arrives twice (the SSE event and a snapshot). A side question is a separate
- * thread: it gets its own tab so the conversation is never displaced.
- */
-export function openSideAnswerTab(answer: SideAnswer): void {
-	openRightPanel("files");
-	setPreview((preview) => {
-		const index = preview.tabs.findIndex((tab) => tab.kind === "btw" && tab.id === answer.id);
-		const tab: SideAnswerTab = sideAnswerTab(answer);
-		const tabs =
-			index < 0 ? [...preview.tabs, tab] : preview.tabs.map((item, position) => (position === index ? tab : item));
-		return { ...preview, tabs, active: index < 0 ? tabs.length - 1 : index, open: true, mode: "files" };
-	});
-}
-
-function sideAnswerTab(answer: SideAnswer): SideAnswerTab {
-	return {
-		kind: "btw",
-		id: answer.id,
-		question: answer.question,
-		text: answer.text,
-		...(answer.model ? { model: answer.model } : {}),
-		...(answer.unavailable ? { unavailable: true } : {}),
-		createdAt: answer.createdAt,
-	};
-}
-
-/** Restore a reloaded session's answers without taking the reader off an open file. */
-export function syncSideAnswerTabs(answers: readonly SideAnswer[]): void {
-	if (!answers.length) return;
-	setPreview((preview) => {
-		const known = new Set(preview.tabs.flatMap((tab) => (tab.kind === "btw" ? [tab.id] : [])));
-		const missing = answers.filter((answer) => !known.has(answer.id));
-		if (!missing.length) return preview;
-		const tabs = [...preview.tabs, ...missing.map(sideAnswerTab)];
-		// A page that had nothing open lands on the newest answer; an open file
-		// keeps its place, so a background refresh never moves the reader.
-		if (!preview.tabs.length) return { ...preview, tabs, active: tabs.length - 1, open: true, mode: "files" };
-		return { ...preview, tabs };
-	});
-}
-
-/** Forget the previous session's answers when the page follows another session. */
-export function dropSideAnswerTabs(): void {
-	setPreview((preview) => {
-		const tabs = preview.tabs.filter((tab) => tab.kind !== "btw");
-		if (tabs.length === preview.tabs.length) return preview;
-		const active = Math.max(0, Math.min(preview.active, tabs.length - 1));
-		return { ...preview, tabs, active: tabs.length ? active : -1, open: tabs.length ? preview.open : false };
-	});
-}
-
-// `state/session.ts` cannot import a feature; these are the one direction it needs.
-installSideAnswerTabs({ open: openSideAnswerTab, sync: syncSideAnswerTabs, drop: dropSideAnswerTabs });
-
-/** Close every side-answer tab and tell the host to forget the answers. */
-export async function clearSideAnswers(): Promise<void> {
-	// Everything is going away, so nothing needs to stay dismissed.
-	const current = getState().current;
-	setPreview((preview) => {
-		const tabs = preview.tabs.filter((tab) => tab.kind !== "btw");
-		const active = Math.min(preview.active, tabs.length - 1);
-		return {
-			...preview,
-			tabs,
-			active: tabs.length ? Math.max(0, active) : -1,
-			open: tabs.length ? preview.open : false,
-		};
-	});
-	if (current)
-		await api(`/api/v1/sessions/${encodeURIComponent(current.id)}/side-answers/clear`, {
-			method: "POST",
-			body: "{}",
-		});
 }
 
 /* ── Preview width (legacy 1875-1888) ────────────────────────────────────── */

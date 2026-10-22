@@ -12,7 +12,6 @@ import { setUi, useAppStore } from "../../state/store";
 import { IconButton, ResizeHandle } from "../../ui";
 import {
 	applyPreviewWidth,
-	clearSideAnswers,
 	copyActivePreview,
 	PREVIEW_DEFAULT,
 	reloadActivePreview,
@@ -25,6 +24,7 @@ import { ChangesView } from "./ChangesView";
 import { isMarkdownPath } from "./highlight";
 import { PreviewBody, PreviewPath, useActiveTab } from "./PreviewBody";
 import { PreviewTabs } from "./PreviewTabs";
+import { clearSideAnswers } from "./side-answers";
 
 function PreviewTools() {
 	const t = useT();

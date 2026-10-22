@@ -453,6 +453,40 @@ test("status chip shows Planning with the source and clears when plan mode is of
 	expect(harness.statuses.get("plan-mode")).toBe("Planning (agent)");
 });
 
+test("plan mode tells the model it is on, without touching the session", async () => {
+	// A user who picks Plan sends `/plan <task>`: the task arrives as an ordinary
+	// user message. Without this reminder the model is only aware that some tools
+	// are missing and reports that it never entered plan mode.
+	const harness = createHarness({ cwd: makeWorkspace() });
+	createStepPlanExtension()(harness.api);
+	const context = harness.ctx();
+	const branchBefore = harness.session.getEntries().length;
+
+	const messages = [{ role: "user" as const, content: [{ type: "text" as const, text: "plan this" }], timestamp: 1 }];
+	const off = (await harness.emit({ type: "context", messages }, context)) as {
+		messages: Array<{ customType?: string }>;
+	};
+	expect(off.messages.some((message) => message.customType === "step-plan-context")).toBe(false);
+
+	await harness.commands.get("plan")!.handler("", context);
+	const on = (await harness.emit({ type: "context", messages }, context)) as {
+		messages: Array<{ role: string; customType?: string; content: Array<{ text?: string }> }>;
+	};
+	const reminder = on.messages.find((message) => message.customType === "step-plan-context");
+	expect(reminder?.role).toBe("custom");
+	expect(reminder?.content[0]?.text).toContain("Plan mode is on for this task");
+	// Request-local: the branch gained the plan state only, no context message.
+	expect(harness.session.getEntries().length).toBe(branchBefore + 1);
+	expect(harness.session.getEntries().some((entry) => entry.type === "custom_message")).toBe(false);
+
+	// Turning it off stops the reminder, and repeated requests never accumulate.
+	await harness.commands.get("plan")!.handler("", context);
+	const again = (await harness.emit({ type: "context", messages }, context)) as {
+		messages: Array<{ customType?: string }>;
+	};
+	expect(again.messages.some((message) => message.customType === "step-plan-context")).toBe(false);
+});
+
 test("the status chip does not require a theme from the host", async () => {
 	// The Web/Desktop host renders text, not a terminal. Before this, entering
 	// plan mode called `ctx.ui.theme.fg(...)` on a host that answered `undefined`

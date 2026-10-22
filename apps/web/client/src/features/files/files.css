@@ -636,3 +636,19 @@
 .side-answer[data-unavailable] .side-answer-body {
 	color: var(--ink-3);
 }
+/* The question, above an answer that has not arrived yet. */
+.side-answer-question {
+	margin: 0;
+	color: var(--ink-2);
+	font-size: 13px;
+	font-weight: 550;
+	line-height: 1.6;
+	overflow-wrap: anywhere;
+}
+.side-answer-waiting {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	color: var(--ink-3);
+	font-size: 12.5px;
+}

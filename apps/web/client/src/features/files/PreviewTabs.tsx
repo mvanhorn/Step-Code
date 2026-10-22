@@ -58,7 +58,11 @@ export function PreviewTabs() {
 					onAuxClick={(event) => onAuxClick(event, index)}
 					onKeyDown={(event) => onKeyDown(event, index)}
 				>
-					{tab.kind === "file" ? <Icon {...LEGACY_ICONS.file} /> : <Icon name="question" size="sm" />}
+					{tab.kind === "file" ? (
+						<Icon {...LEGACY_ICONS.file} />
+					) : (
+						<Icon name={tab.pending ? "loaderCircle" : "question"} size="sm" />
+					)}
 					<span>{tab.kind === "file" ? basename(tab.path) : tabTitle(tab.question)}</span>
 					<button className="preview-tab-close" type="button" title={t("closeTab")} aria-label={t("closeTab")}>
 						<Icon name="close-sm" size="xs" />

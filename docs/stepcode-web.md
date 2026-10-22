@@ -441,7 +441,7 @@ kernel runs it on send. `/compact` and `/feedback` therefore follow the same
 kernel command the CLI runs, and only the host's presentation differs:
 `/compact` appends a collapsible compaction row, and `/feedback` (typed without
 arguments or picked from the menu) opens the feedback dialog instead of a
-prompt. `/btw` answers into a notice row. Command replies reach the page through
+prompt. `/btw` opens its own rail tab (see below). Command replies reach the page through
 the kernel's `ui.notify` → SSE `notice`, never as a user or assistant message,
 so they do not enter the session file or the model's context; notices live for
 the page load and can be dismissed. Kernel `ui.input` prompts travel as
@@ -481,10 +481,21 @@ takes effect when the turn ends.
 A `/btw` answer is its own thread, so it gets its own tab in the preview rail
 (`kind: "btw"`) instead of a transcript row: the conversation, its entries and the
 model's context are untouched, and the tab strip's × closes one answer without
-deleting it. The kernel offers `ui.sideAnswer`; a host without that surface keeps
-the Markdown notice. Answers live in host memory for the session (bounded, like
-the terminal panel's history), appear in the snapshot so a reloaded page can show
-them again, and are cleared by `POST /sessions/{id}/side-answers/clear`.
+deleting it. The composer intercepts `/btw <question>` before it becomes a
+message: the tab opens at once with the question and a waiting state, because the
+answer takes a model round trip and the reader should see where it will appear.
+The kernel's `ui.sideAnswer` fills that tab in, rendering the answer as Markdown;
+a host without that surface keeps the Markdown notice, and the terminal keeps its
+panel. Answers live in host memory for the session (bounded, like the terminal
+panel's history), appear in the snapshot so a reloaded page can show them again,
+and are cleared by `POST /sessions/{id}/side-answers/clear`.
+
+Plan mode is visible to the model as well as to the page. `/plan <task>` enters
+plan mode and sends the task as an ordinary user message, so a request-local
+`<system-reminder>` (never appended to the session) names the plan file, says the
+mode is on, and asks for `exit_plan_mode` when the proposal is written. Without
+it the model only noticed that some tools were missing and reported that it had
+never entered plan mode.
 
 State the client already draws is never narrated into the conversation: plan mode
 (`snapshot.planMode` → the composer's `Plan · <file>` strip) and the permission
