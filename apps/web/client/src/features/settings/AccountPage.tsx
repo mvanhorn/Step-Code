@@ -197,8 +197,8 @@ export function AccountPage() {
 						id="settingsAccountSignIn"
 						onClick={requireSignIn}
 					>
-						<Icon name="login" size="xs" />
-						{t("footerSignIn")}
+						<Icon name="accountSignIn" size="xs" />
+						{t("accountSignIn")}
 					</button>
 					<p className="settings-account-note">{t("settingsAccountSignInHint")}</p>
 				</div>
