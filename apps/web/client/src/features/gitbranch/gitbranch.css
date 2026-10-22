@@ -28,7 +28,7 @@
 	border: 0;
 	background: none;
 	color: var(--ink-2);
-	font-size: 12px;
+	font-size: 14px;
 	font-weight: 550;
 	cursor: pointer;
 	transition: color var(--fast);
@@ -249,10 +249,8 @@
 	font: inherit;
 	font-size: 13px;
 	font-weight: 400;
-}
-.branch-dialog-input:focus-visible {
-	border-color: var(--focus-border);
-	outline: 2px solid var(--accent-ring);
+	/* Keep the plain border on focus: no browser focus ring, like the app's other inputs. */
+	outline: 0;
 }
 .branch-dialog-footer {
 	display: flex;

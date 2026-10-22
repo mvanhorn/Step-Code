@@ -24,7 +24,7 @@
   border: 0;
   background: none;
   color: var(--ink-2);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 550;
   cursor: pointer;
   transition: color var(--fast);
