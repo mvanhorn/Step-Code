@@ -8,8 +8,24 @@ function snapshot(timelineItems: readonly TimelineItem[]): AppState {
 	return { ...createInitialState(), current: { id: "session", cwd: "/fixture", status: "idle" }, timelineItems };
 }
 
-test("summary reveals task and subagent activity, regardless of tool outcome", () => {
-	for (const toolName of ["task_create", "task_update", "subagent", "agent_send"]) {
+test("summary reveals a task only once its result names one", () => {
+	for (const toolName of ["task_create", "task_update"]) {
+		for (const state of ["pending", "completed", "failed"] as const) {
+			// A call with no result yet has nothing to list.
+			assert.equal(summaryActivityTurn(snapshot([
+				{ kind: "message", itemId: "u1", role: "user", content: "Work" },
+				{ kind: "tool", itemId: "t1", toolName, state, inputSummary: "", outputSummary: "" },
+			])), null);
+			assert.equal(summaryActivityTurn(snapshot([
+				{ kind: "message", itemId: "u1", role: "user", content: "Work" },
+				{ kind: "tool", itemId: "t1", toolName, state, inputSummary: "", outputSummary: "Created task 1: align" },
+			])), "u1");
+		}
+	}
+});
+
+test("summary reveals a subagent call regardless of its outcome", () => {
+	for (const toolName of ["subagent", "agent_send"]) {
 		for (const state of ["pending", "completed", "failed"] as const) {
 			assert.equal(summaryActivityTurn(snapshot([
 				{ kind: "message", itemId: "u1", role: "user", content: "Work" },
@@ -17,6 +33,15 @@ test("summary reveals task and subagent activity, regardless of tool outcome", (
 			])), "u1");
 		}
 	}
+});
+
+test("a failed or empty task call does not open the board on its own", () => {
+	// The user's report: the panel opened over the answer with an empty checklist.
+	assert.equal(summaryActivityTurn(snapshot([
+		{ kind: "message", itemId: "u1", role: "user", content: "Explain this" },
+		{ kind: "tool", itemId: "t1", toolName: "task_create", state: "failed", inputSummary: "", outputSummary: "" },
+		{ kind: "message", itemId: "a1", role: "assistant", content: "Here is the answer." },
+	])), null);
 });
 
 test("old activity does not trigger on a new user turn, ordinary tools or thinking", () => {
@@ -34,12 +59,17 @@ test("structured subagent tasks and history without a user entry remain eligible
 		{ kind: "tool", itemId: "t1", toolName: "workflow", state: "pending", inputSummary: "", outputSummary: "",
 			subagentTasks: [{ agent: "explore", task: "Inspect", status: "queued" }] },
 	])), "history");
+	// An unknown lane status has no record to show yet.
+	assert.equal(summaryActivityTurn(snapshot([
+		{ kind: "tool", itemId: "t1", toolName: "workflow", state: "pending", inputSummary: "", outputSummary: "",
+			subagentTasks: [{ agent: "explore", task: "Inspect", status: "unknown" }] },
+	])), null);
 });
 
 test("same-turn activity updates retain one stable reveal key", () => {
 	const data = snapshot([
 		{ kind: "message", itemId: "u1", role: "user", content: "Work" },
-		{ kind: "tool", itemId: "t1", toolName: "task_create", state: "pending", inputSummary: "", outputSummary: "" },
+		{ kind: "tool", itemId: "t1", toolName: "task_create", state: "completed", inputSummary: "", outputSummary: "Task 1" },
 	]);
 	assert.equal(summaryActivityTurn(data), summaryActivityTurn({
 		...data,
