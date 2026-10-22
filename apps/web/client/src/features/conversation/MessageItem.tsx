@@ -1,5 +1,5 @@
 import { memo, useMemo, useRef, useState } from "react";
-import { formatRelativeTime, useT } from "../../i18n";
+import { useT } from "../../i18n";
 import { type AttachedFile, FILE_MARKER, markAttachedFiles, splitAttachedFiles } from "../../lib/attached-files";
 import { formatBytes, formatTokens } from "../../lib/format";
 import { escapeHtml, pluginInstallInvocation, renderMarkdown, skillInvocation } from "../../lib/markdown";
@@ -82,7 +82,6 @@ export const MessageItem = memo(function MessageItem({
 	if (role === "assistant" && !content) return <ThinkingIndicator />;
 	return (
 		<article className={`message ${role}`} data-content={item.content || ""} data-entry-id={item.entryId}>
-			{role === "assistant" && item.timestamp ? <MessageMeta model={model} timestamp={item.timestamp} /> : null}
 			{skill ? (
 				<span className="message-skill message-skill--skill" title={skill.name}>
 					<Icon name="wrench" size="xs" />
@@ -112,10 +111,10 @@ export const MessageItem = memo(function MessageItem({
 });
 
 /**
- * What a message was and when, for both sides of the conversation: the model and
- * the clock time (`14:05`), rendered as plain text with no label. A sent message
- * shows it under its bubble and a reply above its answer, on hover or keyboard
- * focus; an entry without a timestamp (an optimistic pending bubble) shows nothing.
+ * What a message was and when: the model and the clock time (`14:05`), as plain
+ * text with no label. A sent message shows it under its bubble; a reply shows it
+ * once, on the row under the turn that settled. An entry without a timestamp (an
+ * optimistic pending bubble) shows nothing.
  */
 function MessageMeta({ model, timestamp }: { readonly model?: string; readonly timestamp: string }) {
 	const clock = clockTime(timestamp);
@@ -200,7 +199,17 @@ function MessageError({ entryId, error }: { readonly entryId?: string; readonly 
  * Voting opens the feedback dialog rather than firing a silent request — a
  * thumbs-down with no detail is much less useful than one with a topic.
  */
-export function MessageActions({ messages }: { readonly messages: readonly MessageTimelineItem[] }) {
+export function MessageActions({
+	messages,
+	model,
+	aborted = false,
+}: {
+	readonly messages: readonly MessageTimelineItem[];
+	/** Model shown with the turn's time; the transcript records none per message. */
+	readonly model?: string;
+	/** The turn was stopped by the user: no finished reply to credit. */
+	readonly aborted?: boolean;
+}) {
 	const t = useT();
 	const [vote, setVote] = useState<Sentiment | null>(null);
 	const tokens = messages.reduce((sum, item) => sum + (item.usage ? item.usage.input + item.usage.output : 0), 0);
@@ -261,7 +270,9 @@ export function MessageActions({ messages }: { readonly messages: readonly Messa
 					{`${t("usage")} ${formatTokens(tokens)} tok`}
 				</span>
 			) : null}
-			{last?.timestamp ? <span className="message-time">{formatRelativeTime(last.timestamp)}</span> : null}
+			{/* The model and clock time belong to the turn that settled here, not to
+			    every step of it: only this row carries them. */}
+			{last?.timestamp && !aborted ? <MessageMeta model={model} timestamp={last.timestamp} /> : null}
 		</div>
 	);
 }

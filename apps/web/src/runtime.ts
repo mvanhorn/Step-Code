@@ -461,6 +461,13 @@ export class WebSession {
 	private holdQueue = false;
 	/** The last run ended in an error or abort; its settle leaves the queue for the user. */
 	private lastRunFailed = false;
+	/**
+	 * The last run was stopped by the user rather than failing on its own.
+	 *
+	 * Both reach `status: "failed"`, but a turn the user interrupted has no
+	 * finished reply, so the client must not credit it with a model and a time.
+	 */
+	private lastRunAborted = false;
 	/** The kernel's retry of a failed model request, while one is scheduled or running. */
 	private readonly retry = new RetryTracker();
 
@@ -711,6 +718,7 @@ export class WebSession {
 				this.setStatus("running");
 				this.holdQueue = false;
 				this.lastRunFailed = false;
+				this.lastRunAborted = false;
 			}
 			if (event.type === "agent_settled") this.setStatus("completed", true);
 			if (event.type === "agent_end") {
@@ -721,6 +729,9 @@ export class WebSession {
 				// session keeps running through the backoff (`auto_retry_start` follows).
 				if (stops.includes("error") && !event.willRetry) this.setStatus("failed", true);
 				this.lastRunFailed = stops.includes("error") || stops.includes("aborted");
+				// An error may also carry `aborted` after a retry gave up; the user's
+				// own stop is the case with no error at all.
+				this.lastRunAborted = !stops.includes("error") && stops.includes("aborted");
 			}
 			this.retry.apply(event);
 			if (event.type === "auto_retry_start" && this.status !== "running") this.setStatus("running", false);
@@ -1150,6 +1161,7 @@ export class WebSession {
 			sessionFile: manager.getSessionFile(),
 			archived: this.archived,
 			revertedTurns: revertedTurnIds(manager.getBranch()),
+			lastRunAborted: this.lastRunAborted,
 			entries: projectEntries(manager.getBranch()),
 			pendingApprovals: this.broker.pendingRequests(),
 			pendingClarifications: this.clarifications.pendingRequests(),

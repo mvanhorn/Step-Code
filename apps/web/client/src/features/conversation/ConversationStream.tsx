@@ -75,6 +75,8 @@ export function ConversationStream() {
 	const revertedTurns = useAppStore((state) => state.current?.revertedTurns);
 	// Shown with a sent message's timestamp; the transcript stores no per-message model.
 	const modelId = useAppStore((state) => state.current?.model?.id);
+	// An interrupted turn has no finished reply, so it gets no model and no time.
+	const lastRunAborted = useAppStore((state) => state.current?.lastRunAborted === true);
 	const reveal = useAppStore((state) => state.ui.revealEntry);
 	const running = status === "running";
 	const busy = running || status === "waiting";
@@ -185,7 +187,14 @@ export function ConversationStream() {
 									{card ? (
 										<TurnChangesCard turn={card} reverted={Boolean(revertedTurns?.includes(card.turnId))} />
 									) : null}
-									{footer ? <MessageActions key={footer.turnId} messages={footer.messages} /> : null}
+									{footer ? (
+										<MessageActions
+											key={footer.turnId}
+											messages={footer.messages}
+											model={modelId}
+											aborted={lastRunAborted}
+										/>
+									) : null}
 								</Fragment>
 							);
 						})}

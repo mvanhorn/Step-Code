@@ -190,6 +190,11 @@ export interface SessionSnapshot extends SessionSummary {
 	readonly pendingSelections?: readonly SelectionRequest[];
 	/** User entry ids of turns whose file changes were reverted (runtime.ts `revertTurn`). */
 	readonly revertedTurns?: readonly string[];
+	/**
+	 * The last run was stopped by the user, not failed on its own (runtime.ts
+	 * `lastRunAborted`). Such a turn has no finished reply to credit.
+	 */
+	readonly lastRunAborted?: boolean;
 	/** Messages sent during a turn, waiting for it to end (src/message-queue.ts). */
 	readonly queuedMessages?: readonly QueuedMessage[];
 	/** Steered messages the kernel has not delivered to the running turn yet. */
