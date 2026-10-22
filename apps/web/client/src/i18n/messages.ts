@@ -91,7 +91,7 @@ const zhCN = {
 	"rightUsage.cacheRead": "缓存读取",
 	"rightUsage.cacheWrite": "缓存写入",
 	"rightUsage.reasoning": "其中推理",
-	rightCacheHit: "缓存命中",
+	rightCacheHit: "缓存命中（本次响应）",
 	rightRecordedMessages: "已记录消息",
 	rightMessageRoles: "消息类别",
 	"rightRole.all": "全部",
@@ -467,7 +467,8 @@ const zhCN = {
 	performanceElapsedHint: "从本轮开始到完全结束，由浏览器本地观测；未观测的历史不补计时。",
 	performanceSpeedHint: "已完成模型响应的输出 Token / 响应耗时，含思考，不含工具执行和重试等待；浏览器本地观测。",
 	performanceTokensHint: "会话累计输入 / 输出 Token。输入包含缓存读取和写入，统计包含已压缩历史。",
-	performanceCacheHint: "缓存读取 /（输入 + 缓存读取 + 缓存写入）；未报告缓存用量时不计算。",
+	performanceCacheHint:
+		"会话累计缓存命中：缓存读取 /（输入 + 缓存读取 + 缓存写入），统计整个会话，包含已压缩历史。右侧「上下文」中的命中率是最近一次响应的数值，两者口径不同。",
 	performanceUnavailable: "用量暂不可用，等待服务重新返回统计。",
 	turnChanges: "本轮文件变更",
 	turnFilesEdited: "已编辑 {count} 个文件",
@@ -858,7 +859,7 @@ const enUS: Record<MessageKey, string> = {
 	"rightUsage.cacheRead": "Cache read",
 	"rightUsage.cacheWrite": "Cache write",
 	"rightUsage.reasoning": "Of which reasoning",
-	rightCacheHit: "Cache hit",
+	rightCacheHit: "Cache hit (this response)",
 	rightRecordedMessages: "Recorded messages",
 	rightMessageRoles: "Message roles",
 	"rightRole.all": "All",
@@ -1245,7 +1246,8 @@ const enUS: Record<MessageKey, string> = {
 		"Reported output tokens / completed model-response time, including thinking, excluding tools and retry backoff. Measured in this browser.",
 	performanceTokensHint:
 		"Session input / output tokens, including compacted history. Input includes cache reads and writes.",
-	performanceCacheHint: "Cache read / (input + cache read + cache write). Unavailable without reported cache usage.",
+	performanceCacheHint:
+		"Session-wide cache hit: cache read / (input + cache read + cache write) across the whole session, including compacted history. The hit ratio under Context is the latest response only.",
 	performanceUnavailable: "Usage is unavailable until the service returns fresh statistics.",
 	turnChanges: "File changes in this turn",
 	turnFilesEdited: "Edited {count} files",

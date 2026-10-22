@@ -73,6 +73,8 @@ export function ConversationStream() {
 	const cwd = useAppStore((state) => state.current?.cwd ?? "");
 	const status = useAppStore((state) => state.current?.status);
 	const revertedTurns = useAppStore((state) => state.current?.revertedTurns);
+	// Shown with a sent message's timestamp; the transcript stores no per-message model.
+	const modelId = useAppStore((state) => state.current?.model?.id);
 	const reveal = useAppStore((state) => state.ui.revealEntry);
 	const running = status === "running";
 	const busy = running || status === "waiting";
@@ -163,7 +165,7 @@ export function ConversationStream() {
 											revealEntryId={reveal?.sessionId === sessionId ? reveal.entryId : undefined}
 										/>
 									) : row.item.kind === "message" ? (
-										<MessageItem item={row.item} />
+										<MessageItem item={row.item} model={modelId} />
 									) : row.item.kind === "tool" ? (
 										<ToolRow item={row.item} />
 									) : row.item.kind === "thinking" ? (
@@ -211,6 +213,7 @@ export function ConversationStream() {
 									images: pendingTurn.images,
 								}}
 								files={pendingTurn.files}
+								model={modelId}
 							/>
 						) : null}
 						{thinking ? <ThinkingIndicator /> : null}

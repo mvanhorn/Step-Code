@@ -6,6 +6,17 @@ import type { SessionEntry, SessionInspector } from "../../state/types";
 import { Icon, IconButton, Tooltip } from "../../ui";
 import { finiteAmount, messagePreview, recordedMessage } from "./model";
 
+/**
+ * Counters a provider may not report at all.
+ *
+ * `cacheWrite` only exists where a provider bills cache writes, and `reasoning`
+ * is only sent by providers with a thinking breakdown (OpenAI-compatible Step
+ * endpoints send neither). Those arrive as `0`, which used to be shown as a real
+ * zero next to a cache-hit ratio — reading as "nothing was cached" rather than
+ * "this provider does not report it". A missing field is shown as `--`.
+ */
+const OPTIONAL_COUNTERS = new Set(["cacheWrite", "reasoning"]);
+
 const CAPACITY_TICKS = Array.from({ length: 40 }, (_, index) => index);
 
 function MessageJson({ entry }: { readonly entry: SessionEntry }) {
@@ -52,6 +63,13 @@ export function ContextPanel({ data }: { readonly data?: SessionInspector }) {
 	const usage = last?.message?.usage;
 	const percent = finiteAmount(data?.stats.contextUsage?.percent);
 	const format = (value: unknown) => finiteAmount(value)?.toLocaleString() ?? "--";
+	const formatCounter = (name: string, value: unknown): string => {
+		const amount = finiteAmount(value);
+		// An optional counter is "not reported" only when the field is absent; an
+		// explicit 0 from a provider that does report it stays a real zero.
+		if (amount === undefined || (OPTIONAL_COUNTERS.has(name) && value === undefined)) return "--";
+		return amount.toLocaleString();
+	};
 	const input = finiteAmount(usage?.input);
 	const cacheRead = finiteAmount(usage?.cacheRead);
 	const cacheWrite = finiteAmount(usage?.cacheWrite);
@@ -118,7 +136,7 @@ export function ContextPanel({ data }: { readonly data?: SessionInspector }) {
 					{(["input", "cacheRead", "cacheWrite", "output", "reasoning"] as const).map((name) => (
 						<div key={name}>
 							<dt>{t(`rightUsage.${name}`)}</dt>
-							<dd>{format(usage?.[name])}</dd>
+							<dd>{formatCounter(name, usage?.[name])}</dd>
 						</div>
 					))}
 					<div>

@@ -302,25 +302,64 @@ select {
   background: var(--canvas);
 }
 
-/* legacy 705, 708, 721-726: rendered Markdown, shared by messages and the file preview */
+/*
+ * legacy 705, 708, 721-726: rendered Markdown, shared by messages and the file
+ * preview.
+ *
+ * The stream column (`.stream-inner`, 760px) already bounds the reading width,
+ * so the body fills it instead of capping itself again in `ch`: the extra cap
+ * left the right third of the column empty while headings and cards ran full
+ * width, which read as "text not aligned".
+ */
 .message-body {
   position: relative;
-  max-width: min(100%, 70ch);
+  width: 100%;
+  max-width: 100%;
   font-size: 15px;
   line-height: 1.75;
   overflow-wrap: anywhere;
 }
-/* lib/markdown: headings carry their own spacing; a blank line in the source is a short gap. */
+/*
+ * Headings carry the visual hierarchy: the body copy is set in the muted ink so
+ * long answers read calmly, and every heading (plus `**bold**` lead-ins such as
+ * "1. …") steps back up to full contrast. Without the weight and size steps the
+ * numbered section titles used to look exactly like the prose under them.
+ */
 .message-body h2,
 .message-body h3,
 .message-body h4 {
-  margin: 14px 0 6px;
-  line-height: 1.45;
+  margin: 18px 0 8px;
+  color: var(--ink);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.4;
+}
+.message-body h2 {
+  font-size: 1.18em;
+}
+.message-body h3 {
+  font-size: 1.08em;
+}
+.message-body h4 {
+  font-size: 1em;
 }
 .message-body > h2:first-child,
 .message-body > h3:first-child,
 .message-body > h4:first-child {
   margin-top: 0;
+}
+.message-body strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+.message.assistant .message-body {
+  color: var(--ink-2);
+}
+.message.assistant .message-body h2,
+.message.assistant .message-body h3,
+.message.assistant .message-body h4,
+.message.assistant .message-body strong {
+  color: var(--ink);
 }
 .message-body .md-li {
   position: relative;

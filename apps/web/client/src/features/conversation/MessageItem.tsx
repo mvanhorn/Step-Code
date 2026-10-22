@@ -10,6 +10,7 @@ import { Icon, LEGACY_ICONS, MarkdownView } from "../../ui";
 import { openFileReference } from "../files/actions";
 import { forkAtEntry } from "./actions";
 import { openFeedback, type Sentiment } from "./feedback";
+import { clockTime } from "./message-meta";
 import { useFadeIn, useSmoothText } from "./streaming";
 import { ThinkingIndicator } from "./ThinkingIndicator";
 
@@ -28,12 +29,18 @@ export const MessageItem = memo(function MessageItem({
 	item,
 	files: pendingFiles,
 	fileCwd,
+	model,
 }: {
 	readonly item: MessageTimelineItem;
 	/** The pending bubble's files: the host has not echoed the message (and its file blocks) yet. */
 	readonly files?: readonly AttachedFile[];
 	/** Read-only child transcripts resolve references against their own workspace. */
 	readonly fileCwd?: string;
+	/**
+	 * Model id shown with the sent-message timestamp. The transcript records no
+	 * model per message, so the caller passes the one the session ran on.
+	 */
+	readonly model?: string;
 }) {
 	const t = useT();
 	const role = item.role === "user" ? "user" : "assistant";
@@ -75,6 +82,7 @@ export const MessageItem = memo(function MessageItem({
 	if (role === "assistant" && !content) return <ThinkingIndicator />;
 	return (
 		<article className={`message ${role}`} data-content={item.content || ""} data-entry-id={item.entryId}>
+			{role === "assistant" && item.timestamp ? <MessageMeta model={model} timestamp={item.timestamp} /> : null}
 			{skill ? (
 				<span className="message-skill message-skill--skill" title={skill.name}>
 					<Icon name="wrench" size="xs" />
@@ -98,9 +106,28 @@ export const MessageItem = memo(function MessageItem({
 					onFileReference={(path) => void openFileReference(cwd, path)}
 				/>
 			) : null}
+			{role === "user" && item.timestamp ? <MessageMeta model={model} timestamp={item.timestamp} /> : null}
 		</article>
 	);
 });
+
+/**
+ * What a message was and when, for both sides of the conversation: the model and
+ * the clock time (`14:05`), rendered as plain text with no label. A sent message
+ * shows it under its bubble and a reply above its answer, on hover or keyboard
+ * focus; an entry without a timestamp (an optimistic pending bubble) shows nothing.
+ */
+function MessageMeta({ model, timestamp }: { readonly model?: string; readonly timestamp: string }) {
+	const clock = clockTime(timestamp);
+	return (
+		<span className="message-meta" data-model={model || undefined}>
+			{model ? <span className="message-meta-model">{model}</span> : null}
+			<time className="message-meta-time" dateTime={timestamp}>
+				{clock}
+			</time>
+		</span>
+	);
+}
 
 /** A user message's images as thumbnails; clicking one opens `#imagePreview`. */
 function MessageImages({ images }: { readonly images: readonly string[] }) {

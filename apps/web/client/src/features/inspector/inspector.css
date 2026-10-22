@@ -221,6 +221,7 @@
 .sb-activity { display: inline-block; flex: 0 0 7px; width: 7px; height: 7px; border-radius: 50%; background: var(--ink-2); }
 .sb-activity[data-state="unknown"] { background: transparent; border: 1px solid var(--ink-2); }
 .sb-activity[data-state="running"] { background: var(--success); }
+.sb-activity[data-state="aborted"] { background: var(--sb-warning); }
 .sb-header-metrics { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 4px 10px; min-width: 0; max-width: 65%; font-size: 11px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .sb-header-tasks, .sb-header-agents { display: inline-flex; align-items: center; gap: 4px; overflow-wrap: anywhere; }
 .sb-header-metrics strong { color: var(--ink); font-weight: 500; }

@@ -9,13 +9,27 @@ export function SummaryHeader({ data }: { readonly data?: SessionInspector }) {
 	const t = useT();
 	const sessionId = useAppStore((state) => state.current?.id);
 	const items = useAppStore((state) => state.timelineItems);
+	// The session's own status decides whether anything can still be running: a
+	// task row or agent record keeps the status it had when the turn was stopped,
+	// so only the session can say "this is over".
+	const status = useAppStore((state) => state.current?.status);
 	const records = useMemo(() => (sessionId ? summaryAgentRecords(items) : []), [sessionId, items]);
 	const tasks = data?.tasks ?? [];
 	const done = tasks.filter((task) => task.status === "completed").length;
+	const sessionLive = status === "running" || status === "waiting";
 	const running =
-		tasks.some((task) => task.status === "in_progress") || records.some((row) => row.status === "running");
-	const state = running ? "running" : !data || records.some((row) => row.status === "unknown") ? "unknown" : "idle";
-	const label = t(state === "unknown" ? "subagentStatus.unknown" : state);
+		sessionLive &&
+		(tasks.some((task) => task.status === "in_progress") || records.some((row) => row.status === "running"));
+	// An interrupted turn is reported as aborted rather than silently idle (see
+	// SummaryTaskStatus, which settles every row on this state).
+	const state = running
+		? "running"
+		: status === "failed"
+			? "aborted"
+			: !data || records.some((row) => row.status === "unknown")
+				? "unknown"
+				: "idle";
+	const label = t(state === "idle" ? "idle" : `subagentStatus.${state}`);
 	return (
 		<>
 			<h2 className="sb-header-title">

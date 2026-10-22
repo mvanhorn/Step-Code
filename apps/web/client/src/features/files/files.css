@@ -267,10 +267,9 @@
 }
 /*
  * Legacy styles.css 579 also declared `max-width: none` here, but the later
- * `.message-body` rule (705, same specificity) overrode it, so the rendered
- * preview has always been capped at 70ch. With feature CSS now loading after
- * global.css the declaration would start winning, so it is left out to keep
- * the shipped look.
+ * `.message-body` rule (705, same specificity) overrode it. `.message-body` now
+ * fills the stream column itself, so a rendered file preview follows the panel
+ * width exactly as it always did; the declaration stays out to keep the look.
  */
 .preview-markdown {
 	padding: 16px 20px 28px;
@@ -348,10 +347,14 @@
 	flex: none;
 	align-items: center;
 	justify-content: space-between;
-	gap: 8px;
+	gap: 6px;
 	height: 50px;
 	padding: 0 8px 0 8px;
 	border-bottom: 1px solid var(--line);
+	/* The toolbar must never wrap over the file it labels, and never squeeze the
+	   action icons until their hover hints overlap each other. */
+	min-width: 0;
+	overflow: hidden;
 }
 .changes-pill {
 	display: inline-flex;
@@ -363,11 +366,16 @@
 }
 .changes-turn {
 	position: relative;
+	flex: 1 1 auto;
 	min-width: 0;
+	overflow: hidden;
 }
+/* The turn label truncates inside its pill instead of pushing the toolbar out. */
 .changes-turn-button {
 	gap: 6px;
+	min-width: 0;
 	max-width: 100%;
+	overflow: hidden;
 	padding: 0 12px 0 14px;
 	color: var(--ink);
 	font-size: 13px;
@@ -379,19 +387,35 @@
 .changes-turn-button .icon {
 	color: var(--ink-2);
 }
+.changes-turn-button > span:first-child {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.changes-turn-button .icon,
+.changes-turn-button .diff-stat {
+	flex: none;
+}
 .changes-turn-button .diff-stat {
 	margin-left: 4px;
 }
 .changes-tools {
 	position: relative;
-	flex: none;
+	flex: 0 0 auto;
 	gap: 2px;
-	padding: 0 6px;
+	padding: 0 2px;
 }
 .changes-tools .icon-button {
 	width: 28px;
 	height: 26px;
 	color: var(--ink-2);
+}
+/* Reserve the focus ring inside the icons' own box so hints and rings cannot
+   spill over a neighbour when the header is narrow. */
+.changes-tools .icon-button:focus-visible {
+	outline-width: 1px;
+	outline-offset: -1px;
 }
 .changes-tools .icon-button:disabled {
 	opacity: 0.4;
