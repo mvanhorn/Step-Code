@@ -64,6 +64,8 @@ export interface ModelRef {
 }
 
 export interface ModelInfo extends ModelRef {
+	/** The provider's declared display name; the picker's section heading, `provider` its fallback. */
+	readonly providerName?: string;
 	readonly name?: string;
 	readonly api?: string;
 	readonly reasoning?: boolean;

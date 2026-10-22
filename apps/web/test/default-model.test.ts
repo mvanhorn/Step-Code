@@ -92,6 +92,8 @@ test("a draft predicts the product default model, its effort and the full catalo
 		stepCatalog.map((model) => model.id),
 	);
 	assert.deepEqual(draft.models.find((model) => model.id === "step-router-v1")?.thinkingLevels, ["off"]);
+	// The picker partitions by provider; each row carries the declared name.
+	assert.equal(draft.models.every((model) => model.providerName === "StepFun"), true);
 });
 
 test("a draft follows the saved default model and its per-model effort", async () => {

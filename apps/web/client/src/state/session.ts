@@ -1286,6 +1286,24 @@ async function loadDraftModels(cwd: string): Promise<void> {
 }
 
 /**
+ * Re-read the host's model catalog after a settings visit: a model provider
+ * added or removed there must reach the picker without a new conversation.
+ * The open session re-reads `models.json` in place; a draft simply asks again.
+ */
+export async function refreshModelCatalog(): Promise<void> {
+	const state = getState();
+	if (state.current) {
+		try {
+			renderSnapshot(await apiSend<SessionSnapshot>(`/api/v1/sessions/${state.current.id}/models/refresh`, "POST"));
+		} catch (error) {
+			showError(errorMessage(error));
+		}
+		return;
+	}
+	await loadDraftModels(state.draftCwd || state.bootstrapCwd);
+}
+
+/**
  * The current session, creating it from the draft (cwd, policy, model,
  * thinking level) when there is none yet (legacy `createSessionIfNeeded`,
  * 3153-3182). `firstMessage` titles the new sidebar row until the host lists it.

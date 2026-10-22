@@ -1802,6 +1802,12 @@ paths:
         - { $ref: "#/components/parameters/SessionId" }
       responses:
         "200": { description: Persisted model selection }
+  /api/v1/sessions/{id}/models/refresh:
+    post:
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+      responses:
+        "200": { description: Re-read models.json and return the session snapshot with the refreshed model catalog }
   /api/v1/sessions/{id}/files:
     get:
       parameters:

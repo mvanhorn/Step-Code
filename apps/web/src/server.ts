@@ -931,6 +931,12 @@ const server = createServer(async (request, response) => {
 				await session.setModel(input.provider, input.modelId);
 				return json(response, 200, session.snapshot());
 			}
+			if (parts[4] === "models" && parts[5] === "refresh" && parts.length === 6 && method === "POST") {
+				// A provider added in settings must reach an open session's picker; the
+				// session's catalog is otherwise frozen at creation.
+				await session.refreshModels();
+				return json(response, 200, session.snapshot());
+			}
 			if (parts[4] === "feedback" && method === "POST") {
 				const input = await body(request);
 				if (input.sentiment !== "up" && input.sentiment !== "down") {

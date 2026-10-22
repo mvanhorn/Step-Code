@@ -358,8 +358,8 @@ type CatalogModel = ReturnType<ModelRuntime["getAvailableSnapshot"]>[number];
 export function projectModel(model: CatalogModel, providerName?: string) {
 	return {
 		provider: model.provider,
-		// The picker partitions the catalog by provider, ZCode-style; the declared
-		// name is the section heading, the id only its fallback.
+		// The picker partitions the catalog by provider; the declared name is
+		// the section heading, the id only its fallback.
 		...(providerName && providerName !== model.provider ? { providerName } : {}),
 		id: model.id,
 		name: model.name,

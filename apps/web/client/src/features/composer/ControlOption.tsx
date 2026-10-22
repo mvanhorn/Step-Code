@@ -1,7 +1,4 @@
-/**
- * Building blocks shared by the composer popovers (legacy app.js 2354-2478:
- * `setupPopover`, `controlOption`, `hint`, `note`, `groupLabel`).
- */
+/** Building blocks shared by the composer popovers (legacy app.js 2354-2478: `setupPopover`, `controlOption`, `hint`, `note`, `groupLabel`). */
 
 import type { KeyboardEvent, ReactNode } from "react";
 import { useT } from "../../i18n";
@@ -14,7 +11,7 @@ export interface ControlOptionProps<T extends string> {
 	readonly description?: string;
 	readonly meta?: readonly string[];
 	readonly selected: boolean;
-	/** Pin toggle state; only meaningful with `onPin`. */
+	/** Favourite (pin) toggle state; only meaningful with `onPin`. */
 	readonly pinned?: boolean;
 	readonly onPin?: () => void;
 	readonly onSelect: (id: T) => void;
@@ -70,7 +67,7 @@ export function ControlOption<T extends string>({
 					onClick={pin}
 					onKeyDown={pinKey}
 				>
-					<Icon name="star" />
+					<Icon name="star" size="xs" />
 				</span>
 			) : null}
 			{selected ? <Icon name="check" size="sm" className="control-option-check" /> : null}
@@ -81,11 +78,6 @@ export function ControlOption<T extends string>({
 /** An empty-state row for a popover that has nothing to show (legacy `hint`). */
 export function PopoverHint({ children }: { readonly children: ReactNode }) {
 	return <div className="control-popover-empty">{children}</div>;
-}
-
-/** A muted explanatory line, as opposed to an empty-state hint (legacy `note`). */
-export function PopoverNote({ children }: { readonly children: ReactNode }) {
-	return <div className="control-popover-note">{children}</div>;
 }
 
 /** A small section heading inside a popover (legacy `groupLabel`). */
