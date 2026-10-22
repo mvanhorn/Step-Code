@@ -1,4 +1,23 @@
-import type { SessionEntry, SubagentStatus, TimelineItem } from "../../state/types";
+import type { SessionEntry, SessionInspector, SessionStatus, SubagentStatus, TimelineItem } from "../../state/types";
+
+/** The status a checklist row renders; `aborted` is derived, never stored in a snapshot. */
+export type InspectorTaskStatus = SessionInspector["tasks"][number]["status"] | "aborted";
+
+/** The statuses during which the session can still be advancing a checklist row. */
+export function sessionIsLive(status: SessionStatus | undefined): boolean {
+	return status === "running" || status === "waiting";
+}
+
+/**
+ * The last task snapshot keeps the status it had when a turn stopped, so a
+ * stopped session must not keep an `in_progress` row spinning.
+ */
+export function effectiveTaskStatus(
+	status: SessionInspector["tasks"][number]["status"],
+	live: boolean,
+): InspectorTaskStatus {
+	return !live && status === "in_progress" ? "aborted" : status;
+}
 
 export interface SummaryAgentRecord {
 	readonly key: string;
