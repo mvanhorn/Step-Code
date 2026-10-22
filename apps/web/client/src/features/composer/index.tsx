@@ -17,6 +17,8 @@ import { AttachmentList } from "./Attachments";
 import {
 	type ContextPackage,
 	chooseMode,
+	clearModes,
+	modePrefix,
 	packageSessionContext,
 	type StagedPick,
 	sendMessage,
@@ -26,7 +28,7 @@ import {
 import { ClarificationPanel } from "./ClarificationPanel";
 import { ModelMenu } from "./ModelMenu";
 import { PerformanceBar } from "./PerformanceBar";
-import { PlusMenu } from "./PlusMenu";
+import { MODES, PlusMenu } from "./PlusMenu";
 import { PolicyMenu } from "./PolicyMenu";
 import { PromptInput } from "./PromptInput";
 import {
@@ -78,6 +80,9 @@ export function Composer({ workspaceControl }: ComposerProps) {
 	const [contextPackages, setContextPackages] = useState<readonly ContextPackage[]>([]);
 	/** Picked skills and plugins, one light-purple icon chip each, sent with the next message. */
 	const [stagedPicks, setStagedPicks] = useState<readonly StagedPick[]>([]);
+	// Single-select and single-shot: at most one mode rides the next message.
+	const modes = useAppStore((state) => state.modes);
+	const activeMode = (Object.keys(modes) as ModeId[]).find((id) => modes[id]);
 	const syncHasText = () => setHasText(Boolean(prompt.current && promptText(prompt.current).trim()));
 	const stopMode = status === "running" && !hasText;
 
@@ -135,11 +140,14 @@ export function Composer({ workspaceControl }: ComposerProps) {
 			 * blocks ride at the tail (ZCode's prompt-tail pattern).
 			 */
 			const lead = stagedPicks.find((pick) => pick.prefix);
+			// A mode applies to this message only: it leads the text and is dropped
+			// once the message is accepted, never toggled off by a second command.
+			const mode = activeMode ? modePrefix(activeMode) : "";
 			const tail = [
 				...stagedPicks.filter((pick) => pick.note).map((pick) => pick.note),
 				...contextPackages.map((item) => item.block),
 			].join("\n\n");
-			const outgoing = `${lead ? `${lead.prefix} ` : ""}${text}${tail ? `\n\n${tail}` : ""}`;
+			const outgoing = `${lead ? `${lead.prefix} ` : ""}${mode}${text}${tail ? `\n\n${tail}` : ""}`;
 			setQuery(null);
 			setUi({ slashMenu: null });
 			const draft = snapshotPrompt(editor);
@@ -151,6 +159,7 @@ export function Composer({ workspaceControl }: ComposerProps) {
 			} else {
 				setContextPackages([]);
 				setStagedPicks([]);
+				clearModes();
 			}
 		} finally {
 			sending.current = false;
@@ -162,21 +171,11 @@ export function Composer({ workspaceControl }: ComposerProps) {
 		void submit(false);
 	};
 
-	/**
-	 * Stages a command line in `#prompt` for the mode picks: replace the text,
-	 * focus, caret at the end so the request can be typed straight away.
-	 */
-	const stageLine = useCallback((line: string) => {
-		const editor = prompt.current;
-		if (!editor) return;
-		setPromptText(editor, line);
-		setHasText(true);
-		editor.focus();
-		placeCaretAtEnd(editor);
+	/** A mode picked in `#plusMenu`: stage it as a chip for the next message only. */
+	const pickMode = useCallback((id: ModeId) => {
+		chooseMode(id);
+		prompt.current?.focus();
 	}, []);
-
-	/** A mode picked in `#plusMenu`: stage its command line in the prompt, single-select. */
-	const pickMode = useCallback((id: ModeId) => stageLine(chooseMode(id)), [stageLine]);
 
 	/**
 	 * A skill or plugin picked in `#plusMenu`: staged as one light-purple icon
@@ -255,8 +254,24 @@ export function Composer({ workspaceControl }: ComposerProps) {
 			<QueueDock />
 			<div className="composer-card">
 				<AttachmentList />
-				{contextPackages.length || stagedPicks.length ? (
+				{contextPackages.length || stagedPicks.length || activeMode ? (
 					<div className="attachment-list" id="contextChipList">
+						{/* A mode is a chip, not prompt text: sending the message consumes it. */}
+						{activeMode ? (
+							<span className="attachment-chip pick-chip pick-chip--mode" id="modeChip">
+								<Icon name={MODES.find((mode) => mode.id === activeMode)?.icon ?? "cube"} size="xs" />
+								<span>{t(MODES.find((mode) => mode.id === activeMode)?.labelKey ?? "modeGoal")}</span>
+								<button
+									type="button"
+									className="attachment-remove"
+									title={t("removePick")}
+									aria-label={t("removePick")}
+									onClick={() => clearModes()}
+								>
+									<Icon name="close-sm" size="xs" />
+								</button>
+							</span>
+						) : null}
 						{stagedPicks.map((pick) => (
 							<span
 								className={

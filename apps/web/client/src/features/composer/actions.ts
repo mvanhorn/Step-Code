@@ -172,22 +172,45 @@ export async function selectEffort(level: string): Promise<boolean> {
 
 /* ── Session modes ────────────────────────────────────────────────────────── */
 
-/** The command line a mode maps to, matching what the host's `setMode` runs. */
-function modeCommandLine(id: ModeId, enabled: boolean): string {
-	if (id === "plan") return "/plan";
-	if (id === "ultraloop") return enabled ? "/ultraloop on" : "/ultraloop off";
-	return enabled ? "/goal " : "/goal clear";
+/**
+ * Each mode applies to the next message only.
+ *
+ * A mode used to be a session switch: picking one typed `/ultraloop on`,
+ * `/goal clear` or a bare `/plan` into the prompt and kept it on until picked
+ * again. That made "turn this off" a second command the user had to send, and
+ * left the input showing keywords they never typed. A mode is now a chip that
+ * rides one message and drops once that message is sent, so turning it off is
+ * removing the chip.
+ *
+ * The prefix is what the kernel reads for that one turn:
+ * - `/plan ` — plan this task;
+ * - `/goal ` — start a goal with the message body;
+ * - the `ultraloop` keyword — the kernel's own per-turn workflow opt-in.
+ */
+const MODE_PREFIX: Readonly<Record<ModeId, string>> = {
+	goal: "/goal ",
+	plan: "/plan ",
+	ultraloop: "ultraloop: ",
+};
+
+/** The leading text `id` contributes to the message it is staged on. */
+export function modePrefix(id: ModeId): string {
+	return MODE_PREFIX[id];
 }
 
 /**
- * Single-select: `id` becomes the only mode on, or turns off when already on.
- * Returns the command line to stage in the composer — the mode activates when
- * that line is sent, so what runs is always visible in the input.
+ * Single-select: picking `id` makes it the only staged mode, picking it again
+ * removes it. Nothing is written into the prompt.
  */
-export function chooseMode(id: ModeId): string {
+export function chooseMode(id: ModeId): boolean {
 	const enabled = !getState().modes[id];
 	setState({ modes: { goal: false, plan: false, ultraloop: false, [id]: enabled } });
-	return modeCommandLine(id, enabled);
+	return enabled;
+}
+
+/** Drop every staged mode; a sent message consumes them. */
+export function clearModes(): void {
+	setState({ modes: { goal: false, plan: false, ultraloop: false } });
 }
 
 /* ── Other-session context ────────────────────────────────────────────────── */

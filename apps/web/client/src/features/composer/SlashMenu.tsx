@@ -34,6 +34,9 @@ const SLASH_COMMANDS: readonly { readonly name: string; readonly description: Me
 	{ name: "goal", description: "goalCommandDesc" },
 	{ name: "init", description: "initCommandDesc" },
 	{ name: "plan", description: "planCommandDesc" },
+	{ name: "btw", description: "btwCommandDesc" },
+	{ name: "compact", description: "compactCommandDesc" },
+	{ name: "feedback", description: "feedbackCommandDesc" },
 	{ name: "mcp", description: "mcpCommandDesc" },
 ];
 

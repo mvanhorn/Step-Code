@@ -22,7 +22,8 @@ import { ControlOption, PopoverGroupLabel } from "./ControlOption";
 import { PluginsPanel, SessionsPanel, SkillsPanel } from "./PlusSubPanels";
 import type { ComposerMenuProps } from "./PolicyMenu";
 
-const MODES: ReadonlyArray<{
+/** The three session modes, shared with the composer's mode chip. */
+export const MODES: ReadonlyArray<{
 	readonly id: ModeId;
 	readonly icon: IconName;
 	readonly labelKey: string;
