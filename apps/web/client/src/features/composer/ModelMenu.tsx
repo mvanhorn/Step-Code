@@ -93,10 +93,8 @@ export function ModelMenu({ open, onOpen, onClose }: ComposerMenuProps) {
 				}}
 				onPin={(key) => setPinned(togglePinnedModel(key))}
 				onSelectModel={(value) => {
-					// Applying a model repaints the panel rather than closing it, so the
-					// effort list immediately reflects the model just chosen.
 					void selectModel(value).then((applied) => {
-						if (applied) resetSearch();
+						if (applied) onClose();
 					});
 				}}
 				onSelectEffort={(level) => {
