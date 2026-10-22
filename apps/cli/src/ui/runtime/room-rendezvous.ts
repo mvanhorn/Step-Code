@@ -15,7 +15,8 @@ import { randomBytes } from "node:crypto";
  * Where the rendezvous service lives.
  *
  * Deliberately unset in source: the service is deployed per organisation, and this file ships in a
- * public repository that must not carry anyone's private endpoint.
+ * public repository that must not carry anyone's private endpoint. A room cannot start without it,
+ * so `/room` reports the missing setting rather than failing later with a network error.
  */
 export const ROOM_RENDEZVOUS_URL_ENV = "STEPCODE_ROOM_RENDEZVOUS_URL";
 
@@ -77,12 +78,19 @@ function classify(status: number, message: string): RendezvousFailure {
 }
 
 export class RoomRendezvousClient {
-	private readonly baseUrl: string;
+	/** `undefined` when no service is configured; every call then fails fast with `unavailable`. */
+	private readonly baseUrl: string | undefined;
 	private readonly timeoutMs: number;
 
 	constructor(options: { baseUrl?: string; timeoutMs?: number } = {}) {
-		this.baseUrl = (options.baseUrl ?? resolveRendezvousUrl() ?? "").replace(/\/+$/, "");
+		const configured = options.baseUrl ?? resolveRendezvousUrl();
+		this.baseUrl = configured?.replace(/\/+$/, "");
 		this.timeoutMs = options.timeoutMs ?? 10_000;
+	}
+
+	/** Whether a service address is configured at all, so callers can explain the missing setting. */
+	get configured(): boolean {
+		return this.baseUrl !== undefined;
 	}
 
 	private async request<T>(
@@ -90,6 +98,10 @@ export class RoomRendezvousClient {
 		init: RequestInit,
 		decode: (raw: unknown) => T,
 	): Promise<RendezvousResult<T>> {
+		if (!this.baseUrl) {
+			// Same failure shape as an unreachable service: callers already know how to report that.
+			return { ok: false, failure: { kind: "unavailable", status: 0, message: "no rendezvous service configured" } };
+		}
 		let response: Response;
 		try {
 			response = await fetch(`${this.baseUrl}${path}`, {
