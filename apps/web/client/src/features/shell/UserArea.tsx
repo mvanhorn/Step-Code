@@ -7,8 +7,8 @@
  * session (`GET /api/v1/account`). Without one (API-key sign-in, or the
  * developer center unreachable) it falls back to a label for the credential.
  * Pressing it opens `#accountMenu` above it: the account (avatar, name, id)
- * and the account actions, Upgrade and Log out; signed out, only Sign in,
- * which opens Settings > Account.
+ * and the account actions, Upgrade and Log out. Signed out there is no account
+ * to show, so the button opens Settings > Account, the in-app sign-in, directly.
  */
 
 import { useState } from "react";
@@ -63,30 +63,6 @@ const closeAccountMenu = () => setUi({ accountMenuOpen: false });
 function accountLabel(t: TranslateFn, login: LoginReport | null, account: AccountReport | null): string {
 	if (!login?.configured) return t("footerSignedOut");
 	return accountName(t, login, account);
-}
-
-/**
- * Signed out there is no account to show and nothing to upgrade or sign out of,
- * so the menu is a single Sign in row. It opens Settings > Account, the in-app
- * sign-in: the startup gate is reserved for when no model can run at all.
- */
-function SignedOutMenu() {
-	const t = useT();
-	return (
-		<Menu bare role="menu" aria-label={t("footerAccount", { name: t("footerSignedOut") })}>
-			<MenuItem
-				role="menuitem"
-				id="accountSignInButton"
-				icon="accountSignIn"
-				onClick={() => {
-					closeAccountMenu();
-					openSettings("account");
-				}}
-			>
-				{t("accountSignIn")}
-			</MenuItem>
-		</Menu>
-	);
 }
 
 function AccountMenu({
@@ -160,6 +136,7 @@ export function UserArea() {
 	const login = useAppStore((state) => state.login);
 	const account = useAppStore((state) => state.account);
 	const name = accountLabel(t, login, account);
+	const signedIn = login?.configured === true;
 	const avatarUrl = login?.configured ? account?.account?.avatarUrl : undefined;
 	const uid = login?.configured ? account?.account?.uid : undefined;
 	const menuOpen = useAppStore((state) => state.ui.accountMenuOpen);
@@ -167,25 +144,30 @@ export function UserArea() {
 		<div className="user-area">
 			{/* Escape belongs to the shell's chain. */}
 			<Popover
-				className={login?.configured ? "account-menu" : "account-menu signed-out"}
+				className="account-menu"
 				id="accountMenu"
 				placement="top-start"
-				open={menuOpen}
+				open={signedIn && menuOpen}
 				onClose={closeAccountMenu}
 				closeOnEscape={false}
-				content={
-					login?.configured ? <AccountMenu name={name} avatarUrl={avatarUrl} uid={uid} /> : <SignedOutMenu />
-				}
+				content={<AccountMenu name={name} avatarUrl={avatarUrl} uid={uid} />}
 			>
 				<button
 					type="button"
 					className="user-account"
 					id="userAccountButton"
-					aria-label={t("footerAccount", { name })}
-					aria-haspopup="menu"
-					aria-expanded={menuOpen}
-					aria-controls="accountMenu"
-					onClick={() => setUi((ui) => ({ accountMenuOpen: !ui.accountMenuOpen }))}
+					aria-label={signedIn ? t("footerAccount", { name }) : t("accountSignIn")}
+					aria-haspopup={signedIn ? "menu" : undefined}
+					aria-expanded={signedIn ? menuOpen : undefined}
+					aria-controls={signedIn ? "accountMenu" : undefined}
+					onClick={() => {
+						if (signedIn) {
+							setUi((ui) => ({ accountMenuOpen: !ui.accountMenuOpen }));
+							return;
+						}
+						closeAccountMenu();
+						openSettings("account");
+					}}
 				>
 					<AccountAvatar name={name} url={avatarUrl} />
 					<span className="user-name">{name}</span>

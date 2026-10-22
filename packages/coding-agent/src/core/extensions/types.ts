@@ -161,6 +161,13 @@ export interface ExtensionNotifyOptions {
 	 * it verbatim.
 	 */
 	markdown?: boolean;
+	/**
+	 * The message only restates state the host already renders from the session
+	 * (plan mode on/off, the permission tier). A host with a transcript shows it
+	 * briefly and keeps it out of the conversation: it is an announcement, not an
+	 * answer to something the user typed.
+	 */
+	transient?: boolean;
 }
 
 /** Raw terminal input listener for extensions. */
@@ -199,6 +206,14 @@ export interface ExtensionUIContext {
 
 	/** Show a notification to the user. */
 	notify(message: string, type?: "info" | "warning" | "error", options?: ExtensionNotifyOptions): void;
+
+	/**
+	 * Present a side answer (`/btw`) in a surface of its own, such as a rail tab.
+	 *
+	 * Omitted by hosts without one, which fall back to `notify` with Markdown. The
+	 * answer never joins the conversation either way.
+	 */
+	sideAnswer?(answer: SideAnswer): void;
 
 	/** Listen to raw terminal input (interactive mode only). Returns an unsubscribe function. */
 	onTerminalInput(handler: TerminalInputHandler): () => void;
@@ -372,6 +387,22 @@ export interface CompactOptions {
 	customInstructions?: string;
 	onComplete?: (result: CompactionResult) => void;
 	onError?: (error: Error) => void;
+}
+
+/**
+ * One side answer (`/btw`), for hosts that give it a surface of its own.
+ *
+ * A side question is a separate thread: it does not join the conversation and
+ * the model never sees it. A host with a rail or panel renders these as a list
+ * instead of spilling them into the transcript.
+ */
+export interface SideAnswer {
+	readonly question: string;
+	/** The answer as Markdown, or an explanation when there is none. */
+	readonly text: string;
+	readonly model?: string;
+	/** The request was cancelled or answered with nothing usable. */
+	readonly unavailable?: boolean;
 }
 
 /**

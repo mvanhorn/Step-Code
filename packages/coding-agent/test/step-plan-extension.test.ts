@@ -31,7 +31,7 @@ interface Harness {
 	commands: Map<string, { handler: (args: string, ctx: ExtensionContext) => unknown }>;
 	handlerEvents: () => string[];
 	appended: Array<{ customType: string; data: unknown }>;
-	notifications: Array<{ message: string; type?: string }>;
+	notifications: Array<{ message: string; type?: string; options?: { transient?: boolean } }>;
 	userMessages: Array<Parameters<ExtensionAPI["sendUserMessage"]>>;
 	statuses: Map<string, string | undefined>;
 	customCalls: () => number;
@@ -138,8 +138,8 @@ function createHarness(
 			isIdle: () => true,
 			hasPendingMessages: () => false,
 			ui: {
-				notify: (message: string, type?: string) => {
-					notifications.push({ message, type });
+				notify: (message: string, type?: string, notifyOptions?: { transient?: boolean }) => {
+					notifications.push({ message, type, ...(notifyOptions ? { options: notifyOptions } : {}) });
 				},
 				select: options.select ?? (async () => undefined),
 				editor: options.editor ?? (async () => undefined),
@@ -453,6 +453,87 @@ test("status chip shows Planning with the source and clears when plan mode is of
 	expect(harness.statuses.get("plan-mode")).toBe("Planning (agent)");
 });
 
+test("plan mode tells the model it is on, without touching the session", async () => {
+	// A user who picks Plan sends `/plan <task>`: the task arrives as an ordinary
+	// user message. Without this reminder the model is only aware that some tools
+	// are missing and reports that it never entered plan mode.
+	const harness = createHarness({ cwd: makeWorkspace() });
+	createStepPlanExtension()(harness.api);
+	const context = harness.ctx();
+	const branchBefore = harness.session.getEntries().length;
+
+	const messages = [{ role: "user" as const, content: [{ type: "text" as const, text: "plan this" }], timestamp: 1 }];
+	const off = (await harness.emit({ type: "context", messages }, context)) as {
+		messages: Array<{ customType?: string }>;
+	};
+	expect(off.messages.some((message) => message.customType === "step-plan-context")).toBe(false);
+
+	await harness.commands.get("plan")!.handler("", context);
+	const on = (await harness.emit({ type: "context", messages }, context)) as {
+		messages: Array<{ role: string; customType?: string; content: Array<{ text?: string }> }>;
+	};
+	const reminder = on.messages.find((message) => message.customType === "step-plan-context");
+	expect(reminder?.role).toBe("custom");
+	expect(reminder?.content[0]?.text).toContain("Plan mode is active for this turn");
+	// Request-local: the branch gained the plan state only, no context message.
+	expect(harness.session.getEntries().length).toBe(branchBefore + 1);
+	expect(harness.session.getEntries().some((entry) => entry.type === "custom_message")).toBe(false);
+
+	// Turning it off stops the reminder, and repeated requests never accumulate.
+	await harness.commands.get("plan")!.handler("", context);
+	const again = (await harness.emit({ type: "context", messages }, context)) as {
+		messages: Array<{ customType?: string }>;
+	};
+	expect(again.messages.some((message) => message.customType === "step-plan-context")).toBe(false);
+});
+
+test("a /plan <task> turn ends the mode it started", async () => {
+	// A model that answers without submitting a proposal must not leave the
+	// session stuck in plan mode (strip on, file writes limited to the plan file).
+	const harness = createHarness({ cwd: makeWorkspace() });
+	createStepPlanExtension()(harness.api);
+	const context = harness.ctx();
+
+	const before = [...harness.activeTools()];
+	await harness.commands.get("plan")!.handler("research this", context);
+	expect(harness.statuses.get("plan-mode")).toBe("Planning (user)");
+	// Entering swaps the tool set for the plan one (write_file stays, but only the
+	// plan file may be written); leaving restores the original selection exactly.
+	expect([...harness.activeTools()].sort()).not.toEqual([...before].sort());
+
+	await harness.emit({ type: "agent_settled" }, context);
+	expect(harness.statuses.get("plan-mode")).toBeUndefined();
+	expect([...harness.activeTools()].sort()).toEqual([...before].sort());
+	expect(lastPlanEntry(harness)).toMatchObject({ enabled: false });
+});
+
+test("an explicit /plan toggle stays on across turns", async () => {
+	const harness = createHarness({ cwd: makeWorkspace() });
+	createStepPlanExtension()(harness.api);
+	const context = harness.ctx();
+
+	await harness.commands.get("plan")!.handler("", context);
+	await harness.emit({ type: "agent_settled" }, context);
+	// A toggle is the user's standing choice, not one message's mode.
+	expect(harness.statuses.get("plan-mode")).toBe("Planning (user)");
+});
+
+test("a resumed session does not revive a finished one-shot plan turn", async () => {
+	const harness = createHarness({
+		entries: [
+			{
+				type: "custom",
+				customType: "step-plan",
+				data: { enabled: true, planFilePath: "/tmp/plan.md", planSource: "user", turnScoped: true },
+			},
+		],
+	});
+	createStepPlanExtension()(harness.api);
+	await harness.emit({ type: "session_start", reason: "resume" }, harness.ctx());
+	expect(harness.statuses.get("plan-mode")).toBeUndefined();
+	expect(lastPlanEntry(harness)).toMatchObject({ enabled: false });
+});
+
 test("the status chip does not require a theme from the host", async () => {
 	// The Web/Desktop host renders text, not a terminal. Before this, entering
 	// plan mode called `ctx.ui.theme.fg(...)` on a host that answered `undefined`
@@ -463,6 +544,27 @@ test("the status chip does not require a theme from the host", async () => {
 
 	await expect(harness.commands.get("plan")!.handler("", context)).resolves.toBeUndefined();
 	expect(harness.statuses.get("plan-mode")).toBe("Planning (user)");
+});
+
+test("plan mode announces itself as transient state, not a transcript answer", async () => {
+	// The Web/Desktop host draws plan mode from session state; the notice only
+	// decorates that. A host that renders notices as transcript rows must not keep
+	// "Plan mode enabled…" as if the user had sent it.
+	const harness = createHarness({ cwd: makeWorkspace() });
+	createStepPlanExtension()(harness.api);
+	const context = harness.ctx();
+
+	await harness.commands.get("plan")!.handler("", context);
+	expect(harness.notifications.at(-1)).toMatchObject({
+		message: expect.stringContaining("Plan mode enabled."),
+		type: "info",
+		options: { transient: true },
+	});
+	await harness.commands.get("plan")!.handler("", context);
+	expect(harness.notifications.at(-1)).toMatchObject({
+		message: "Plan mode disabled.",
+		options: { transient: true },
+	});
 });
 
 test("session_start restores the chip: user for --plan, unknown for persisted state without planSource", async () => {

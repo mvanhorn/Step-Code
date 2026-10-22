@@ -22,7 +22,13 @@ import {
 import { resolvePath } from "../utils/paths.ts";
 
 /** Exit outcome dimension for plan_mode_exited telemetry. */
-export type StepPlanExitOutcome = "approved" | "toggled_off" | "auto_headless" | "auto_rpc";
+export type StepPlanExitOutcome =
+	| "approved"
+	| "toggled_off"
+	/** The one-message plan turn ended without a proposal, so the mode is over. */
+	| "turn_ended"
+	| "auto_headless"
+	| "auto_rpc";
 
 /** State transitions the plan-mode tools drive on the step-plan extension. */
 export interface StepPlanModeController {

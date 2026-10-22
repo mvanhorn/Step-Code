@@ -210,7 +210,7 @@ Account settings.
 The gate offers only Step Plan and API-key sign-in, for the mainland or (via
 the link under the buttons) the international platform. Custom `models.json`
 models still count: once such a model is usable, later starts skip the gate.
-Signed out, the sidebar account menu's Sign in opens Settings > Account.
+Signed out, the sidebar account button opens Settings > Account directly.
 
 A session fixes its model catalog and provider endpoint when it is built, so
 one opened before the credential existed (another tab, or a page loaded before
@@ -441,7 +441,7 @@ kernel runs it on send. `/compact` and `/feedback` therefore follow the same
 kernel command the CLI runs, and only the host's presentation differs:
 `/compact` appends a collapsible compaction row, and `/feedback` (typed without
 arguments or picked from the menu) opens the feedback dialog instead of a
-prompt. `/btw` answers into a notice row. Command replies reach the page through
+prompt. `/btw` opens its own rail tab (see below). Command replies reach the page through
 the kernel's `ui.notify` → SSE `notice`, never as a user or assistant message,
 so they do not enter the session file or the model's context; notices live for
 the page load and can be dismissed. Kernel `ui.input` prompts travel as
@@ -477,6 +477,41 @@ explicit entry on such a branch is refused by the kernel.
 the main task runs is its purpose, and the kernel runs extension commands before
 its streaming gate. Every other command is queued like a message, so `/compact`
 takes effect when the turn ends.
+
+A `/btw` answer is its own thread, so it gets its own tab in the preview rail
+(`kind: "btw"`) instead of a transcript row: the conversation, its entries and the
+model's context are untouched, and the tab strip's × closes one answer without
+deleting it. The composer intercepts `/btw <question>` before it becomes a
+message: the tab opens at once with the question and a waiting state, because the
+answer takes a model round trip and the reader should see where it will appear.
+The kernel's `ui.sideAnswer` fills that tab in, rendering the answer as Markdown;
+a host without that surface keeps the Markdown notice, and the terminal keeps its
+panel. Answers live in host memory for the session (bounded, like the terminal
+panel's history), appear in the snapshot so a reloaded page can show them again,
+and are cleared by `POST /sessions/{id}/side-answers/clear`.
+
+Plan mode is visible to the model as well as to the page. `/plan <task>` enters
+plan mode and sends the task as an ordinary user message, so a request-local
+`<system-reminder>` (never appended to the session) says the host entered plan
+mode for this turn — no `enter_plan_mode` call is expected — names the plan file,
+asks for `exit_plan_mode` when the proposal is written, and allows answering
+directly when the request turns out not to need a plan. Without it the model only
+noticed that some tools were missing and reported that it had never entered plan
+mode.
+
+A `/plan <task>` turn owns plan mode for that one turn: when the run settles
+without a submitted proposal, the extension leaves plan mode, so the strip closes
+and file writes return to normal. An explicit `/plan` toggle is a standing choice
+and stays on across turns; a resumed session never revives a turn-scoped mode,
+because the turn it belonged to is gone.
+
+State the client already draws is never narrated into the conversation: plan mode
+(`snapshot.planMode` → the composer's `Plan · <file>` strip) and the permission
+tier (`policies`) announce themselves with `notify(…, { transient: true })`, which
+the host forwards and the client shows as a short toast, not a row. Command
+answers (`/status`, `/usage`, `/todos`, `/cron`, `/btw` on a text-only host) still
+become dismissible notices, because those are answers to something the user
+typed.
 
 The shared Web/Desktop composer also completes workspace files and folders at
 an `@` token after whitespace or at the start of a line. It follows the actual

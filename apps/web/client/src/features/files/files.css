@@ -610,3 +610,45 @@
 	flex: 1;
 	color: var(--ink);
 }
+
+/*
+ * A side answer (`/btw`) in the preview body: rendered like a message, with one
+ * muted line saying it is not part of the conversation.
+ */
+.side-answer {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	min-width: 0;
+}
+.side-answer-body {
+	font-size: 13px;
+	line-height: 1.65;
+}
+.side-answer-note {
+	margin: 0;
+	padding-top: 8px;
+	border-top: 1px solid var(--line);
+	color: var(--ink-3);
+	font-size: 11.5px;
+	line-height: 1.5;
+}
+.side-answer[data-unavailable] .side-answer-body {
+	color: var(--ink-3);
+}
+/* The question, above an answer that has not arrived yet. */
+.side-answer-question {
+	margin: 0;
+	color: var(--ink-2);
+	font-size: 13px;
+	font-weight: 550;
+	line-height: 1.6;
+	overflow-wrap: anywhere;
+}
+.side-answer-waiting {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	color: var(--ink-3);
+	font-size: 12.5px;
+}

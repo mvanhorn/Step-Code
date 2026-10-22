@@ -223,21 +223,34 @@ async function handleStepBtwCommand(args: string, ctx: ExtensionCommandContext):
 		// handler owns.
 		const controller = new AbortController();
 		const signal = ctx.signal ? AbortSignal.any([ctx.signal, controller.signal]) : controller.signal;
+		// A host with a surface of its own (a rail tab) gets the answer there; a
+		// text-only host gets it as a notice. Either way it stays out of the
+		// conversation the model sees.
+		const present = (text: string, unavailable = false): void => {
+			if (ctx.ui.sideAnswer) {
+				ctx.ui.sideAnswer({
+					question,
+					text,
+					model: `${model.provider}/${model.id}`,
+					...(unavailable ? { unavailable: true } : {}),
+				});
+				return;
+			}
+			ctx.ui.notify(text, unavailable ? "warning" : "info", { markdown: !unavailable });
+		};
 		try {
 			if (signal.aborted) {
-				ctx.ui.notify(BTW_CANCELLED, "warning");
+				present(BTW_CANCELLED, true);
 				return;
 			}
 			const message = await ctx.modelRegistry.complete(model, context, { signal, maxTokens: 2048 });
 			btwHistory.append(question, message);
-			ctx.ui.notify(assistantText(message) || BTW_NO_ANSWER, "info", { markdown: true });
+			present(assistantText(message) || BTW_NO_ANSWER, !assistantText(message));
 		} catch (error) {
 			// A cancelled request is not a failure. Anything else — a missing key,
 			// a provider refusal — is worth showing instead of a generic line.
-			ctx.ui.notify(
-				signal.aborted ? BTW_CANCELLED : (error instanceof Error && error.message) || BTW_NO_ANSWER,
-				"warning",
-			);
+			const cancelled = signal.aborted;
+			present(cancelled ? BTW_CANCELLED : (error instanceof Error && error.message) || BTW_NO_ANSWER, true);
 		} finally {
 			controller.abort();
 		}

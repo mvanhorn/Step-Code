@@ -873,6 +873,10 @@ const server = createServer(async (request, response) => {
 				if (!session.respondTextInput(input.id, input.value)) return error(response, 404, "Text input not found");
 				return json(response, 200, session.snapshot());
 			}
+			if (parts[4] === "side-answers" && parts[5] === "clear" && parts.length === 6 && method === "POST") {
+				session.clearSideAnswers();
+				return json(response, 200, { ok: true });
+			}
 			if (parts[4] === "approvals" && parts[5] === "decision" && method === "POST") {
 				const input = await body(request);
 				const verdict = input.verdict;
@@ -925,6 +929,12 @@ const server = createServer(async (request, response) => {
 				if (typeof input.provider !== "string" || typeof input.modelId !== "string")
 					return error(response, 400, "provider and modelId are required");
 				await session.setModel(input.provider, input.modelId);
+				return json(response, 200, session.snapshot());
+			}
+			if (parts[4] === "models" && parts[5] === "refresh" && parts.length === 6 && method === "POST") {
+				// A provider added in settings must reach an open session's picker; the
+				// session's catalog is otherwise frozen at creation.
+				await session.refreshModels();
 				return json(response, 200, session.snapshot());
 			}
 			if (parts[4] === "feedback" && method === "POST") {

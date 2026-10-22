@@ -64,6 +64,8 @@ export interface ModelRef {
 }
 
 export interface ModelInfo extends ModelRef {
+	/** The provider's declared display name; the picker's section heading, `provider` its fallback. */
+	readonly providerName?: string;
 	readonly name?: string;
 	readonly api?: string;
 	readonly reasoning?: boolean;
@@ -199,6 +201,8 @@ export interface SessionSnapshot extends SessionSummary {
 	readonly pendingTextInputs?: readonly TextInputRequest[];
 	/** The kernel is compacting the context; a prompt sent now has to wait. */
 	readonly compacting?: boolean;
+	/** `/btw` answers of this session, oldest first (process memory, not the transcript). */
+	readonly sideAnswers?: readonly SideAnswer[];
 	/** User entry ids of turns whose file changes were reverted (runtime.ts `revertTurn`). */
 	readonly revertedTurns?: readonly string[];
 	/**
@@ -314,6 +318,20 @@ export interface SelectionRequest {
 	readonly sessionId: string;
 	readonly title: string;
 	readonly options: readonly string[];
+}
+
+/**
+ * A `/btw` answer (runtime.ts `WebSideAnswer`). Process memory on the host: it
+ * never reaches the session file or the model's context, so a host restart drops
+ * it and the rail says so.
+ */
+export interface SideAnswer {
+	readonly id: string;
+	readonly question: string;
+	readonly text: string;
+	readonly model?: string;
+	readonly unavailable?: boolean;
+	readonly createdAt: number;
 }
 
 /** A kernel `ui.input` prompt (src/text-input.ts). The title and placeholder are the kernel's wording. */

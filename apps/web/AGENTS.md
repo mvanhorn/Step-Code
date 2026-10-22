@@ -307,8 +307,8 @@ When to add or change one:
   Desktop reloads into `#loginGate` without a new terminal link. A Step account
   is optional: the gate opens only when no model can run (no Step credential
   and `customModels: false`); the gate itself has no "Use your own models"
-  link. Signed out, the sidebar account menu's Sign in opens Settings >
-  Account, not the gate. Never remove custom providers on a
+  link. Signed out, the sidebar account button opens Settings > Account
+  directly (no menu), not the gate. Never remove custom providers on a
   Step sign-out. No
   balance/allowance placeholders.
 - Do not depend on `process.cwd()` being the workspace; the desktop starts the server elsewhere (macOS privacy

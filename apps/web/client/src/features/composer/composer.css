@@ -217,6 +217,10 @@
 	margin-left: auto;
 	color: var(--ink);
 }
+/* The favourite (pin) star on model rows: right-aligned, and hidden until the
+ * row is hovered — a favourited model keeps its star visible so the pinned
+ * rows stay recognisable. `visibility` (not display) keeps the row from
+ * reflowing when the star appears. */
 .control-option-pin {
 	flex: none;
 	margin-top: 2px;
@@ -224,13 +228,35 @@
 	padding: 2px;
 	border-radius: var(--radius-tiny);
 	color: var(--ink-3);
+	visibility: hidden;
+}
+.control-option:hover .control-option-pin,
+.control-option:focus-visible .control-option-pin {
+	visibility: visible;
 }
 .control-option-pin:hover {
 	background: var(--selected);
 	color: var(--ink);
 }
 .control-option-pin[aria-pressed="true"] {
+	visibility: visible;
 	color: var(--attention);
+}
+/* The provider entry's "自建" badge and the `>` that says the row opens a list. */
+.control-option-badge {
+	padding: 1px 6px;
+	border: 1px solid var(--line);
+	border-radius: var(--radius-tiny);
+	color: var(--ink-3);
+	font-size: 10px;
+	font-weight: 500;
+	line-height: 1.4;
+}
+.control-option-more-indicator {
+	flex: none;
+	margin-top: 2px;
+	margin-left: auto;
+	color: var(--ink-3);
 }
 .control-popover-empty {
 	padding: 10px 9px;
@@ -319,12 +345,6 @@
 	box-shadow: 0 1px 3px var(--shadow);
 }
 /* Hint below the effort block, and the "more models" / "back" row right under the model list. */
-.control-popover-note {
-	padding: 6px 9px 2px;
-	color: var(--ink-3);
-	font-size: 11px;
-	line-height: 1.6;
-}
 .control-popover-more {
 	display: flex;
 	align-items: center;
@@ -349,10 +369,9 @@
 	margin-left: auto;
 }
 /*
- * The full model list scrolls only its rows: the search field stays at the top
- * and "more models"/"back", the effort block and the footer stay put, however
- * long the catalog is. The default view has too few rows to ever scroll, so it
- * lets the panel size itself instead of showing a scrollbar for no reason.
+ * The model list scrolls only its rows: the provider entry, search field and
+ * effort block stay put, however long the provider's catalog is. Few rows let
+ * the panel size itself instead of showing a scrollbar for no reason.
  */
 #modelPopover.control-popover:has(.control-popover-search) {
 	display: flex;
@@ -363,6 +382,52 @@
 	flex: none;
 }
 #modelPopover.control-popover:has(.control-popover-search) > .model-popover-list {
+	flex: 0 1 auto;
+	min-height: 0;
+	overflow-y: auto;
+}
+/*
+ * The model list caps at three rows; a longer catalog scrolls inside the cap,
+ * so the panel keeps its shape however large the provider's catalog is.
+ * Measured row: 69.3px (title + id + meta with padding).
+ */
+#modelPopover > .model-popover-list {
+	max-height: 208px;
+	overflow-y: auto;
+}
+/*
+ * The provider list opens OUTSIDE the model card: the card keeps its position
+ * and width, and the list floats beside it, toward the window's roomier left
+ * side (the card anchors to the composer's right edge).
+ * It rides in the same popover DOM, so an outside press closes both panels —
+ * which is why the card must stop clipping its overflow here.
+ */
+#modelPopover.control-popover:has(.model-popover-side) {
+	overflow: visible;
+}
+.model-popover-side {
+	position: absolute;
+	/* Top-aligned with the model card's provider row — the row that opens
+	 * this list — so the panel reads as that row's submenu. Right of the
+	 * card by default; `.model-popover-side-left` mirrors it when the window
+	 * lacks the room (decided in `ProviderSidePanel`, before paint). */
+	top: 0;
+	left: calc(100% + 8px);
+	display: flex;
+	flex-direction: column;
+	width: 240px;
+	max-height: min(420px, 60vh);
+	padding: 6px;
+	border: 1px solid var(--line);
+	border-radius: var(--radius-overlay);
+	background: var(--surface);
+	box-shadow: 0 16px 42px var(--shadow);
+}
+.model-popover-side-left {
+	left: auto;
+	right: calc(100% + 8px);
+}
+.model-popover-side .model-popover-list {
 	flex: 0 1 auto;
 	min-height: 0;
 	overflow-y: auto;
@@ -1242,4 +1307,54 @@
 .goal-strip-text:disabled {
 	cursor: default;
 	opacity: 0.55;
+}
+
+/*
+ * `.plan-strip`: plan mode, docked exactly like `.goal-strip` (same inset and
+ * square bottom): it stands on the card's top edge, and a goal strip, when one
+ * exists, sits above it.
+ */
+.plan-strip {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 14px -1px;
+  padding: 5px 12px;
+  border: 1px solid var(--line);
+  border-bottom: 0;
+  border-radius: var(--radius-panel) var(--radius-panel) 0 0;
+  background: var(--surface-soft);
+  color: var(--ink);
+  font-size: 13px;
+}
+.plan-strip[hidden] {
+  display: none;
+}
+.plan-strip-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  color: var(--ink-3);
+}
+.plan-strip-label {
+  flex: none;
+  font-weight: 500;
+}
+.plan-strip-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+.plan-strip-hint {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-3);
+  text-align: right;
 }

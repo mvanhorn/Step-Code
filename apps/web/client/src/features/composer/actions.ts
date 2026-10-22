@@ -366,21 +366,6 @@ export function turnActive(state: AppState): boolean {
 }
 
 /**
- * Commands that answer immediately and so must not wait behind a running turn.
- *
- * The kernel runs extension commands before its streaming gate; queueing one
- * would delay it to the end of the turn, which defeats `/btw` ("ask a side
- * question without interrupting the work"). Only commands that neither start a
- * turn nor mutate the session may be listed here.
- */
-const IMMEDIATE_COMMANDS: ReadonlySet<string> = new Set(["btw"]);
-
-function immediateCommand(text: string): boolean {
-	const match = /^\s*\/([A-Za-z0-9][\w.:-]*)(?:\s|$)/u.exec(text);
-	return match?.[1] !== undefined && IMMEDIATE_COMMANDS.has(match[1]);
-}
-
-/**
  * Send `text` with the staged attachments, creating the session first when
  * this is a draft. During a turn the message is queued on the host and shown
  * in the queue dock until the turn ends; `steer` instead hands it to the
@@ -415,7 +400,7 @@ export async function sendMessage(text: string, files: readonly PromptFile[] = [
 		]);
 	try {
 		const session = await createSessionIfNeeded(text);
-		const endpoint = !active || immediateCommand(text) ? "messages" : steer ? "steer" : "queue";
+		const endpoint = !active ? "messages" : steer ? "steer" : "queue";
 		// `files`: upload ids of the prompt's file chips; the host adds their content.
 		const body = JSON.stringify({ text, attachments, files: files.map((file) => file.id) });
 		const result = await api<QueueState | { ok: true }>(`/api/v1/sessions/${session.id}/${endpoint}`, {

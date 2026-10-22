@@ -14,9 +14,10 @@ import { ancestorPaths } from "../../lib/format";
 import { readStoredInt, STORAGE_KEYS, writeStorage } from "../../lib/storage";
 import { collectTurnChanges } from "../../lib/turn-changes";
 import { activeRightPanel, closeRightPanel, openRightPanel } from "../../state/right-panel";
-import { copyText, showError } from "../../state/session";
+import { copyText, forgetSideAnswer, showError } from "../../state/session";
 import {
 	emptyTree,
+	type FilePreviewTab,
 	getState,
 	mapWith,
 	mapWithout,
@@ -209,11 +210,11 @@ export function activateTreeEntry(path: string, kind: string): void {
 
 /* ── Preview ─────────────────────────────────────────────────────────────── */
 
-function sameTab(tab: PreviewTab, cwd: string, path: string): boolean {
-	return tab.cwd === cwd && tab.path === path;
+function sameTab(tab: PreviewTab, cwd: string, path: string): tab is FilePreviewTab {
+	return tab.kind === "file" && tab.cwd === cwd && tab.path === path;
 }
 
-function updateTab(cwd: string, path: string, update: (tab: PreviewTab) => PreviewTab): void {
+function updateTab(cwd: string, path: string, update: (tab: FilePreviewTab) => FilePreviewTab): void {
 	setPreview((preview) => ({
 		...preview,
 		tabs: preview.tabs.map((tab) => (sameTab(tab, cwd, path) ? update(tab) : tab)),
@@ -246,7 +247,10 @@ export async function openFile(cwd: string, path: string, rendered?: boolean): P
 		let index = preview.tabs.findIndex((candidate) => sameTab(candidate, cwd, path));
 		let tabs = preview.tabs;
 		if (index < 0) {
-			tabs = [...tabs, { cwd, path, file: null, error: "", loading: false, rendered: rendered ?? false }];
+			tabs = [
+				...tabs,
+				{ kind: "file", cwd, path, file: null, error: "", loading: false, rendered: rendered ?? false },
+			];
 			index = tabs.length - 1;
 		} else if (rendered !== undefined) {
 			tabs = tabs.map((tab, position) => (position === index ? { ...tab, rendered } : tab));
@@ -254,7 +258,8 @@ export async function openFile(cwd: string, path: string, rendered?: boolean): P
 		return { ...preview, tabs, active: index, open: true, mode: "files" };
 	});
 	const preview = getState().preview;
-	if (!preview.tabs[preview.active]?.file) await loadPreviewTab(cwd, path);
+	const active = preview.tabs[preview.active];
+	if (active?.kind !== "file" || !active.file) await loadPreviewTab(cwd, path);
 }
 
 /** Message references never navigate the browser or widen the host's workspace access. */
@@ -335,6 +340,9 @@ export function showPreviewFiles(): void {
 /** Close one tab; closing the last one hides the panel (legacy `closePreviewTab`, 1760-1769). */
 export function closePreviewTab(index: number): void {
 	const wasShowingFiles = getState().preview.open && getState().preview.mode === "files";
+	// A closed side answer stays closed: the host still holds it for the session.
+	const closing = getState().preview.tabs[index];
+	if (closing?.kind === "btw") forgetSideAnswer(closing.id);
 	setPreview((preview) => {
 		const tabs = preview.tabs.filter((_tab, position) => position !== index);
 		let active = preview.active >= index ? Math.max(0, preview.active - 1) : preview.active;
@@ -363,7 +371,7 @@ export function togglePreviewWrap(): void {
 export function togglePreviewRendered(): void {
 	const preview = getState().preview;
 	const tab = preview.tabs[preview.active];
-	if (!tab) return;
+	if (tab?.kind !== "file") return;
 	updateTab(tab.cwd, tab.path, (current) => ({ ...current, rendered: !current.rendered }));
 }
 
@@ -371,13 +379,18 @@ export function togglePreviewRendered(): void {
 export function reloadActivePreview(): void {
 	const preview = getState().preview;
 	const tab = preview.tabs[preview.active];
-	if (tab) void loadPreviewTab(tab.cwd, tab.path);
+	if (tab?.kind === "file") void loadPreviewTab(tab.cwd, tab.path);
 }
 
 /** Copy the active text file (legacy `#previewCopy`). */
 export function copyActivePreview(): void {
 	const preview = getState().preview;
-	const file = preview.tabs[preview.active]?.file;
+	const tab = preview.tabs[preview.active];
+	if (tab?.kind === "btw") {
+		void copyText(tab.text);
+		return;
+	}
+	const file = tab?.file;
 	if (file?.kind === "text") void copyText(file.content);
 }
 

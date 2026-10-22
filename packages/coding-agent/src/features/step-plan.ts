@@ -140,12 +140,19 @@ export const createStepPlanExtension =
 		let toolsBeforePlanMode: string[] | undefined;
 		let planFilePath: string | undefined;
 		let planSource: StepPlanSource | undefined;
+		/**
+		 * Set by `/plan <task>`: plan mode belongs to that one message, so it must
+		 * end when the turn settles even if the model never submitted a proposal.
+		 * Without this the session stayed in plan mode — and file edits stayed
+		 * restricted to the plan file — until something called `exit_plan_mode`.
+		 */
+		let turnScoped = false;
 		// The event bus is optional so minimal embedder/test harnesses that stub
 		// ExtensionAPI keep working without one.
 		const events = (pi as { events?: EventBus }).events;
 
 		const persistPlanState = (): void => {
-			pi.appendEntry("step-plan", { enabled, toolsBeforePlanMode, planFilePath, planSource });
+			pi.appendEntry("step-plan", { enabled, toolsBeforePlanMode, planFilePath, planSource, turnScoped });
 		};
 		const enable = (): void => {
 			toolsBeforePlanMode ??= pi.getActiveTools();
@@ -167,9 +174,12 @@ export const createStepPlanExtension =
 			updateStatus(ctx, enabled, planSource);
 			persistPlanState();
 			if (source === "user") {
+				// An announcement, not an answer: the host renders plan mode from
+				// session state, so this must not become a transcript row.
 				ctx.ui.notify(
 					`Plan mode enabled. Draft your proposal at ${planFilePath}; file-editing tools are limited to this path. Commands still use normal permissions.`,
 					"info",
+					{ transient: true },
 				);
 			}
 			return planFilePath;
@@ -177,6 +187,7 @@ export const createStepPlanExtension =
 		const exit = (outcome: StepPlanExitOutcome, ctx: ExtensionContext): void => {
 			recordPlanExit(options.telemetry, planSource, outcome);
 			enabled = false;
+			turnScoped = false;
 			planSource = undefined;
 			restoreTools();
 			persistPlanState();
@@ -200,8 +211,11 @@ export const createStepPlanExtension =
 				const prompt = args.trim();
 				if (!prompt) {
 					if (enabled) {
+						// An explicit toggle owns the mode until the user toggles it again.
+						turnScoped = false;
 						exit("toggled_off", ctx);
-						ctx.ui.notify("Plan mode disabled.", "info");
+						// State the host already draws; see enter().
+						ctx.ui.notify("Plan mode disabled.", "info", { transient: true });
 					} else {
 						enter("user", ctx);
 					}
@@ -213,10 +227,21 @@ export const createStepPlanExtension =
 				// with the plan-mode tool set. Slash commands run even mid-stream; queue
 				// the task behind the current turn in that case instead of throwing.
 				if (!enabled) enter("user", ctx);
+				// The user marked this message, not the session: the mode ends when the
+				// turn settles unless the model submits a proposal first.
+				turnScoped = true;
 				pi.sendUserMessage(prompt, ctx.isIdle() ? {} : { deliverAs: "followUp" });
 			},
 		});
 		registerPlanModeTools(pi, planModeController);
+
+		// A `/plan <task>` turn ends the mode it started. Without this, a model that
+		// answered without a proposal left the session in plan mode: the strip stayed
+		// on and every later file edit remained limited to the plan file.
+		pi.on("agent_settled", (_event, ctx) => {
+			if (!turnScoped || !enabled) return;
+			exit("turn_ended", ctx);
+		});
 		pi.on("tool_call", async (event, ctx) => {
 			if (!enabled || !MUTATING_TOOLS.has(event.toolName)) return;
 			const planPath = resolvePlanFilePath(ctx);
@@ -234,18 +259,48 @@ export const createStepPlanExtension =
 			};
 		});
 
-		// Plan-mode state is carried by the enter_plan_mode/exit_plan_mode tool
-		// results; nothing is injected into the context. This hook only scrubs
-		// the hidden meta messages persisted by sessions from older versions of
-		// this extension.
+		// Plan mode has to be visible to the model, not only to the UI.
+		//
+		// A user who picks Plan sends `/plan <task>`: the command enters plan mode
+		// and hands the task over as an ordinary user message, so without this the
+		// model sees a normal request with a restricted tool set and can truthfully
+		// say it was never told about plan mode. The reminder is request-local (it
+		// is never appended to the session) and re-issued for each request while the
+		// mode is on, so it survives compaction and tool changes. The same filter
+		// drops the copies an earlier request added, and the hidden meta messages
+		// persisted by older versions of this extension.
 		pi.on("context", async (event) => {
+			const messages = event.messages.filter((message) => {
+				const candidate = message as AgentMessage & { customType?: string };
+				return (
+					candidate.customType !== "step-plan-context" && candidate.customType !== "step-plan-execution-context"
+				);
+			});
+			if (!enabled) return { messages };
+			const planPath = planFilePath ?? "(unknown path)";
 			return {
-				messages: event.messages.filter((message) => {
-					const candidate = message as AgentMessage & { customType?: string };
-					return (
-						candidate.customType !== "step-plan-context" && candidate.customType !== "step-plan-execution-context"
-					);
-				}),
+				messages: [
+					...messages,
+					{
+						role: "custom" as const,
+						customType: "step-plan-context",
+						display: false,
+						content: [
+							{
+								type: "text" as const,
+								text: [
+									"<system-reminder>Plan mode is active for this turn. The host entered it because the user marked this message for planning; no enter_plan_mode call is needed or expected.",
+									`Write the proposal to ${JSON.stringify(planPath)} with write_file or edit_file; every other file mutation is blocked while it is active.`,
+									"Explore first, then write the complete plan (goal, ordered steps with file paths, validation, open questions) and call exit_plan_mode to submit it for review.",
+									"Do not carry the work out: implementation starts only after the user approves the plan in the app.",
+									"If this request turns out not to need a plan (a question, a trivial edit), say so and answer directly; plan mode ends with this turn either way.",
+									"</system-reminder>",
+								].join(" "),
+							},
+						],
+						timestamp: Date.now(),
+					},
+				],
 			};
 		});
 
@@ -265,10 +320,17 @@ export const createStepPlanExtension =
 			const restoredPlanState = planStates[0];
 			// Off snapshots omit transient tools; a preceding plan entry retains the baseline.
 			const savedTools = planStates.find((state) => state?.toolsBeforePlanMode)?.toolsBeforePlanMode;
-			enabled = restoredPlanState?.enabled ?? false;
+			// A turn-scoped mode cannot survive a new session: the turn it belonged to
+			// is gone. Restoring it would show a plan strip nobody opened and keep file
+			// writes limited to the plan file. A standing `/plan` toggle still restores.
+			const restoredTurnScoped = (restoredPlanState as { turnScoped?: unknown } | undefined)?.turnScoped === true;
+			enabled = (restoredPlanState?.enabled ?? false) && !restoredTurnScoped;
+			turnScoped = false;
 			toolsBeforePlanMode = savedTools ? unique([...savedTools, ...activePlanTaskTools]) : undefined;
 			planFilePath = restoredPlanState?.planFilePath;
 			planSource = enabled ? (restoredPlanState?.planSource ?? "unknown") : undefined;
+			// Record the cleaned-up state so a later restore sees it too.
+			if (restoredTurnScoped) persistPlanState();
 			if (enabled) {
 				planFilePath = resolvePlanFilePath(ctx);
 				enable();

@@ -54,6 +54,7 @@
 .sb-step-symbol { display: grid; place-items: center; flex: 0 0 18px; height: 18px; color: var(--ink-2); }
 .sb-step.is-completed .sb-step-trigger { color: var(--ink-2); }
 .sb-step.is-in_progress .sb-step-trigger { background: color-mix(in oklch, var(--sb-primary) 6%, var(--canvas)); }
+.sb-step.is-aborted .sb-step-trigger { background: color-mix(in oklch, var(--sb-warning) 6%, var(--canvas)); }
 .sb-step .sb-step-detail { padding: 4px 8px 10px 30px; font-size: 11px; color: var(--ink-2); white-space: pre-wrap; }
 .sb-fold-icon { flex: none; color: var(--ink-2); margin-left: auto; transition: transform .24s cubic-bezier(.22,1,.36,1); }
 .sb-fold-icon.is-open { transform: rotate(180deg); }
@@ -88,6 +89,7 @@
 .sb-status > .icon { width: 12px; height: 12px; }
 .sb-status-spinner .icon, .sb-status-result .icon { width: 16px; height: 16px; }
 .sb-status[data-state="in_progress"] .sb-status-spinner, .sb-status[data-settling="true"] .sb-status-spinner { opacity: 1; animation: sb-status-spin 1s linear infinite; }
+.sb-status[data-state="aborted"] { color: var(--sb-warning); }
 .sb-status[data-state="completed"] .sb-status-result { opacity: 1; }
 .sb-status[data-settling="true"] .sb-status-result { opacity: 0; }
 .sb-status[data-settling="true"] .sb-status-mark { stroke-dasharray: 1; stroke-dashoffset: 1; }
