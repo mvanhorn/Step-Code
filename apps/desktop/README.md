@@ -17,7 +17,10 @@ What the shell adds on top of the browser version:
   `@step-harness/web/desktop-bridge`): native folder picker, open http(s) links in the system browser, reveal a path
   in Finder / Explorer. The client checks for it and otherwise falls back to the server's picker / in-page browser.
 - The user's login-shell environment (macOS / Linux GUI launches), so the agent's bash tool finds the same `git`,
-  `node`, Homebrew tools, etc. as in a terminal.
+  `node`, Homebrew tools, etc. as in a terminal. On macOS/Linux, a private `node` wrapper also makes Electron's
+  bundled Node available when no system `node` is on PATH, including to StepPage's installer and MCP launcher.
+  The wrapper's directory is appended to the server's PATH; system Node and explicit MCP PATH overrides still win.
+  It is not installed globally and does not change shell profiles.
 - Native menus (copy/paste/undo, zoom, fullscreen, DevTools), edit context menu, persisted window bounds,
   single-instance lock, macOS inset traffic lights.
 
@@ -48,7 +51,8 @@ an error page; **File → Restart Server** starts a new one.
 | `pnpm --filter @step-harness/desktop start` | Build `@step-harness/web`, bundle the desktop, launch Electron. |
 | `pnpm --filter @step-harness/desktop dev` | Bundle the desktop and launch; builds the web app only if its output is missing. |
 | `pnpm --filter @step-harness/desktop build` | esbuild: `src/main.ts` → `dist/main.js` (ESM), `src/preload.ts` → `dist/preload.cjs`. |
-| `pnpm --filter @step-harness/desktop typecheck` | `tsgo --noEmit`. |
+| `pnpm --filter @step-harness/desktop typecheck` | `tsgo --noEmit` (source and tests). |
+| `pnpm --filter @step-harness/desktop test` | Offline Node-environment and hosted-child regressions. |
 
 The packages the server imports (`@step-harness/coding-agent` and below) must be built (`pnpm build` at the root).
 
@@ -74,6 +78,12 @@ Electron switches such as `--remote-debugging-port=9222` can be appended to `ele
 
 - Window bounds and last picked folder: `<userData>/desktop-state.json` (macOS: `~/Library/Application Support/StepCode`).
 - Server log: `<logs>/web-server.log` (macOS: `~/Library/Logs/StepCode`), also **File → Show Server Logs**.
+- Private Node wrapper (macOS/Linux, when using Electron's runtime): `<userData>/node-bin/node`. Refreshed when
+  the server starts so moving or upgrading the app does not leave it pointing at an old executable. Wrapper-write
+  failures are warnings, not host-startup failures. An explicit `STEPCODE_DESKTOP_NODE` bypasses this fallback.
+
+The CLI still requires Node.js 20+ on PATH for StepPage. Windows keeps its existing behavior: no POSIX wrapper and
+no automatic StepPage installation.
 
 ## Desktop CSS hooks
 
