@@ -48,6 +48,18 @@ export interface SystemPromptProductContext {
 	date: string;
 }
 
+/**
+ * The local calendar date as `YYYY-MM-DD`.
+ *
+ * `toISOString()` alone yields the UTC date, so east of Greenwich every morning
+ * before the offset the model was told it was still yesterday. Shift by the
+ * zone's offset first, then read the UTC fields of the shifted instant.
+ */
+export function localCalendarDate(now: Date = new Date()): string {
+	const shifted = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
+	return shifted.toISOString().slice(0, 10);
+}
+
 function escapeRegExp(value: string): string {
 	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -80,7 +92,7 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 	const productContext: SystemPromptProductContext = {
 		cwd: promptCwd,
 		platform: process.platform,
-		date: new Date().toISOString().slice(0, 10),
+		date: localCalendarDate(),
 	};
 	const productAppendixValue =
 		typeof product?.promptAppendix === "function"
