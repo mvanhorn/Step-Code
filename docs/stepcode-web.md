@@ -492,10 +492,18 @@ and are cleared by `POST /sessions/{id}/side-answers/clear`.
 
 Plan mode is visible to the model as well as to the page. `/plan <task>` enters
 plan mode and sends the task as an ordinary user message, so a request-local
-`<system-reminder>` (never appended to the session) names the plan file, says the
-mode is on, and asks for `exit_plan_mode` when the proposal is written. Without
-it the model only noticed that some tools were missing and reported that it had
-never entered plan mode.
+`<system-reminder>` (never appended to the session) says the host entered plan
+mode for this turn — no `enter_plan_mode` call is expected — names the plan file,
+asks for `exit_plan_mode` when the proposal is written, and allows answering
+directly when the request turns out not to need a plan. Without it the model only
+noticed that some tools were missing and reported that it had never entered plan
+mode.
+
+A `/plan <task>` turn owns plan mode for that one turn: when the run settles
+without a submitted proposal, the extension leaves plan mode, so the strip closes
+and file writes return to normal. An explicit `/plan` toggle is a standing choice
+and stays on across turns; a resumed session never revives a turn-scoped mode,
+because the turn it belonged to is gone.
 
 State the client already draws is never narrated into the conversation: plan mode
 (`snapshot.planMode` → the composer's `Plan · <file>` strip) and the permission

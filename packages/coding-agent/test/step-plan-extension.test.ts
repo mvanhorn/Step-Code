@@ -474,7 +474,7 @@ test("plan mode tells the model it is on, without touching the session", async (
 	};
 	const reminder = on.messages.find((message) => message.customType === "step-plan-context");
 	expect(reminder?.role).toBe("custom");
-	expect(reminder?.content[0]?.text).toContain("Plan mode is on for this task");
+	expect(reminder?.content[0]?.text).toContain("Plan mode is active for this turn");
 	// Request-local: the branch gained the plan state only, no context message.
 	expect(harness.session.getEntries().length).toBe(branchBefore + 1);
 	expect(harness.session.getEntries().some((entry) => entry.type === "custom_message")).toBe(false);
@@ -485,6 +485,53 @@ test("plan mode tells the model it is on, without touching the session", async (
 		messages: Array<{ customType?: string }>;
 	};
 	expect(again.messages.some((message) => message.customType === "step-plan-context")).toBe(false);
+});
+
+test("a /plan <task> turn ends the mode it started", async () => {
+	// A model that answers without submitting a proposal must not leave the
+	// session stuck in plan mode (strip on, file writes limited to the plan file).
+	const harness = createHarness({ cwd: makeWorkspace() });
+	createStepPlanExtension()(harness.api);
+	const context = harness.ctx();
+
+	const before = [...harness.activeTools()];
+	await harness.commands.get("plan")!.handler("research this", context);
+	expect(harness.statuses.get("plan-mode")).toBe("Planning (user)");
+	// Entering swaps the tool set for the plan one (write_file stays, but only the
+	// plan file may be written); leaving restores the original selection exactly.
+	expect([...harness.activeTools()].sort()).not.toEqual([...before].sort());
+
+	await harness.emit({ type: "agent_settled" }, context);
+	expect(harness.statuses.get("plan-mode")).toBeUndefined();
+	expect([...harness.activeTools()].sort()).toEqual([...before].sort());
+	expect(lastPlanEntry(harness)).toMatchObject({ enabled: false });
+});
+
+test("an explicit /plan toggle stays on across turns", async () => {
+	const harness = createHarness({ cwd: makeWorkspace() });
+	createStepPlanExtension()(harness.api);
+	const context = harness.ctx();
+
+	await harness.commands.get("plan")!.handler("", context);
+	await harness.emit({ type: "agent_settled" }, context);
+	// A toggle is the user's standing choice, not one message's mode.
+	expect(harness.statuses.get("plan-mode")).toBe("Planning (user)");
+});
+
+test("a resumed session does not revive a finished one-shot plan turn", async () => {
+	const harness = createHarness({
+		entries: [
+			{
+				type: "custom",
+				customType: "step-plan",
+				data: { enabled: true, planFilePath: "/tmp/plan.md", planSource: "user", turnScoped: true },
+			},
+		],
+	});
+	createStepPlanExtension()(harness.api);
+	await harness.emit({ type: "session_start", reason: "resume" }, harness.ctx());
+	expect(harness.statuses.get("plan-mode")).toBeUndefined();
+	expect(lastPlanEntry(harness)).toMatchObject({ enabled: false });
 });
 
 test("the status chip does not require a theme from the host", async () => {
