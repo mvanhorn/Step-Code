@@ -44,6 +44,28 @@
 	letter-spacing: 0.01em;
 }
 
+.empty-session-import {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+	margin-top: 20px;
+	padding: 8px 12px;
+	border-radius: var(--radius-control);
+	color: var(--ink-2);
+	font-size: 13px;
+	text-align: left;
+	transition: background-color var(--fast), color var(--fast);
+}
+.empty-session-import .icon { margin-top: 2px; }
+.empty-session-import small {
+	display: block;
+	margin-top: 4px;
+	color: var(--ink-3);
+	font-size: 12px;
+}
+.empty-session-import:hover { background: var(--hover); color: var(--ink); }
+.empty-session-import:focus-visible { outline: 2px solid var(--focus-border); outline-offset: 2px; }
+
 .message {
 	display: flex;
 	flex-direction: column;

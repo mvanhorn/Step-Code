@@ -250,6 +250,181 @@ const tabs = () => $$("#previewTabs .preview-tab").map((tab) => tab.textContent.
 const ALT_META = 1 | 4
 const SHIFT_META = 8 | 4
 
+test("session migration imports reviewed snapshots while sources continue writing", { skip }, async () => {
+  const codexRoot = join(base, "migration-codex")
+  const claudeRoot = join(base, "migration-claude")
+  await mkdir(join(codexRoot, "sessions"), { recursive: true })
+  await mkdir(join(codexRoot, "archived_sessions"), { recursive: true })
+  await mkdir(claudeRoot, { recursive: true })
+  const timestamp = "2026-10-22T00:00:00.000Z"
+  const sourcePath = join(codexRoot, "sessions", "rollout-migration.jsonl")
+  const input = [
+    { type: "session_meta", timestamp, payload: { id: "migration-codex", cwd: workspace, cli_version: "0.163.0-alpha.11", history_mode: "paginated" } },
+    { type: "response_item", timestamp, payload: { type: "message", role: "user", content: [{ type: "input_text", text: "Migration acceptance quokkabridge" }] } },
+    { type: "response_item", timestamp, payload: { type: "function_call", call_id: "migration-tool", name: "exec_command", arguments: '{"cmd":"never execute this historical call"}' } },
+  ].map(JSON.stringify).join("\n") + "\n"
+  await writeFile(sourcePath, input)
+  // An unreadable archive must not even produce a scan/parse failure by default.
+  await writeFile(join(codexRoot, "archived_sessions", "rollout-archive.jsonl"), "{")
+  await writeFile(join(claudeRoot, "migration-claude.jsonl"), [
+    { type: "user", uuid: "cc-user", parentUuid: null, sessionId: "migration-claude", cwd: workspace, timestamp, message: { content: "Claude migration acceptance" } },
+    { type: "assistant", uuid: "cc-assistant", parentUuid: "cc-user", sessionId: "migration-claude", timestamp, message: { content: [{ type: "text", text: "Historical CC reply" }] } },
+  ].map(JSON.stringify).join("\n") + "\n")
+  const scanned = await browser.run(`
+    if ($("#settingsView").hidden) $("#settingsButton").click();
+    await until(() => !$("#settingsView").hidden, "settings");
+    $("[data-settings-page='migration']").click();
+    await until(() => $("#importScan"), "migration page");
+    if ($('[data-import-app]')) throw new Error('Source cards must not exist before scanning');
+    $('#importCustomToggle').click();
+    if ($$('.session-import-custom-form input').length !== 1 || $('#importCustomPath').value !== '') throw new Error('Custom scan must have one blank path');
+    $('#importCustomPath').value = ${JSON.stringify(base)};
+    $('#importCustomPath').dispatchEvent(new Event('input'));
+    await new Promise(resolve => setTimeout(resolve, 50));
+    const archived = $("#importIncludeArchived").checked;
+    $("#importCustomScan").click();
+    await until(() => $$(".session-import-row").length === 2, "two active source sessions");
+    return { archived, errors: !!$(".session-import-errors"), sources: $$(".session-import-row").map(row => row.dataset.importSource).sort() };
+  `)
+  assert.deepEqual(scanned, { archived: false, errors: false, sources: ["claude-code", "codex"] })
+  const grouping = await browser.run(`
+    const groups = $$('[data-import-app]');
+    const codex = $('[data-import-app="codex"]');
+    const titles = $$('.session-import-section-head h1, .session-import-section-head h2').map(node => node.textContent);
+    const pathVisible = codex.textContent.includes(${JSON.stringify(sourcePath)});
+    codex.querySelector('summary').click();
+    const collapsed = !codex.open;
+    const search = $('.session-import-toolbar input[type="search"]');
+    search.value = 'rollout-migration.jsonl';
+    search.dispatchEvent(new Event('input'));
+    await until(() => $$('.session-import-row').length === 1, 'source path search');
+    const staysCollapsed = !codex.open;
+    codex.querySelector('summary').click();
+    const expanded = codex.open;
+    search.value = 'no-matching-migration-session';
+    search.dispatchEvent(new Event('input'));
+    await until(() => $$('.session-import-row').length === 0, 'empty search');
+    const emptyText = codex.querySelector('.empty-list').textContent;
+    search.value = '';
+    search.dispatchEvent(new Event('input'));
+    await until(() => $$('.session-import-row').length === 2, 'cleared search');
+    return { apps: groups.map(node => node.dataset.importApp), titles, pathVisible, collapsed, staysCollapsed, expanded, emptyText };
+  `)
+  assert.deepEqual(grouping.apps, ["codex", "claude-code"])
+  assert.equal(grouping.titles.length, 2)
+  assert.equal(grouping.pathVisible, false)
+  assert.equal(grouping.collapsed, true)
+  assert.equal(grouping.staysCollapsed, true)
+  assert.equal(grouping.expanded, true)
+  assert.match(grouping.emptyText, /没有匹配|No matching/)
+  await browser.run(`
+    await until(() => $$('.session-import-report').length === 2 && !$('#importScan').disabled, 'automatic preview statistics');
+    if ($('.session-import-excerpt')) throw new Error('Preview body must not appear in list');
+    if ($('#importSelectAll')) throw new Error('Global select all must be absent');
+    $('[data-import-select="codex"]').click();
+    await until(() => $('[data-import-source="codex"] input[type="checkbox"]').checked, 'app selected');
+    const selectedRow = $('[data-import-source="codex"]');
+    const unselectedRow = $('[data-import-source="claude-code"]');
+    await until(() => getComputedStyle(selectedRow).backgroundColor !== getComputedStyle(unselectedRow).backgroundColor, 'selected row highlight');
+    if (getComputedStyle($('.session-import-toolbar .search-input')).borderTopStyle !== 'solid') throw new Error('Search input has no border');
+    if ($('[data-import-source="claude-code"] input[type="checkbox"]').checked) throw new Error('App select leaked');
+    const projectSelect = $('[data-import-app="claude-code"] .session-import-select-group[data-import-select^="claude-code:"]');
+    projectSelect.click();
+    await until(() => $('[data-import-source="claude-code"] input[type="checkbox"]').checked, 'project selected');
+    if (!$('#importSourcesTitle').parentElement.contains($('#importConfirm'))) throw new Error('Import is not in header');
+    if ($('.session-import-row .session-import-path')) throw new Error('Session paths visible');
+    if ($('[data-import-project] summary .session-import-project-path')) throw new Error('Project path must be hidden');
+    if (!/已选.*1|1.*selected/i.test($('[data-import-app="codex"] > summary').textContent)) throw new Error('App selected count missing');
+    if (!/已选.*1|1.*selected/i.test($('[data-import-app="claude-code"] [data-import-project] > summary').textContent)) throw new Error('Project selected count missing');
+    if ($('[data-import-app="codex"] input:not([type="checkbox"])')) throw new Error('Scanned path must not be editable');
+    if ($('[data-import-app="codex"] > summary .session-import-root').textContent !== ${JSON.stringify(base)}) throw new Error('Resolved root missing');
+    $('#importCustomToggle').click();
+    await until(() => !$("#importConfirm").disabled, "preview completion");
+    if ($('.session-import-target') || $('#importReviewSelected')) throw new Error('Obsolete target or review controls');
+    const button = $('[data-import-source="codex"] button');
+    button.click();
+    await until(() => $('.session-import-preview-popover'), 'floating preview');
+    await until(() => !button.disabled, 'preview check complete');
+    if (!$('.session-import-preview-popover').textContent.includes('Migration acceptance')) throw new Error('Missing preview content');
+    const panel = $('.session-import-preview-popover');
+    const rect = panel.getBoundingClientRect();
+    const top = document.elementFromPoint(Math.min(innerWidth - 1, rect.left + rect.width / 2), Math.min(innerHeight - 1, rect.top + 20));
+    if (!panel.contains(top)) throw new Error('Preview is covered by settings');
+    button.click();
+    await until(() => !$('.session-import-preview-popover'), 'closed preview');
+    return true;
+  `)
+  await browser.send("Emulation.setDeviceMetricsOverride", {
+    width: 390, height: 844, deviceScaleFactor: 1, mobile: false,
+  })
+  try {
+    const layout = await browser.run(`
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      const content = $(".settings-content");
+      const buttons = [$("#importConfirm")].map(node => node.getBoundingClientRect());
+      return {
+        contentWidth: content.getBoundingClientRect().width,
+        overflowing: content.scrollWidth > content.clientWidth,
+        offenders: [...content.querySelectorAll('*')].filter(node => node.getBoundingClientRect().right > innerWidth).slice(0, 12).map(node => ({class: node.className, width: node.getBoundingClientRect().width})),
+        buttonsFit: buttons.every(rect => rect.left >= 0 && rect.right <= innerWidth),
+      };
+    `)
+    assert.ok(layout.contentWidth >= 280, JSON.stringify(layout))
+    assert.equal(layout.overflowing, false, JSON.stringify(layout))
+    assert.equal(layout.buttonsFit, true)
+  } finally {
+    await browser.send("Emulation.setDeviceMetricsOverride", {
+      width: 1280, height: 900, deviceScaleFactor: 1, mobile: false,
+    })
+  }
+  const updatedInput = input + [
+    { type: "event_msg", timestamp, payload: { type: "token_count", info: {} } },
+    { type: "response_item", timestamp, payload: { type: "message", role: "user", content: [{ type: "input_text", text: "Unreviewed source append" }] } },
+  ].map(JSON.stringify).join("\n") + "\n"
+  await writeFile(sourcePath, updatedInput)
+  await browser.run(`
+    $("#importConfirm").click();
+    await until(() => $$(".session-import-result").length === 2, "completed imports");
+    const jobs = await (await fetch("/api/v1/session-imports")).json();
+    const job = jobs.jobs.find(job => job.results.length === 2);
+    if (!job || job.results.some(result => result.status !== "imported")) throw new Error(JSON.stringify(jobs));
+    window.migrationJob = job;
+    const history = $$('[data-import-history-app]');
+    if (history.length !== 2 || history.some(group => group.querySelectorAll('.session-import-result').length !== 1)) {
+      throw new Error('Import history is not grouped by app');
+    }
+    if ($('.session-import-result .session-import-path')) throw new Error('History session paths visible');
+    history[0].querySelector('summary').click();
+    if (history[0].open) throw new Error('Import history did not collapse');
+    history[0].querySelector('summary').click();
+    return true;
+  `)
+  const imported = await browser.run(`
+    const job = window.migrationJob;
+    const sessions = (await (await fetch("/api/v1/sessions")).json()).sessions;
+    const codex = sessions.find(session => job.results.some(result => result.sessionId === session.id) && session.name.startsWith("[codex]"));
+    if (!codex) throw new Error("Codex import missing from native sessions");
+    const snapshot = await (await fetch("/api/v1/sessions/" + codex.id)).json();
+    if (!snapshot.entries.some(entry => entry.imported)) throw new Error("Missing source provenance");
+    if (JSON.stringify(snapshot.entries).includes("Unreviewed source append")) throw new Error("Imported unreviewed content");
+    const result = job.results.find(result => result.sessionId === codex.id);
+    // Grouped history renders rows per app, so select by the imported session id, not DOM order.
+    document.querySelector('.session-import-result[data-import-result="' + codex.id + '"] button').click();
+    await until(() => $("#settingsView").hidden, "opened native import");
+    await until(() => document.body.textContent.includes("Migration acceptance quokkabridge"), "imported history");
+    return { id: codex.id, hasUnknown: !!$("[data-tool-state='unknown']") };
+  `)
+  assert.equal(imported.hasUnknown, true)
+  assert.equal(await readFile(sourcePath, "utf8"), updatedInput)
+  await browser.send("Page.reload")
+  await browser.run(`await until(() => document.body.textContent.includes("Migration acceptance quokkabridge"), "reopened after refresh");`)
+  const search = await browser.run(`
+    const result = await (await fetch("/api/v1/search?q=quokkabridge")).json();
+    return result.hits.some(hit => hit.sessionId === ${JSON.stringify(imported.id)});
+  `)
+  assert.equal(search, true)
+})
+
 let base
 let workspace
 let extra
@@ -2123,3 +2298,21 @@ test("a subagent or workflow call opens its child agents' transcripts read-only 
   `)
   assert.deepEqual(refused, [404, 404])
 })
+
+
+test("new conversation offers a lightweight shortcut to session migration", { skip }, async () => {
+  const report = await browser.run(`
+    if (!$("#settingsView").hidden) $("#settingsBack").click();
+    await until(() => $("#newSession"), "new conversation");
+    $("#newSession").click();
+    const link = await until(() => $("#emptySessionImport"), "empty import shortcut");
+    const text = link.textContent;
+    link.click();
+    await until(() => !$("#settingsView").hidden && $("[data-page='migration']"), "migration settings");
+    const migration = !!$("#importScan");
+    $("#settingsBack").click();
+    return { text, migration };
+  `);
+  assert.equal(report.migration, true);
+  assert.match(report.text, /Claude Code \/ Codex/);
+});

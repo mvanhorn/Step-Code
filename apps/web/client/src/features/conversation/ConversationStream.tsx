@@ -3,6 +3,8 @@ import { useLocale, useT } from "../../i18n";
 import { collectTurnChanges } from "../../lib/turn-changes";
 import { setUi, useAppStore } from "../../state/store";
 import type { SteeringMessage, TimelineItem } from "../../state/types";
+import { Icon } from "../../ui";
+import { openSettings } from "../settings/actions";
 import { MessageActions, MessageItem } from "./MessageItem";
 import { ProcessGroup } from "./ProcessGroup";
 import {
@@ -23,6 +25,7 @@ import { collectTurnFooters } from "./turn-footers";
 /** Shown while the timeline is empty (legacy index.html 835-842, `renderTimeline`). */
 function EmptyConversation() {
 	const t = useT();
+	const draft = useAppStore((state) => state.current === null);
 	return (
 		<div className="empty-state">
 			<div className="empty-wordmark">
@@ -30,6 +33,20 @@ function EmptyConversation() {
 				<strong>CODE</strong>
 			</div>
 			<p>{t("emptyConversation")}</p>
+			{draft ? (
+				<button
+					type="button"
+					id="emptySessionImport"
+					className="empty-session-import"
+					onClick={() => openSettings("migration")}
+				>
+					<Icon name="folder" size="sm" />
+					<span>
+						{t("emptySessionImport")}
+						<small>{t("emptySessionImportSources")}</small>
+					</span>
+				</button>
+			) : null}
 		</div>
 	);
 }
