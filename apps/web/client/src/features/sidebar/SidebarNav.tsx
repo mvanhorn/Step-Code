@@ -146,7 +146,7 @@ export function ConversationList() {
 							aria-busy={view.pickingFolder ? "true" : undefined}
 							onClick={() => void chooseWorkspaceFolder()}
 						>
-							<Icon name="folderPlus" size="sm" />
+							<Icon name="folderPlus" size="md" />
 						</IconButton>
 					</Tooltip>
 					<Tooltip content={view.showArchived ? t("archiveClose") : t("archivedTooltip")}>
@@ -160,7 +160,7 @@ export function ConversationList() {
 							onClick={toggleArchived}
 						>
 							{/* While the archive is shown, the same button closes it. */}
-							<Icon name={view.showArchived ? "close" : "archive"} size="sm" />
+							<Icon name={view.showArchived ? "close" : "archive"} size="md" />
 						</IconButton>
 					</Tooltip>
 				</div>
