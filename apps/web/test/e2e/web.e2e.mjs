@@ -1293,6 +1293,84 @@ test(
   },
 )
 
+test("workspace @ completion is authenticated, scoped, and used by the real composer", { skip }, async () => {
+  await browser.goto(`${origin}/`);
+  const api = await browser.run(`
+    const cwd = ${JSON.stringify(workspace)};
+    const complete = async (q, scope = cwd) => fetch("/api/v1/workspace/completions?" + new URLSearchParams({ cwd: scope, q }));
+    const root = await (await complete("")).json();
+    const child = await (await complete("src/")).json();
+    const deep = await (await complete("needle")).json();
+    return {
+      root: root.entries.map(entry => entry.path), child: child.entries.map(entry => entry.path),
+      deep: deep.entries.map(entry => entry.path),
+      unknown: (await complete("", ${JSON.stringify(base)})).status,
+      outside: (await complete("../")).status,
+      missing: (await fetch("/api/v1/workspace/completions?" + new URLSearchParams({ cwd }))).status,
+    };
+  `);
+  assert.ok(api.root.includes("src") && api.root.includes("README.md"));
+  assert.ok(api.child.includes("src/main.ts"));
+  assert.deepEqual(api.deep, ["src/deep/needle-file.ts"]);
+  assert.equal(api.unknown, 403);
+  assert.equal(api.outside, 400);
+  assert.equal(api.missing, 400);
+  const picked = await browser.run(`
+    const editor = await until(() => $("#prompt"), "composer editor");
+    await until(() => $("#workspaceButtonName").textContent === "project", "bootstrap workspace");
+    const set = (text) => {
+      editor.textContent = text; editor.focus();
+      const range = document.createRange(); range.selectNodeContents(editor); range.collapse(false);
+      getSelection().removeAllRanges(); getSelection().addRange(range);
+      editor.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    $("#newSession").click();
+    await until(() => !$("#workspaceControl").hidden, "draft composer");
+    set("参考 @src/");
+    await until(() => !$("#fileCompletionMenu").hidden && $$("#fileCompletionList [role=option]").some(row => row.dataset.path === "src/deep"), "real file candidates");
+    $$("#fileCompletionList [role=option]").find(row => row.dataset.path === "src/deep").querySelector(".file-completion-drill").click();
+    await until(() => $$("#fileCompletionList [role=option]").some(row => row.dataset.path === "src/deep/needle-file.ts"), "real nested candidates");
+    editor.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await until(() => $("#fileCompletionMenu").hidden, "completion settles");
+    const text = editor.textContent;
+    set("");
+    return { text, selectedWithFocus: document.activeElement === editor };
+  `);
+  assert.deepEqual(picked, { text: "参考 @src/deep/needle-file.ts ", selectedWithFocus: true });
+});
+
+test("the composer sends a completed @ reference as text through the real agent to a scratch file", { skip }, async () => {
+  await browser.goto(`${origin}/`);
+  const result = await browser.run(`
+    await until(() => $("#workspaceButtonName").textContent === "project", "bootstrap workspace");
+    $("#newSession").click();
+    await until(() => !$("#workspaceControl").hidden, "new draft");
+    const editor = $("#prompt");
+    editor.textContent = "approval-fixture @README"; editor.focus();
+    const range = document.createRange(); range.selectNodeContents(editor); range.collapse(false);
+    getSelection().removeAllRanges(); getSelection().addRange(range);
+    editor.dispatchEvent(new Event("input", { bubbles: true }));
+    await until(() => !$("#fileCompletionMenu").hidden && $$("#fileCompletionList [role=option]").some(row => row.dataset.path === "README.md"), "README candidate");
+    $$("#fileCompletionList [role=option]").find(row => row.dataset.path === "README.md").click();
+    await until(() => $("#fileCompletionMenu").hidden, "completed reference");
+    const draft = editor.textContent;
+    $("#sendButton").click();
+    const id = await until(() => $(".session-row.active")?.dataset.sessionId, "created session");
+    const snapshot = await until(async () => {
+      const value = await (await fetch("/api/v1/sessions/" + id)).json();
+      if (value.status === "failed") throw new Error(JSON.stringify(value));
+      const allow = $(".approval [data-verdict='approve_for_session']");
+      if (allow) allow.click();
+      return value.status === "completed" ? value : null;
+    }, "scratch file turn settles");
+    const user = snapshot.entries.find(entry => entry.type === "message" && entry.message?.role === "user");
+    return { draft, user: user.message.content.filter(part => part.type === "text").map(part => part.text).join("\\n") };
+  `);
+  assert.equal(result.draft, "approval-fixture @README.md ");
+  assert.equal(result.user, "approval-fixture @README.md");
+  assert.match(await readFile(join(workspace, "approval-result.txt"), "utf8"), /approval command preview/);
+});
+
 test("clarification pages restore after reload, preserve drafts and auto-submit the last answer", { skip }, async () => {
   const id = await browser.run(`
     const session = await (await fetch("/api/v1/sessions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ cwd: ${JSON.stringify(workspace)} }) })).json();

@@ -6,12 +6,12 @@
 
 import "./composer.css";
 
-import { type FormEvent, type ReactNode, useCallback, useRef, useState } from "react";
+import { type FormEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useT } from "../../i18n";
 import { api, errorMessage } from "../../lib/api";
-import { interruptCurrent, sessionTitle, showError, timelineFromEntries } from "../../state/session";
+import { activeCwd, interruptCurrent, sessionTitle, showError, timelineFromEntries } from "../../state/session";
 import { getState, type ModeId, setUi, useAppStore } from "../../state/store";
-import type { SessionSnapshot } from "../../state/types";
+import type { SessionSnapshot, TreeEntry } from "../../state/types";
 import { Icon } from "../../ui";
 import { AttachmentList } from "./Attachments";
 import {
@@ -26,6 +26,8 @@ import {
 	updateQueued,
 } from "./actions";
 import { ClarificationPanel } from "./ClarificationPanel";
+import { FileMenu, type FileMenuHandle } from "./FileMenu";
+import { type FileQuery, fileCompletionText, sameFileQuery } from "./file-completion";
 import { ModelMenu } from "./ModelMenu";
 import { PerformanceBar } from "./PerformanceBar";
 import { MODES, PlusMenu } from "./PlusMenu";
@@ -33,8 +35,10 @@ import { PolicyMenu } from "./PolicyMenu";
 import { PromptInput } from "./PromptInput";
 import {
 	placeCaretAtEnd,
+	promptFileQuery,
 	promptFiles,
 	promptText,
+	replaceFileQuery,
 	restorePrompt,
 	setPromptText,
 	snapshotPrompt,
@@ -65,6 +69,12 @@ export function Composer({ workspaceControl }: ComposerProps) {
 	const [openMenu, setOpenMenu] = useState<ComposerMenu | null>(null);
 	const [query, setQuery] = useState<string | null>(null);
 	const slash = useRef<SlashMenuHandle | null>(null);
+	const files = useRef<FileMenuHandle | null>(null);
+	const [pathQuery, setPathQuery] = useState<FileQuery | null>(null);
+	const lastPathQuery = useRef<FileQuery | null>(null);
+	const composing = useRef(false);
+	const cwd = useAppStore(activeCwd);
+	const selection = useAppStore((state) => `${state.current?.id ?? "draft"}\0${activeCwd(state)}`);
 	const status = useAppStore((state) => state.current?.status);
 	const waiting = status === "waiting";
 	/** During a turn Enter queues the message and Cmd/Ctrl+Enter steers it (see `sendMessage`). */
@@ -92,19 +102,75 @@ export function Composer({ workspaceControl }: ComposerProps) {
 		onClose: () => setOpenMenu((value) => (value === name ? null : value)),
 	});
 
-	const onValueInput = (value: string) => {
-		setHasText(Boolean(value.trim()));
-		const next = slashQuery(value);
-		setQuery(next);
-		const view = getState().ui.slashMenu;
-		if (next !== null) setUi({ slashMenu: "commands" });
-		else if (view) setUi({ slashMenu: null });
-	};
+	const syncFileQuery = useCallback(() => {
+		const editor = prompt.current;
+		if (!editor || document.activeElement !== editor) {
+			// Dismissal survives returning focus to the same unchanged token.
+			setUi({ fileCompletionOpen: false });
+			return;
+		}
+		const next = composing.current ? null : promptFileQuery(editor);
+		const changed = !sameFileQuery(lastPathQuery.current, next);
+		lastPathQuery.current = next;
+		setPathQuery((current) => (sameFileQuery(current, next) ? current : next));
+		if (!next) setUi({ fileCompletionOpen: false });
+		else if (changed) setUi({ fileCompletionOpen: true, slashMenu: null });
+	}, []);
+
+	const onValueInput = useCallback(
+		(value: string) => {
+			setHasText(Boolean(value.trim()));
+			const next = slashQuery(value);
+			setQuery(next);
+			const view = getState().ui.slashMenu;
+			if (next !== null) setUi({ slashMenu: "commands", fileCompletionOpen: false });
+			else if (view) setUi({ slashMenu: null });
+			syncFileQuery();
+		},
+		[syncFileQuery],
+	);
+
+	const onCompositionChange = useCallback((active: boolean) => {
+		composing.current = active;
+		if (active) {
+			lastPathQuery.current = null;
+			setPathQuery(null);
+			setUi({ fileCompletionOpen: false });
+		}
+	}, []);
+
+	// biome-ignore lint/correctness/useExhaustiveDependencies: session/workspace replacement invalidates the active token.
+	useEffect(() => {
+		lastPathQuery.current = null;
+		setPathQuery(null);
+		setUi({ fileCompletionOpen: false });
+		return () => setUi({ fileCompletionOpen: false });
+	}, [selection]);
+
+	useEffect(() => {
+		if (waiting) setUi({ fileCompletionOpen: false });
+	}, [waiting]);
+
+	const pickFile = useCallback(
+		(entry: TreeEntry, expected: FileQuery, drill: boolean) => {
+			const editor = prompt.current;
+			if (!editor || activeCwd() !== cwd || !getState().ui.fileCompletionOpen) return;
+			if (!replaceFileQuery(editor, expected, fileCompletionText(entry, expected.quoted, drill))) {
+				syncFileQuery();
+				return;
+			}
+			if (!drill) setUi({ fileCompletionOpen: false });
+		},
+		[syncFileQuery, cwd],
+	);
 
 	const pickSlash = useCallback((item: SlashItem) => {
 		const editor = prompt.current;
 		if (!editor) return;
 		setQuery(null);
+		setPathQuery(null);
+		lastPathQuery.current = null;
+		setUi({ fileCompletionOpen: false });
 		if (item.kind === "mcp") {
 			// A status view, not a prompt: nothing is sent.
 			setPromptText(editor, "");
@@ -149,7 +215,9 @@ export function Composer({ workspaceControl }: ComposerProps) {
 			].join("\n\n");
 			const outgoing = `${lead ? `${lead.prefix} ` : ""}${mode}${text}${tail ? `\n\n${tail}` : ""}`;
 			setQuery(null);
-			setUi({ slashMenu: null });
+			setPathQuery(null);
+			lastPathQuery.current = null;
+			setUi({ slashMenu: null, fileCompletionOpen: false });
 			const draft = snapshotPrompt(editor);
 			setPromptText(editor, "");
 			setHasText(false);
@@ -249,6 +317,7 @@ export function Composer({ workspaceControl }: ComposerProps) {
 	return (
 		<form className="composer" id="composer" ref={form} onSubmit={(event) => onFormSubmit(event)}>
 			<SlashMenu handle={slash} query={query} promptRef={prompt} onPick={pickSlash} />
+			<FileMenu handle={files} cwd={cwd} query={pathQuery} promptRef={prompt} onPick={pickFile} />
 			<ClarificationPanel />
 			{workspaceControl}
 			<QueueDock />
@@ -329,7 +398,9 @@ export function Composer({ workspaceControl }: ComposerProps) {
 						active ? t(queuedCount ? "queuePlaceholderSteerAll" : "queuePlaceholderRunning") : undefined
 					}
 					onValueInput={onValueInput}
-					onMenuKey={(key) => slash.current?.key(key) ?? false}
+					onCaretChange={syncFileQuery}
+					onCompositionChange={onCompositionChange}
+					onMenuKey={(key) => files.current?.key(key) || slash.current?.key(key) || false}
 				/>
 				<div className="composer-controls">
 					<PlusMenu

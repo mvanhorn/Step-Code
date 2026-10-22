@@ -5,6 +5,11 @@ runtime: it starts the same server that `pnpm web:serve` runs (`apps/web/dist/se
 client (`apps/web/dist/public`) in a native window. Sessions, workspaces, settings and credentials are the ones the
 CLI and the web host use (`~/.stepcode`), so a conversation started in one is visible in the others.
 
+The shared composer supports workspace `@` file/folder completion: type `@` to list candidates, use arrow keys
+and Enter to reference a file or folder, or Tab / the row chevron to enter a directory. Paths with spaces are quoted.
+This uses the authenticated Web Host, not Electron filesystem IPC; references stay text and existing pasted uploads
+remain separate. See [composer behaviour](../../docs/stepcode-web.md).
+
 What the shell adds on top of the browser version:
 
 - No terminal or browser needed: the server runs under Electron's bundled Node (`ELECTRON_RUN_AS_NODE=1`).

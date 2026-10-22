@@ -34,6 +34,7 @@ function handleEscape(): void {
 	else if (ui.imagePreview) setUi({ imagePreview: null });
 	else if (ui.accountMenuOpen) setUi({ accountMenuOpen: false });
 	else if (ui.workspaceRemoval) closeWorkspaceRemoval();
+	else if (ui.fileCompletionOpen) setUi({ fileCompletionOpen: false });
 	else if (ui.slashMenu) setUi({ slashMenu: null });
 	else if (ui.changesMenu) setUi({ changesMenu: null });
 	else if (ui.rightPanelMenu) setUi({ rightPanelMenu: false });
@@ -59,6 +60,7 @@ function sessionBusy(state: AppState): boolean {
 }
 
 function handleKeydown(event: KeyboardEvent): void {
+	if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return;
 	// The sign-in gate cannot be dismissed, and nothing behind it may act.
 	if (getState().ui.loginRequired) return;
 	if (event.ctrlKey && !event.metaKey && !event.altKey && event.code === "Backquote") {

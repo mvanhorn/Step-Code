@@ -225,7 +225,7 @@ does not close or interrupt the active conversation, modify its history, or
 change access to the cwd of an existing session.
 
 File browsing is keyed by folder, not by session, so an empty workspace can be
-browsed. `GET /api/v1/workspace/{files,file,raw,search}` take a `cwd` and answer
+browsed. `GET /api/v1/workspace/{files,file,raw,search,completions}` take a `cwd` and answer
 403 unless it is the launch folder, a registered workspace, or the cwd of an
 existing session. Inside a workspace every path is resolved with `realpath` and
 refused (400) when it lands outside the root, which also covers symlinks that
@@ -237,6 +237,15 @@ point out of the workspace.
 - `search` is a bounded breadth-first name search. It runs on the Host because
   the browser only holds the levels already opened. It does not descend into
   `.git`, `node_modules`, or symlinked directories.
+- `completions` provides the composer's ranked workspace-relative `@path`
+  candidates. An empty basename lists one directory level; a name fragment
+  searches below its directory, preferring exact names, prefixes and substrings
+  before in-order fuzzy matches. It returns at most 20 candidates and bounds
+  each walk to 4000 directories / 20 000 entries. Dependency and build folders
+  are not walked recursively unless explicitly scoped; outside and dangling
+  symlinks are omitted. Cancellation stops the walk. `truncated` reports a result
+  limit, exhausted walk budget or unreadable descendant, so partial search is
+  not labelled complete. Candidate queries never read file contents.
 - `file` classifies a file as `text` (up to 1 MB, returned as UTF-8), `image`,
   `binary` (NUL byte in the first 8 KB), or `too-large`; only `text` carries
   content. `raw` streams images, and nothing else, for the preview.
@@ -323,6 +332,25 @@ conversation shows the skill as a chip above the request. Picking `/mcp` shows
 error, including servers disabled in `config.toml`. The kernel's own `/mcp`
 command only prints through `notify`, which the Web host does not render. The
 MCP status list is process-wide (written by the session that started last).
+
+The shared Web/Desktop composer also completes workspace files and folders at
+an `@` token after whitespace or at the start of a line. It follows the actual
+collapsed caret, not the whole prompt; email addresses and closed quoted
+references do not trigger it. Arrow keys select candidates; Enter or a row click
+inserts a plain-text reference and closes the list. Tab on a directory, or its
+right-hand arrow, inserts `@directory/` and continues into that directory.
+Spaces in paths use `@"path with spaces"`; a directory drill keeps the caret
+inside the closing quote. Escape closes the list without aborting a running
+turn, and dismissal survives refocusing the same unchanged token.
+
+Completion replaces the active token, including any remaining token text to the
+right of the caret, without replacing surrounding prose or pasted file chips.
+Selection moves, edits, workspace/session changes and IME composition invalidate
+stale picks; queries are debounced and cancelled when replaced or closed. Enter
+and Tab during loading cannot pick an old result or accidentally send a prompt.
+References are sent as text, like TUI path completion; they are not uploaded or
+automatically inlined. Existing file uploads and image attachments keep their
+separate send paths. Electron does not expose any new filesystem capability.
 
 Session archive flags are Web Host metadata in `web-sessions.json`; canonical
 conversation history remains the StepCode v3 JSONL file. Deleting a session

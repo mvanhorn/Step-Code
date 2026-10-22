@@ -48,8 +48,12 @@ export interface PromptInputProps {
 	readonly onSteer?: () => void;
 	/** Overrides the default placeholder, e.g. the queue hints while a turn runs. */
 	readonly placeholder?: string;
-	/** Every edit, with the new text (the slash menu follows it). */
+	/** Every edit, with the new text (the input menus follow it). */
 	readonly onValueInput?: (value: string) => void;
+	/** Selection/focus changes can move the caret into or out of an @path without editing it. */
+	readonly onCaretChange?: () => void;
+	/** Suspend @path detection until the IME commits its provisional text. */
+	readonly onCompositionChange?: (composing: boolean) => void;
 	/** Offered each key first; returning true means an open menu used it. */
 	readonly onMenuKey?: (key: string) => boolean;
 }
@@ -62,6 +66,8 @@ export function PromptInput({
 	onSteer,
 	placeholder: placeholderOverride,
 	onValueInput,
+	onCaretChange,
+	onCompositionChange,
 	onMenuKey,
 }: PromptInputProps) {
 	const t = useT();
@@ -80,6 +86,12 @@ export function PromptInput({
 		root.addEventListener("beforeinput", blockFormatting);
 		return () => root.removeEventListener("beforeinput", blockFormatting);
 	}, [promptRef]);
+
+	useEffect(() => {
+		if (!onCaretChange) return;
+		document.addEventListener("selectionchange", onCaretChange);
+		return () => document.removeEventListener("selectionchange", onCaretChange);
+	}, [onCaretChange]);
 
 	const changed = useCallback(() => {
 		const root = promptRef.current;
@@ -196,7 +208,7 @@ export function PromptInput({
 	};
 
 	const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-		if (ime.isComposing(event)) return;
+		if (event.nativeEvent.keyCode === 229 || ime.isComposing(event)) return;
 		if (!event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey && onMenuKey?.(event.key)) {
 			event.preventDefault();
 			return;
@@ -228,9 +240,15 @@ export function PromptInput({
 				data-placeholder={placeholder}
 				contentEditable={!disabled}
 				tabIndex={disabled ? -1 : 0}
-				onCompositionStart={ime.handlers.onCompositionStart}
+				onFocus={onCaretChange}
+				onBlur={onCaretChange}
+				onCompositionStart={() => {
+					ime.handlers.onCompositionStart();
+					onCompositionChange?.(true);
+				}}
 				onCompositionEnd={() => {
 					ime.handlers.onCompositionEnd();
+					onCompositionChange?.(false);
 					// Chrome fires the composition's last input before compositionend.
 					changed();
 				}}

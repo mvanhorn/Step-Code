@@ -25,6 +25,7 @@ import { browserRoute } from "./browser-routes.ts";
 import { listWorkflowChildren, readChildTranscript } from "./child-sessions.ts";
 import { type DirectoryPickerMode, pickNativeDirectory, resolveDirectoryPickerMode } from "./directory-picker.ts";
 import {
+	completeWorkspaceFiles,
 	containedWorkspacePath,
 	listDirectory,
 	MAX_IMAGE_BYTES,
@@ -539,6 +540,26 @@ async function searchSessions(url: URL, response: ServerResponse): Promise<void>
 	}
 }
 
+/** GET workspace file completion; a disconnected composer cancels its bounded walk. */
+async function completeFiles(cwd: string, url: URL, response: ServerResponse): Promise<void> {
+	const query = url.searchParams.get("q");
+	if (query === null) return error(response, 400, "q is required");
+	const controller = new AbortController();
+	const onClose = () => {
+		if (!response.writableFinished) controller.abort();
+	};
+	response.on("close", onClose);
+	try {
+		const listing = await completeWorkspaceFiles(cwd, query, controller.signal);
+		if (!controller.signal.aborted) return json(response, 200, listing);
+	} catch (caught) {
+		if (controller.signal.aborted) return;
+		return error(response, 400, caught instanceof Error ? caught.message : String(caught));
+	} finally {
+		response.off("close", onClose);
+	}
+}
+
 async function serveWorkspaceImage(response: ServerResponse, cwd: string, inputPath: string): Promise<void> {
 	const file = await readWorkspaceFile(cwd, inputPath);
 	if (file.kind !== "image") return error(response, 415, "Only images can be served raw");
@@ -658,6 +679,7 @@ const server = createServer(async (request, response) => {
 			const cwd = await knownWorkspace(url.searchParams.get("cwd"));
 			if (!cwd) return error(response, 403, "Folder is not a known workspace");
 			const path = url.searchParams.get("path") ?? "";
+			if (parts[3] === "completions") return await completeFiles(cwd, url, response);
 			try {
 				if (parts[3] === "files") return json(response, 200, await listDirectory(cwd, path));
 				if (parts[3] === "file") return json(response, 200, await readWorkspaceFile(cwd, path));

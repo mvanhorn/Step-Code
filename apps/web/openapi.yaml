@@ -647,6 +647,40 @@ paths:
         "200": { description: "One directory level: entries (name, path, kind) and truncated" }
         "400": { description: Path is outside the workspace or cannot be read }
         "403": { description: cwd is not a known workspace }
+  /api/v1/workspace/completions:
+    get:
+      description: >-
+        Workspace-relative @path candidates for the Web/Desktop composer. An empty query or a trailing slash lists
+        one directory level; a basename fragment searches below the specified directory. Exact names, prefixes,
+        substrings and in-order fuzzy matches are ranked before returning at most 20 entries. Walks are bounded
+        to 4000 directories and 20000 entries and cancelled when the client disconnects. VCS, dependency and build
+        directories are not walked recursively; outside and dangling symlinks are not candidates. No file content
+        is read or attached. Paths use forward slashes and quoted paths are passed without their @ or quotes.
+      parameters:
+        - { name: cwd, in: query, required: true, schema: { type: string } }
+        - { name: q, in: query, required: true, schema: { type: string, maxLength: 1024 } }
+      responses:
+        "200":
+          description: Ranked candidates; truncated also reports a walk budget or unreadable descendant
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [entries, truncated]
+                properties:
+                  entries:
+                    type: array
+                    maxItems: 20
+                    items:
+                      type: object
+                      required: [name, path, kind]
+                      properties:
+                        name: { type: string }
+                        path: { type: string, description: Workspace-relative path with forward slashes }
+                        kind: { type: string, enum: [file, directory] }
+                  truncated: { type: boolean }
+        "400": { description: Missing or invalid query, outside path or unreadable scoped directory }
+        "403": { description: cwd is not a known workspace }
   /api/v1/workspace/file:
     get:
       parameters:

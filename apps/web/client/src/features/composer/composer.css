@@ -669,6 +669,60 @@
 	color: var(--ink-3);
 	font-size: 13px;
 }
+/* @path menu: the same floating surface as slash completion, with file metadata and a directory drill action. */
+.file-completion-menu > output {
+	display: block;
+}
+.file-completion-list {
+	max-height: min(280px, 40vh);
+}
+.file-completion-item {
+	gap: 8px;
+}
+.file-completion-name {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.file-completion-parent {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	color: var(--ink-3);
+	font-size: 12px;
+	text-align: right;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.file-completion-hint {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	gap: 4px;
+	color: var(--ink-3);
+	font-size: 11px;
+}
+.file-completion-drill {
+	flex: none;
+	width: 24px;
+	height: 24px;
+	color: var(--ink-3);
+}
+.file-completion-note {
+	padding: 6px 14px;
+	color: var(--ink-3);
+	font-size: 12px;
+}
+@media (max-width: 480px) {
+	.file-completion-hint {
+		display: none;
+	}
+	.composer-controls {
+		flex-wrap: wrap;
+	}
+}
+
 .slash-mcp-head {
 	display: flex;
 	align-items: center;

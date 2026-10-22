@@ -187,6 +187,8 @@ export interface UiState {
 	readonly changesMenu: string | null;
 	/** The composer's slash menu: matching commands, or the MCP server list picked from it. */
 	readonly slashMenu: "commands" | "mcp" | null;
+	/** `#fileCompletionMenu`: workspace @path candidates; Escape closes it without interrupting a turn. */
+	readonly fileCompletionOpen: boolean;
 	/**
 	 * A search hit to scroll to once its session is shown; cleared when done.
 	 * `behavior`/`block` let a caller ask for a smooth scroll or a top-aligned
@@ -408,6 +410,7 @@ export function createInitialState(): AppState {
 			midView: null,
 			changesMenu: null,
 			slashMenu: null,
+			fileCompletionOpen: false,
 			revealEntry: null,
 			childView: null,
 			imagePreview: null,

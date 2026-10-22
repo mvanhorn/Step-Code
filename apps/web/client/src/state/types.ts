@@ -536,6 +536,13 @@ export interface TreeEntry {
 	readonly kind: "directory" | "file";
 }
 
+/** GET /api/v1/workspace/completions: ranked @path candidates, never file contents. */
+export interface WorkspaceFileCompletions {
+	readonly entries: readonly TreeEntry[];
+	/** The candidate limit, traversal budget or an unreadable descendant cut this listing short. */
+	readonly truncated: boolean;
+}
+
 export type WorkspaceFile =
 	| { readonly kind: "text"; readonly path: string; readonly size: number; readonly content: string }
 	| { readonly kind: "image"; readonly path: string; readonly size: number; readonly mimeType: string }

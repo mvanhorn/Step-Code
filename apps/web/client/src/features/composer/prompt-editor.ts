@@ -13,6 +13,7 @@
 
 import type { AttachedFile } from "../../lib/attached-files";
 import type { UploadedFile } from "../../state/types";
+import { type FileCompletionText, type FileQuery, fileQuery, sameFileQuery } from "./file-completion";
 
 const CHIP_CLASS = "prompt-file";
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -47,6 +48,100 @@ function serialize(parent: Node): string {
 /** The prompt as message text: chips become their file names. */
 export function promptText(root: HTMLElement): string {
 	return serialize(root);
+}
+
+interface CompletionProjection {
+	text: string;
+	cursor: number | null;
+	spans: { node: Text; start: number; end: number }[];
+}
+
+/** Chips occupy one non-text character for detection, never their filename or upload metadata. */
+function completionProjection(root: HTMLElement): CompletionProjection {
+	const selection = getSelection();
+	const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+	const caret = range?.collapsed && root.contains(range.startContainer) ? range : null;
+	const projection: CompletionProjection = { text: "", cursor: null, spans: [] };
+	const walk = (parent: Node) => {
+		for (let index = 0; index < parent.childNodes.length; index += 1) {
+			if (caret?.startContainer === parent && caret.startOffset === index)
+				projection.cursor = projection.text.length;
+			const child = parent.childNodes[index];
+			if (child instanceof Text) {
+				const start = projection.text.length;
+				projection.text += child.data.replace(/\u00a0/g, " ");
+				projection.spans.push({ node: child, start, end: projection.text.length });
+				if (caret?.startContainer === child) projection.cursor = start + caret.startOffset;
+			} else if (child instanceof HTMLElement) {
+				if (child.classList.contains(CHIP_CLASS) || child.contentEditable === "false") projection.text += "\ufffc";
+				else if (child.tagName === "BR") projection.text += "\n";
+				else {
+					if (
+						(child.tagName === "DIV" || child.tagName === "P") &&
+						projection.text &&
+						!projection.text.endsWith("\n")
+					) {
+						projection.text += "\n";
+					}
+					walk(child);
+				}
+			}
+		}
+		if (caret?.startContainer === parent && caret.startOffset === parent.childNodes.length) {
+			projection.cursor = projection.text.length;
+		}
+	};
+	walk(root);
+	return projection;
+}
+
+/** The active @path at the actual collapsed selection inside the editor, including a token's right-hand suffix. */
+export function promptFileQuery(root: HTMLElement): FileQuery | null {
+	const projection = completionProjection(root);
+	return projection.cursor === null ? null : fileQuery(projection.text, projection.cursor);
+}
+
+function projectionPoint(projection: CompletionProjection, offset: number): { node: Text; offset: number } | null {
+	const span = projection.spans.find((item) => item.start <= offset && offset <= item.end);
+	return span ? { node: span.node, offset: offset - span.start } : null;
+}
+
+/**
+ * Replace only the still-active @ token, preserving surrounding DOM and file
+ * chips. A moved selection or edited token rejects the pick. Native insertText
+ * keeps browser undo; the Range fallback covers a browser that refuses it.
+ */
+export function replaceFileQuery(root: HTMLElement, expected: FileQuery, completion: FileCompletionText): boolean {
+	const projection = completionProjection(root);
+	if (projection.cursor === null || !sameFileQuery(fileQuery(projection.text, projection.cursor), expected))
+		return false;
+	// Keep an existing word separator and place the caret after it on a settled pick.
+	const inserted =
+		projection.text[expected.end] === " " && completion.text.endsWith(" ")
+			? { text: completion.text.slice(0, -1), cursor: completion.cursor }
+			: completion;
+	const start = projectionPoint(projection, expected.start);
+	const end = projectionPoint(projection, expected.end);
+	if (!start || !end) return false;
+	const range = document.createRange();
+	range.setStart(start.node, start.offset);
+	range.setEnd(end.node, end.offset);
+	select(range);
+	if (!document.execCommand("insertText", false, inserted.text)) {
+		range.deleteContents();
+		const text = document.createTextNode(inserted.text);
+		range.insertNode(text);
+	}
+	const next = projectionPoint(completionProjection(root), expected.start + inserted.cursor);
+	if (next) {
+		const caret = document.createRange();
+		caret.setStart(next.node, next.offset);
+		caret.collapse(true);
+		select(caret);
+	}
+	// The insertion's input precedes the caret adjustment for a quoted directory drill.
+	root.dispatchEvent(new Event("input", { bubbles: true }));
+	return true;
 }
 
 /** An uploaded chip: its upload id (the message's `files`) and what the sent bubble shows before the host echoes it. */

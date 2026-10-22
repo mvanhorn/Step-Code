@@ -45,7 +45,7 @@ apps/web/
     runtime.ts           session runtime: create/open/prompt/abort, snapshots, event fan-out
     approval.ts          ApprovalBroker: pending tool approvals per session
     workspaces.ts        workspace registry (newest first)
-    files.ts             workspace file tree / read / search
+    files.ts             workspace file tree / read / search / @path completion
     auth.ts, login.ts    cookie secret, launch-token exchange, credential status, desktop sign-in
     browser.ts           isolated Chromium ownership, leased controller, bounded frames and input
     browser-routes.ts, browser-policy.ts  authenticated browser HTTP/SSE adapter and input/URL policy
@@ -92,6 +92,14 @@ apps/web/
 - **Desktop-only behaviour goes through the bridge.** Use `getDesktopBridge()` / `isDesktopHost()` from
   `platform/host.ts`, and always keep a browser fallback (e.g. folder picking: bridge, then the host's picker, then the
   in-page browser). Desktop-only CSS goes under `[data-host="desktop"]` in `styles/global.css`.
+- The shared composer owns workspace `@path` completion in `features/composer`.
+  Host `/api/v1/workspace/completions` ranks bounded metadata-only candidates;
+  keep known-workspace auth, containment and request cancellation. Enter/row
+  picks insert reference text; Tab/chevron drills into a directory. The DOM
+  projection treats upload chips as non-text, preserving them and surrounding
+  prose on completion. IME, moved selections and session/workspace replacement
+  invalidate picks; stale/pending candidates must not send or overwrite input.
+  Escape belongs to the shell chain and closes the list without aborting a turn.
 - `platform/desktop-bridge.ts` is a cross-package contract with `apps/desktop/src/preload.ts`. Change it only together
   with the desktop side (see `apps/desktop/AGENTS.md`).
 
