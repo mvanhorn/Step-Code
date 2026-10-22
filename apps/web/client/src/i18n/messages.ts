@@ -470,8 +470,7 @@ const zhCN = {
 	performanceElapsedHint: "从本轮开始到完全结束，由浏览器本地观测；未观测的历史不补计时。",
 	performanceSpeedHint: "已完成模型响应的输出 Token / 响应耗时，含思考，不含工具执行和重试等待；浏览器本地观测。",
 	performanceTokensHint: "会话累计输入 / 输出 Token。输入包含缓存读取和写入，统计包含已压缩历史。",
-	performanceCacheHint:
-		"会话累计缓存命中：缓存读取 /（输入 + 缓存读取 + 缓存写入），统计整个会话，包含已压缩历史。右侧「上下文」中的命中率是最近一次响应的数值，两者口径不同。",
+	performanceCacheHint: "会话累计缓存命中：缓存读取 /（输入 + 缓存读取 + 缓存写入），统计整个会话，包含已压缩历史。",
 	performanceUnavailable: "用量暂不可用，等待服务重新返回统计。",
 	turnChanges: "本轮文件变更",
 	turnFilesEdited: "已编辑 {count} 个文件",
@@ -1260,7 +1259,7 @@ const enUS: Record<MessageKey, string> = {
 	performanceTokensHint:
 		"Session input / output tokens, including compacted history. Input includes cache reads and writes.",
 	performanceCacheHint:
-		"Session-wide cache hit: cache read / (input + cache read + cache write) across the whole session, including compacted history. The hit ratio under Context is the latest response only.",
+		"Session-wide cache hit: cache read / (input + cache read + cache write) across the whole session, including compacted history.",
 	performanceUnavailable: "Usage is unavailable until the service returns fresh statistics.",
 	turnChanges: "File changes in this turn",
 	turnFilesEdited: "Edited {count} files",
