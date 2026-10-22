@@ -3,34 +3,11 @@ import { useT } from "../../i18n";
 import { errorMessage } from "../../lib/api";
 import { useAppStore } from "../../state/store";
 import type { LoginMethod } from "../../state/types";
-import { Spinner } from "../../ui";
+import { Icon, Spinner } from "../../ui";
 import { cancelBrowserSignIn, loadLoginMethods, openLoginPage, signInWithApiKey, signInWithBrowser } from "./actions";
 
 type Region = LoginMethod["region"];
 type View = { readonly kind: "choose" } | { readonly kind: "apiKey" } | { readonly kind: "browser"; authUrl: string };
-
-/** Placeholder brand mark: the purple "C" ring with the yellow prompt chevron. */
-function StepCodeMark({ className }: { readonly className?: string }) {
-	return (
-		<svg className={className} viewBox="0 0 48 48" aria-hidden="true" focusable="false">
-			<path
-				d="M34.6 13.4A15 15 0 1 0 34.6 34.6"
-				fill="none"
-				stroke="#8f7cff"
-				strokeWidth="7"
-				strokeLinecap="round"
-			/>
-			<path
-				d="m21 17.5 6.5 6.5-6.5 6.5"
-				fill="none"
-				stroke="#f6b73c"
-				strokeWidth="4.2"
-				strokeLinecap="round"
-				strokeLinejoin="round"
-			/>
-		</svg>
-	);
-}
 
 function methodFor(methods: readonly LoginMethod[], region: Region, source: LoginMethod["credentialSource"]) {
 	return methods.find((method) => method.region === region && method.credentialSource === source);
@@ -117,7 +94,7 @@ export function LoginGate() {
 		<div className="login-gate" id="loginGate" hidden={!open}>
 			<section className="login-card" role="dialog" aria-modal="true" aria-labelledby="loginGateTitle">
 				<div className="login-logo">
-					<StepCodeMark className="login-logo-mark" />
+					<Icon name="stepcode" className="login-logo-mark" />
 				</div>
 				<h1 className="login-title" id="loginGateTitle">
 					{t("loginWelcome")}
@@ -133,7 +110,7 @@ export function LoginGate() {
 							disabled={!plan}
 							onClick={() => void startPlan()}
 						>
-							<StepCodeMark className="login-button-mark" />
+							<Icon name="stepcode" className="login-button-mark" />
 							<span>{t("loginStepPlan")}</span>
 							<span className="login-badge">{t(region === "cn" ? "loginRegionCn" : "loginRegionGlobal")}</span>
 						</button>

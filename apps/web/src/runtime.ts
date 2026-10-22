@@ -67,6 +67,7 @@ import { ApprovalBroker, type ApprovalRequest } from "./approval.ts";
 import { type WebAttachment, withTextAttachments } from "./attachments.ts";
 import { ClarificationBroker, type ClarificationEvent } from "./clarification.ts";
 import { feedbackCategoryFor } from "./feedback.ts";
+import { gitBranch } from "./git-branch.ts";
 import { projectInspectorTasks } from "./inspector.ts";
 import {
 	MessageQueue,
@@ -1590,6 +1591,7 @@ export class WebSession {
 			queuedMessages: this.queue.views(),
 			steeringMessages: this.steeringViews(),
 			retry: this.retry.view(),
+			gitBranch: gitBranch(this.cwd),
 			model: this.session.model ? { provider: this.session.model.provider, id: this.session.model.id } : undefined,
 			permissionPreset:
 				this.livePermission ??

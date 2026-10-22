@@ -19,7 +19,7 @@
 		90deg,
 		var(--ink-2) 0%,
 		var(--ink-2) 42%,
-		var(--line-strong) 50%,
+		color-mix(in srgb, var(--accent) 55%, var(--line-strong)) 50%,
 		var(--ink-2) 58%,
 		var(--ink-2) 100%
 	);

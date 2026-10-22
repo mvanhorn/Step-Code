@@ -1,4 +1,8 @@
-/** Appearance: the interface theme, picked from three preview tiles. */
+/**
+ * Appearance: the interface theme, picked from three preview tiles. The two
+ * themes are named for their material: Porcelain (light) and Nocturne (dark);
+ * the stored choice values stay "light" / "dark".
+ */
 
 import { useT } from "../../i18n";
 import { cx } from "../../lib/format";
@@ -8,9 +12,9 @@ import { applyTheme } from "../shell/actions";
 import { PageHeader, SectionHeader, SettingsCard } from "./parts";
 
 const THEME_CHOICES: ReadonlyArray<{ readonly value: ThemeChoice; readonly label: string; readonly hint: string }> = [
-	{ value: "system", label: "themeSystem", hint: "settingsThemeSystemHint" },
-	{ value: "light", label: "themeLight", hint: "settingsThemeLightHint" },
-	{ value: "dark", label: "themeDark", hint: "settingsThemeDarkHint" },
+	{ value: "system", label: "themeSystem", hint: "settingsThemeSystemNamedHint" },
+	{ value: "light", label: "themePorcelain", hint: "settingsThemePorcelainHint" },
+	{ value: "dark", label: "themeNocturne", hint: "settingsThemeNocturneHint" },
 ];
 
 /** A miniature window in the tile's own palette, so each choice previews itself in either theme. */

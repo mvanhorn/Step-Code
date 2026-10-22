@@ -36,10 +36,10 @@ export const MODES: ReadonlyArray<{
 /** The 更多 entries that carry a secondary panel. */
 type SubKey = "plugins" | "skills" | "sessions";
 
-const SUB_ENTRIES: ReadonlyArray<{ key: SubKey; labelKey: string }> = [
-	{ key: "plugins", labelKey: "settingsPlugins" },
-	{ key: "skills", labelKey: "slashSkills" },
-	{ key: "sessions", labelKey: "otherSessionContext" },
+const SUB_ENTRIES: ReadonlyArray<{ key: SubKey; labelKey: string; icon: IconName }> = [
+	{ key: "plugins", labelKey: "settingsPlugins", icon: "puzzle" },
+	{ key: "skills", labelKey: "slashSkills", icon: "wand" },
+	{ key: "sessions", labelKey: "otherSessionContext", icon: "layers" },
 ];
 
 export interface PlusMenuProps extends ComposerMenuProps {
@@ -179,6 +179,7 @@ export function PlusMenu({
 									}
 									onMouseEnter={(event) => openSub(entry.key, event.currentTarget)}
 								>
+									<Icon name={entry.icon} className="control-option-icon" />
 									<span className="plus-row-title">{t(entry.labelKey)}</span>
 									<Icon name="chevronRight" size="2xs" className="plus-row-chevron" />
 								</button>

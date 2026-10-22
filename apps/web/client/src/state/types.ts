@@ -220,6 +220,8 @@ export interface SessionSnapshot extends SessionSummary {
 	readonly goal?: GoalState;
 	/** Plan mode state (runtime.ts `projectPlanMode`). */
 	readonly planMode?: PlanModeState;
+	/** Checked-out Git branch of cwd (src/git-branch.ts); absent outside a repository. */
+	readonly gitBranch?: string;
 }
 
 /** The goal strip's data (runtime.ts `projectGoal`). */

@@ -3,6 +3,7 @@ import { useLocale, useT } from "../../i18n";
 import { collectTurnChanges } from "../../lib/turn-changes";
 import { setUi, useAppStore } from "../../state/store";
 import type { SteeringMessage, TimelineItem } from "../../state/types";
+import { Icon } from "../../ui";
 import { CompactionRow, CompactionRunningRow } from "./CompactionRow";
 import { MessageActions, MessageItem } from "./MessageItem";
 import { NoticeRow } from "./NoticeRow";
@@ -23,16 +24,20 @@ import { TurnChangesCard } from "./TurnChangesCard";
 import { turnArtifacts } from "./turn-artifacts";
 import { collectTurnFooters } from "./turn-footers";
 
-/** Shown while the timeline is empty (legacy index.html 835-842, `renderTimeline`). */
+/**
+ * Shown while the timeline is empty (legacy index.html 835-842, `renderTimeline`):
+ * the StepCode mark, whose amber prompt chevron draws in once on mount, over a
+ * question and one line on what happens next.
+ */
 function EmptyConversation() {
 	const t = useT();
 	return (
 		<div className="empty-state">
-			<div className="empty-wordmark">
-				<span>STEP</span>
-				<strong>CODE</strong>
-			</div>
-			<p>{t("emptyConversation")}</p>
+			<span className="empty-mark" aria-hidden="true">
+				<Icon name="stepcode" />
+			</span>
+			<h1 className="empty-title">{t("emptyTitle")}</h1>
+			<p className="empty-hint">{t("emptyHint")}</p>
 		</div>
 	);
 }
@@ -73,6 +78,7 @@ export function ConversationStream() {
 	// Sent with "立即" or Cmd/Ctrl+Enter: the kernel reads them after the current tool call; shown already.
 	const steering = useAppStore((state) => state.current?.steeringMessages ?? NO_STEERING);
 	const sessionId = useAppStore((state) => state.current?.id ?? "");
+	const opening = useAppStore((state) => state.ui.openingSession !== null);
 	const cwd = useAppStore((state) => state.current?.cwd ?? "");
 	const status = useAppStore((state) => state.current?.status);
 	const compacting = useAppStore((state) => state.compacting);
@@ -161,7 +167,14 @@ export function ConversationStream() {
 		return next;
 	}, [items, running, breaks]);
 	return (
-		<div className="stream" id="stream" ref={streamRef} onScroll={onScroll}>
+		<div
+			className="stream"
+			id="stream"
+			ref={streamRef}
+			onScroll={onScroll}
+			data-opening={opening ? "" : undefined}
+			aria-busy={opening || undefined}
+		>
 			<div className="stream-inner" id="streamInner" ref={innerRef}>
 				{items.length || pendingTurn || steering.length || compacting || sessionNotices.length ? (
 					<>

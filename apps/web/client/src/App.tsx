@@ -1,6 +1,6 @@
-import { type CSSProperties, useRef } from "react";
+import { type CSSProperties, useLayoutEffect, useRef, useState } from "react";
 import { Composer, ImagePreview, SelectionDialog, TextInputDialog } from "./features/composer";
-import { ConversationStream, FeedbackModal, StreamNav } from "./features/conversation";
+import { ConversationStream, FeedbackModal, SessionHeader, StreamNav } from "./features/conversation";
 import { FileTreePanel } from "./features/files";
 import { BranchControl } from "./features/gitbranch";
 import { RightPanel, RightToolRail } from "./features/inspector";
@@ -26,6 +26,7 @@ import { IconSprite } from "./ui";
  *     aside.sidebar      sidebar nav | files tree | shell user area (account, remote control, settings gear)
  *     #sidebarResizer    sidebar
  *     main.main          shell show button | files show button | market cron/market views
+ *                        | conversation #sessionHeader (title, project, branch, status)
  *                        | conversation stream
  *                        | conversation stream-nav (locator rail over the stream's right edge)
  *                        | .composer-zone > composer form (workspace pill above the card)
@@ -41,6 +42,7 @@ import { IconSprite } from "./ui";
  */
 export function App() {
 	const appRef = useRef<HTMLDivElement>(null);
+	const [summarySpace, setSummarySpace] = useState(false);
 	const layout = useAppStore(
 		(state) => ({
 			sidebarHidden: state.ui.sidebarHidden,
@@ -53,6 +55,22 @@ export function App() {
 		}),
 		shallowEqual,
 	);
+	// The summary card floats; where the main pane is wide enough, the column slides aside instead of under it.
+	useLayoutEffect(() => {
+		const app = appRef.current;
+		if (!app) return;
+		const sidebar = app.querySelector<HTMLElement>(".sidebar");
+		const measure = () => {
+			const sidebarWidth = layout.sidebarHidden ? 0 : (sidebar?.getBoundingClientRect().width ?? 0);
+			const railWidth = Number.parseFloat(getComputedStyle(app).getPropertyValue("--rail-width")) || 44;
+			setSummarySpace(app.clientWidth - sidebarWidth - railWidth >= 1120);
+		};
+		measure();
+		const observer = new ResizeObserver(measure);
+		observer.observe(app);
+		if (sidebar) observer.observe(sidebar);
+		return () => observer.disconnect();
+	}, [layout.sidebarHidden]);
 	const style: Record<string, string> = {};
 	if (layout.sidebarWidth !== null) style["--sidebar-width"] = `${layout.sidebarWidth}px`;
 	if (layout.previewWidth !== null) style["--preview-width"] = `${layout.previewWidth}px`;
@@ -67,6 +85,7 @@ export function App() {
 					"has-right-rail",
 					layout.rightOpen && "right-panel-open",
 					layout.summaryOpen && "summary-open",
+					layout.summaryOpen && summarySpace && "summary-docked",
 					layout.rightExpanded && "right-panel-expanded",
 					layout.resizing && "resizing",
 				)}
@@ -82,6 +101,7 @@ export function App() {
 					<SidebarShowButton />
 					<CronView />
 					<MarketView />
+					<SessionHeader />
 					<ConversationStream />
 					<StreamNav />
 					<div className="composer-zone">

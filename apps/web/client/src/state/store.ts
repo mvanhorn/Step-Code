@@ -213,6 +213,8 @@ export interface UiState {
 	readonly promptFocusRequest: number;
 	/** Mid-pane view covering the conversation: `#cronView` or `#marketView` (`.market-view.open`). */
 	readonly midView: "cron" | "market" | null;
+	/** Session whose snapshot is loading after a pick: its row highlights and the stream shows progress at once. */
+	readonly openingSession: string | null;
 	/** Open menu of the changes view: `turn`, `more`, or `file:<shown path>`. */
 	readonly changesMenu: string | null;
 	/** The composer's slash menu: matching commands, or the MCP server list picked from it. */
@@ -446,6 +448,7 @@ export function createInitialState(): AppState {
 			loginRequired: false,
 			promptFocusRequest: 0,
 			midView: null,
+			openingSession: null,
 			changesMenu: null,
 			slashMenu: null,
 			fileCompletionOpen: false,
