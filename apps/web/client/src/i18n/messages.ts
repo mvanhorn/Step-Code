@@ -92,6 +92,8 @@ const zhCN = {
 	"rightUsage.cacheWrite": "缓存写入",
 	"rightUsage.reasoning": "其中推理",
 	rightCacheHit: "缓存命中（本次响应）",
+	/** The composer footer's ratio, which sums every response in the session. */
+	performanceCacheHit: "缓存命中（会话累计）",
 	rightRecordedMessages: "已记录消息",
 	rightMessageRoles: "消息类别",
 	"rightRole.all": "全部",
@@ -869,6 +871,7 @@ const enUS: Record<MessageKey, string> = {
 	"rightUsage.cacheWrite": "Cache write",
 	"rightUsage.reasoning": "Of which reasoning",
 	rightCacheHit: "Cache hit (this response)",
+	performanceCacheHit: "Cache hit (session)",
 	rightRecordedMessages: "Recorded messages",
 	rightMessageRoles: "Message roles",
 	"rightRole.all": "All",

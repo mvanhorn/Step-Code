@@ -82,7 +82,7 @@ export function PerformanceBar() {
 			</Tooltip>
 			<Tooltip content={t("performanceCacheHint")}>
 				<span className="performance-metric">
-					{t("rightCacheHit")} <span>{hit}</span>
+					{t("performanceCacheHit")} <span>{hit}</span>
 				</span>
 			</Tooltip>
 		</section>
