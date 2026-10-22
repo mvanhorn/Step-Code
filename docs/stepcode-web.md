@@ -62,18 +62,17 @@ Account (and the sidebar account menu) logs out of Step through
 `POST /api/v1/logout`, which performs the same sign-out as `step logout`: it
 cancels the page sign-ins still in flight and waits for them to settle (so a
 late credential write cannot outlive the sign-out), stops the Host's running
-sessions, then removes the stored `step`
-credential, the legacy copies and `step-login.json`, and invalidates the cached
-login and account reports. Only Step is removed: custom `models.json`
-providers and their keys stay. The launch cookie is kept on purpose, so Desktop
-reloads into `#loginGate` without a new link; plain Web opens the same gate for
-this explicit sign-out (a first visit still signs in from Account). When a
-custom model is still usable (`customModels: true` in the reply), neither host
-shows the gate: the page reloads into the app and says it continues on custom
-models. When `STEP_API_KEY`
-supplies requests, the host cannot remove it
-and answers `remainingSource: environment`; the stored credential and account
-session are still removed.
+sessions, then removes the stored `step` credential, the legacy copies and
+`step-login.json`, and invalidates the cached login and account reports. Only
+Step is removed: custom `models.json` providers and their keys stay. The launch
+cookie is kept on purpose, so Desktop reloads into `#loginGate` without a new
+link; plain Web opens the same gate for this explicit sign-out (a first visit
+still signs in from Account). When a custom model is still usable
+(`customModels: true` in the reply), neither host shows the gate: the page
+reloads into the app and says it continues on custom models. When
+`STEP_API_KEY` supplies requests, the host cannot remove it and answers
+`remainingSource: environment`; the stored credential and account session are
+still removed.
 
 Presence, reachability, and the account session are reported separately.
 `configured` reflects the stored credential, `validity` reports what the provider

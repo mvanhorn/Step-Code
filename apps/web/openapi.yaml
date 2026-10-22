@@ -558,12 +558,16 @@ paths:
   /api/v1/logout:
     post:
       description: |
-        Sign out of Step exactly as `step logout`: stop running sessions, remove
-        the stored `step` credential, the legacy copies and `step-login.json`,
-        then drop the cached login and account reports. The page cookie is
-        deliberately kept, so Desktop reloads into its sign-in gate without a new
-        terminal launch link. `remainingSource: environment` means `STEP_API_KEY`
-        still authorizes requests and cannot be removed by the host.
+        Sign out of Step exactly as `step logout`: wait for in-flight page
+        sign-ins to settle, stop running sessions, remove the stored `step`
+        credential, the legacy copies and `step-login.json`, then drop the cached
+        login and account reports. Custom `models.json` providers and their keys
+        are kept; `customModels` says whether one is still usable, so the page
+        stays in the app instead of reopening the sign-in gate. The page cookie
+        is deliberately kept, so Desktop reloads into its sign-in gate without a
+        new terminal launch link. `remainingSource: environment` means
+        `STEP_API_KEY` still authorizes requests and cannot be removed by the
+        host.
       responses:
         "200":
           description: Sign-out report
