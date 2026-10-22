@@ -808,6 +808,11 @@ paths:
                     description: Steered messages the running turn has not read yet
                     items: { $ref: "#/components/schemas/SteeringMessage" }
                   retry: { $ref: "#/components/schemas/SessionRetry" }
+                  gitBranch:
+                    type: string
+                    description: >-
+                      Checked-out branch of the Git repository holding cwd, read from its HEAD (the short commit when
+                      detached). Absent outside a repository or when HEAD cannot be read. Presentation only.
     delete:
       parameters:
         - { $ref: "#/components/parameters/SessionId" }

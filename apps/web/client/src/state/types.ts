@@ -196,6 +196,8 @@ export interface SessionSnapshot extends SessionSummary {
 	readonly steeringMessages?: readonly SteeringMessage[];
 	/** The kernel retrying a failed model request right now (runtime.ts `RetryTracker`). */
 	readonly retry?: SessionRetry;
+	/** Checked-out Git branch of cwd (src/git-branch.ts); absent outside a repository. */
+	readonly gitBranch?: string;
 }
 
 /** GET /api/v1/sessions/{id}/inspector; read-only runtime projections. */
