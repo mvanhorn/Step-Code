@@ -49,6 +49,7 @@ export const MISSING_FROM_LIBRARY = [
 	"accountCheck",
 	"accountExternal",
 	"accountLogout",
+	"accountSignIn",
 	"timer",
 	"database",
 	"clipboardPaste",
@@ -108,6 +109,7 @@ export const ICON_NAMES = [
 	"accountCheck",
 	"accountExternal",
 	"accountLogout",
+	"accountSignIn",
 	"sidebar",
 	"newChat",
 	"search",
@@ -243,6 +245,18 @@ export function IconSprite() {
 				strokeLinejoin="round"
 			>
 				<path d="m16 17 5-5-5-5M21 12H9M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+			</symbol>
+			<symbol
+				id="i-accountSignIn"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<circle cx="12" cy="8" r="4" />
+				<path d="M20 21a8 8 0 0 0-16 0" />
 			</symbol>
 			<symbol id="i-stepPlatform" viewBox="0 0 24 24" fill="currentColor">
 				<rect x="9" y="2" width="6" height="6" />

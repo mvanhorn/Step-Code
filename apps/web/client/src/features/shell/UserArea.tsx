@@ -7,7 +7,7 @@
  * session (`GET /api/v1/account`). Without one (API-key sign-in, or the
  * developer center unreachable) it falls back to a label for the credential.
  * Pressing it opens `#accountMenu` above it: the account (avatar, name, id)
- * and the account actions, Upgrade and Log out.
+ * and the account actions, Upgrade and Log out; signed out, only Sign in.
  */
 
 import { useState } from "react";
@@ -57,6 +57,30 @@ function AccountAvatar({ name, url, className }: { name: string; url: string | u
 }
 
 const closeAccountMenu = () => setUi({ accountMenuOpen: false });
+
+/**
+ * Signed out there is no account to show and nothing to upgrade or sign out of,
+ * so the menu is a single Sign in row. It opens Settings > Account, the in-app
+ * sign-in: the startup gate is reserved for when no model can run at all.
+ */
+function SignedOutMenu() {
+	const t = useT();
+	return (
+		<Menu bare role="menu" aria-label={t("footerAccount", { name: t("footerSignedOut") })}>
+			<MenuItem
+				role="menuitem"
+				id="accountSignInButton"
+				icon="accountSignIn"
+				onClick={() => {
+					closeAccountMenu();
+					openSettings("account");
+				}}
+			>
+				{t("accountSignIn")}
+			</MenuItem>
+		</Menu>
+	);
+}
 
 function AccountMenu({
 	name,
@@ -142,7 +166,9 @@ export function UserArea() {
 				open={menuOpen}
 				onClose={closeAccountMenu}
 				closeOnEscape={false}
-				content={<AccountMenu name={name} avatarUrl={avatarUrl} uid={uid} />}
+				content={
+					login?.configured ? <AccountMenu name={name} avatarUrl={avatarUrl} uid={uid} /> : <SignedOutMenu />
+				}
 			>
 				<button
 					type="button"
