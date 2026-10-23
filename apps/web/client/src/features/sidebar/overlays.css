@@ -213,8 +213,9 @@
 }
 .tag-picker {
 	z-index: 50;
-	/* Wide enough for diamond + name input + confirm on one row. */
-	min-width: 200px;
+	/* Wide enough for the name row and for all eight colour chips on one line
+	   (8 × 14px chips + 7 × 13px gaps + the row's and menu's padding). */
+	min-width: 240px;
 	border-radius: var(--radius-surface);
 	box-shadow: var(--elev-3);
 }
@@ -291,7 +292,7 @@
 .tag-new-colors {
 	display: flex;
 	flex-wrap: wrap;
-	gap: 13px;
+	gap: 12px;
 	padding: 6px 10px 7px 13px;
 }
 /* A colour chip, not a menu row: undo the generic `.tag-picker button` row styles. */
