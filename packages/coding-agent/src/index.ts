@@ -614,6 +614,7 @@ export {
 	logoutStepCredentials,
 	migrateLegacyStepCredential,
 } from "./step/auth.ts";
+export { readStepBuildIdentity, type StepBuildIdentity } from "./step/build-identity.ts";
 export {
 	isStepConfigCommand,
 	normalizeStepSessionSelectorArgs,
@@ -661,14 +662,24 @@ export {
 	STEPCODE_CONFIG_DIR,
 	type StepEnvironmentOptions,
 } from "./step/environment.ts";
+export { describeFeedbackBundle, type FeedbackBundleResult } from "./step/feedback/bundle.ts";
 export {
 	type FeedbackSubmitInput,
 	type FeedbackSubmitResult,
+	formatFeedbackBundleSkipMessage,
+	formatFeedbackPendingDetails,
 	runFeedbackCommand,
 	submitFeedback,
 } from "./step/feedback/command.ts";
 export { readFeedbackUsername } from "./step/feedback/context.ts";
+export type { FeedbackDiagnosticsSelection } from "./step/feedback/diagnostics.ts";
 export { resolveFeedbackEndpoint } from "./step/feedback/endpoints.ts";
+export { type FeedbackEvidence, prepareFeedbackEvidence } from "./step/feedback/evidence.ts";
+export type {
+	FeedbackRequestProvenance,
+	FeedbackRuntimeFacts,
+	FeedbackSessionSummary,
+} from "./step/feedback/session-summary.ts";
 export { resolveFeedbackSettings } from "./step/feedback/settings.ts";
 export { FEEDBACK_CATEGORIES, type FeedbackCategory } from "./step/feedback/types.ts";
 export { normalizeFeedbackCategory } from "./step/feedback/validate.ts";

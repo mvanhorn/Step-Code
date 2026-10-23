@@ -23,8 +23,11 @@ import {
 	DEFAULT_THINKING_LEVEL,
 	DefaultResourceLoader,
 	type ExtensionUIContext,
+	type FeedbackEvidence,
 	FULL_ACCESS_RISK_OPTIONS,
 	findInitialModel,
+	formatFeedbackBundleSkipMessage,
+	formatFeedbackPendingDetails,
 	getStepAuthPath,
 	getStepGoal,
 	getStepMcpStatuses,
@@ -38,8 +41,10 @@ import {
 	normalizeFeedbackCategory,
 	openStepSession,
 	plainTheme,
+	prepareFeedbackEvidence as prepareKernelFeedbackEvidence,
 	readFeedbackUsername,
 	readGlobalStepDefaults,
+	readStepBuildIdentity,
 	resolveFeedbackEndpoint,
 	resolveStepAgentDir,
 	resolveStepConfigDir,
@@ -53,6 +58,7 @@ import {
 	STEP_DEFAULT_MODEL,
 	STEP_PERMISSION_PRESETS,
 	STEP_PROVIDER_ID,
+	STEPCODE_VERSION,
 	type StepGlobalDefaults,
 	type StepGoalRecord,
 	type StepMcpStatus,
@@ -67,6 +73,12 @@ import { ApprovalBroker, type ApprovalRequest } from "./approval.ts";
 import { type WebAttachment, withTextAttachments } from "./attachments.ts";
 import { ClarificationBroker, type ClarificationEvent } from "./clarification.ts";
 import { feedbackCategoryFor } from "./feedback.ts";
+import {
+	describeFeedbackEvidence,
+	FeedbackDrafts,
+	type WebFeedbackDraft,
+	type WebFeedbackPreview,
+} from "./feedback-report.ts";
 import { projectInspectorTasks } from "./inspector.ts";
 import {
 	MessageQueue,
@@ -268,17 +280,31 @@ function webUiContext(
 }
 
 /**
+ * The resources a provenance entry names, structurally matching the kernel's
+ * `UsageResources`. The Web host renders no `/usage` panel, so it records these
+ * only for the session's `step.usage_provenance` entries.
+ */
+export interface WebUsageResources {
+	agents: string[];
+	skills: { name: string; filePath: string }[];
+}
+
+/**
  * Extensions the Web/Desktop host mounts, in registration order.
  *
  * Exported for the assembly regression test: the list used to lose `goal` and
  * `cron` silently, which unregistered their slash commands and tools — `/goal`
  * then reached the model as ordinary text. Keep the test's expectations in step
  * with this list rather than re-deriving it at each call site.
+ *
+ * `usageRecording` is optional because recording provenance is separate from the
+ * `/usage` UI this host does not render; a caller without one records nothing.
  */
 export function webExtensions(
 	settingsManager: StepSettingsManager,
 	broker: ApprovalBroker,
 	onPermissionChange: (preset: StepPermissionPresetId) => void,
+	usageRecording?: () => WebUsageResources,
 ): InlineExtension[] {
 	const telemetry = NOOP_OBSERVABILITY_PROVIDER.createReporter();
 	const persisted = settingsManager.getStepSettings();
@@ -303,6 +329,7 @@ export function webExtensions(
 			stepSettings: () => settingsManager,
 			onPermissionChange,
 			traceHeaderPolicy: NOOP_OBSERVABILITY_PROVIDER.traceHeaderPolicy(),
+			usageRecording,
 		}),
 		// The client's ultraloop pick rides one message; the host offers no
 		// standing `/ultraloop on` switch to revoke, so neither register it nor
@@ -654,6 +681,11 @@ export class WebSession {
 	private readonly retry = new RetryTracker();
 	/** One background attempt to name this session after its first prompt has run. */
 	private sessionTitleGenerated = false;
+	/**
+	 * Feedback evidence prepared for the dialog the user is reading, until the
+	 * submission that consumes it (see `feedback-report.ts`).
+	 */
+	private readonly feedbackDrafts = new FeedbackDrafts((evidence) => this.describeFeedbackPreview(evidence));
 
 	private constructor(
 		id: string,
@@ -833,9 +865,16 @@ export class WebSession {
 				settingsManager,
 				modelRuntime: this.modelRuntime,
 				resourceLoaderOptions: {
-					extensionFactories: webExtensions(settingsManager, this.broker, (preset) => {
-						this.livePermission = preset;
-					}),
+					extensionFactories: webExtensions(
+						settingsManager,
+						this.broker,
+						(preset) => {
+							this.livePermission = preset;
+						},
+						// The session does not exist yet when the extension list is built,
+						// so recording resolves its skill list lazily, once it does.
+						() => this.usageResources(),
+					),
 				},
 			});
 			// Resolve the model against a populated catalog. `models.json` is only an
@@ -1352,14 +1391,31 @@ export class WebSession {
 	}
 
 	/**
+	 * Prepare this conversation's report and describe it for the consent dialog.
+	 *
+	 * The kernel decides what a report carries; this only shows the user what was
+	 * prepared and keeps it until the submission, so the dialog never promises
+	 * something the payload does not contain.
+	 */
+	async prepareFeedback(): Promise<WebFeedbackDraft> {
+		// Refuse before preparing anything: building an archive for a report that
+		// cannot be delivered would read the session file for nothing.
+		if (!resolveFeedbackEndpoint()) throw new Error("Feedback is not configured for this build.");
+		return this.feedbackDrafts.keep(await this.prepareFeedbackEvidence());
+	}
+
+	/**
 	 * Submit feedback about this conversation.
 	 *
 	 * The kernel accepts five coarse categories and rejects anything else, while
 	 * the UI offers finer topics. The topic is therefore folded into the comment
 	 * and the kernel category is derived from the sentiment plus the topic, so no
 	 * detail is lost on the way through.
+	 *
+	 * `token` names the evidence the dialog showed the user. Without one (an
+	 * older client, a scripted caller) the evidence is prepared here instead.
 	 */
-	async submitFeedback(input: { sentiment: "up" | "down"; topic?: string; comment: string }): Promise<{
+	async submitFeedback(input: { sentiment: "up" | "down"; topic?: string; comment: string; token?: string }): Promise<{
 		readonly ok: boolean;
 		readonly message: string;
 		readonly feedbackId?: string;
@@ -1377,23 +1433,85 @@ export class WebSession {
 		}
 		const topic = input.topic?.trim();
 		const comment = topic ? `[${topic}] ${input.comment.trim()}` : input.comment.trim();
+		const bundleEndpoint = resolveFeedbackEndpoint(process.env, true);
+		// Send exactly what the dialog showed; a stale or absent token re-prepares.
+		const evidence =
+			(input.token ? this.feedbackDrafts.take(input.token) : undefined) ?? (await this.prepareFeedbackEvidence());
+		const bundle = evidence.bundle;
 		const result = await submitKernelFeedback({
 			category: normalized,
 			comment,
-			sessionId: this.id,
+			...(evidence.summary ? { sessionSummary: evidence.summary } : {}),
+			...(evidence.diagnostics ? { diagnostics: evidence.diagnostics.diagnostics } : {}),
+			...(bundle ? { sessionBundle: bundle } : {}),
 			storageRootDir: resolveStepStorageRoot(),
+			sessionId: bundle?.status === "ready" ? bundle.bundle.sessionId : this.id,
 			endpoint,
+			...(bundleEndpoint ? { bundleEndpoint } : {}),
 			username: readFeedbackUsername(),
-			surface: "cli",
+			surface: this.feedbackSurface(),
 			env: process.env,
 		});
 		if (result.status === "invalid") return { ok: false, message: result.error };
 		if (result.status === "cancelled") return { ok: false, message: "Feedback submission was cancelled." };
+		// A report that is queued for retry was not delivered. Saying "Submitted"
+		// here would tell the user a report exists upstream when it is still local.
+		if (result.status === "pending") {
+			const outcome = result.outcome;
+			return {
+				ok: false,
+				message:
+					outcome.status === "pending"
+						? formatFeedbackPendingDetails(outcome)
+						: "The report was not delivered to the feedback endpoint.",
+			};
+		}
+		// A skipped archive is not a failed report, but the user who was shown a
+		// file list must learn which part of it never left the machine.
+		const skipNote = bundle?.status === "skipped" ? ` ${formatFeedbackBundleSkipMessage(bundle)}` : "";
 		return {
 			ok: true,
-			message: `Submitted. Feedback ID: ${result.submission.feedbackId}`,
+			message: `Submitted. Feedback ID: ${result.submission.feedbackId}${skipNote}`,
 			feedbackId: result.submission.feedbackId,
 		};
+	}
+
+	/** The report's own evidence: this session's file, its project, and the host's live facts. */
+	private async prepareFeedbackEvidence(): Promise<FeedbackEvidence> {
+		const sessionFile = this.sessionFile();
+		const usage = this.session.getContextUsage();
+		return await prepareKernelFeedbackEvidence({
+			storageRootDir: resolveStepStorageRoot(),
+			// Name the session file rather than the id: a report must describe this
+			// conversation, never the newest file of a neighbouring project.
+			...(sessionFile ? { sessionFile } : { sessionId: this.id }),
+			cwd: this.cwd,
+			env: process.env,
+			// Nothing can receive the archive without a bundle endpoint; building it
+			// would read and compress up to 24 MiB and promise it on the review page.
+			withoutBundle: resolveFeedbackEndpoint(process.env, true) === undefined,
+			runtime: {
+				...(this.livePermission ? { permissionPreset: this.livePermission } : {}),
+				...(usage ? { contextUsed: usage.tokens, contextWindow: usage.contextWindow } : {}),
+				toolCount: this.session.getActiveToolNames().length,
+				skillCount: this.skills().length,
+				mcpServerNames: mcpStatuses().map((status) => status.name),
+			},
+		});
+	}
+
+	/** Which product filed the report; Desktop runs this same host under Electron. */
+	private feedbackSurface(): "web" | "desktop" {
+		return process.versions.electron ? "desktop" : "web";
+	}
+
+	private describeFeedbackPreview(evidence: FeedbackEvidence): WebFeedbackPreview {
+		return describeFeedbackEvidence({
+			evidence,
+			surface: this.feedbackSurface(),
+			version: STEPCODE_VERSION.value,
+			channel: readStepBuildIdentity().channel,
+		});
 	}
 
 	/**
@@ -1626,6 +1744,24 @@ export class WebSession {
 	skills(): WebSkill[] {
 		if (!this.session.settingsManager.getEnableSkillCommands()) return [];
 		return webSkills(this.session.resourceLoader.getSkills().skills);
+	}
+
+	/**
+	 * Resources for this session's `step.usage_provenance` entries.
+	 *
+	 * Recording asks on `session_start`, which can run before `bindSession` has
+	 * exposed the session; an early ask records no skills rather than failing the
+	 * session, and `before_agent_start` collects them once the session is bound.
+	 * The full loader list is used, not `skills()`: provenance describes the
+	 * resources a turn could activate, independent of the `/skill:` UI toggle.
+	 */
+	private usageResources(): WebUsageResources {
+		const skills = this.session?.resourceLoader.getSkills().skills ?? [];
+		return {
+			// The Web host has no agent list of its own: no `/usage` status view.
+			agents: [],
+			skills: skills.map((skill) => ({ name: skill.name, filePath: skill.filePath })),
+		};
 	}
 
 	setArchived(archived: boolean): void {

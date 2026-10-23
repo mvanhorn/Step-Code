@@ -988,6 +988,16 @@ const server = createServer(async (request, response) => {
 				await session.refreshModels();
 				return json(response, 200, session.snapshot());
 			}
+			if (parts[4] === "feedback" && parts[5] === "evidence" && method === "GET") {
+				// The consent dialog reads this before it offers to send anything: it
+				// names the evidence the submission will carry, and prepares it once.
+				try {
+					return json(response, 200, await session.prepareFeedback());
+				} catch (caught) {
+					// Nothing configured is the caller's problem to show, not a fault.
+					return error(response, 400, caught instanceof Error ? caught.message : String(caught));
+				}
+			}
 			if (parts[4] === "feedback" && method === "POST") {
 				const input = await body(request);
 				if (input.sentiment !== "up" && input.sentiment !== "down") {
@@ -995,10 +1005,14 @@ const server = createServer(async (request, response) => {
 				}
 				if (typeof input.comment !== "string") return error(response, 400, "comment is required");
 				const topic = typeof input.topic === "string" ? input.topic : undefined;
+				// The dialog sends back the token of the evidence it displayed, so the
+				// report cannot describe something the user was never shown.
+				const token = typeof input.token === "string" ? input.token : undefined;
 				const result = await session.submitFeedback({
 					sentiment: input.sentiment,
 					...(topic ? { topic } : {}),
 					comment: input.comment,
+					...(token ? { token } : {}),
 				});
 				// A rejected submission is the caller's problem to show, not a 500.
 				return json(response, result.ok ? 200 : 400, result);

@@ -1857,6 +1857,68 @@ paths:
                 goal: { type: string }
       responses:
         "202": { description: Mode command accepted }
+  /api/v1/sessions/{id}/feedback/evidence:
+    get:
+      description: >-
+        Prepare a feedback report for this conversation and describe what it would carry. The consent dialog reads this
+        before offering to send anything, and returns the `token` with the submission so the report contains exactly
+        the evidence that was shown. A prepared report is held briefly and consumed once.
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+      responses:
+        "200":
+          description: The prepared evidence, described for the user.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token, preview]
+                properties:
+                  token: { type: string, description: "Names the prepared evidence; sent back with the submission" }
+                  preview:
+                    type: object
+                    required: [surface, version, channel, summary, diagnostics]
+                    properties:
+                      surface: { type: string, enum: [web, desktop] }
+                      version: { type: string }
+                      channel: { type: string, enum: [dev, release] }
+                      sessionId: { type: string }
+                      summary: { type: boolean, description: "Content-free session summary is attached" }
+                      diagnostics: { type: boolean, description: "Host log excerpt is attached" }
+                      archive:
+                        type: array
+                        items:
+                          type: object
+                          required: [name, bytes]
+                          properties:
+                            name: { type: string }
+                            bytes: { type: integer }
+                            note: { type: string, description: "Bound or truncation the kernel applied" }
+                      archiveNote: { type: string, description: "Why the archive is absent, when it was skipped" }
+                      archiveDetail: { type: string, description: "What the archive holds, in the kernel's words" }
+  /api/v1/sessions/{id}/feedback:
+    post:
+      description: >-
+        File feedback about this session. The kernel assembles the body and the session archive, redacts them, and
+        delivers both; the host never assembles its own payload. Without a feedback endpoint configured the host
+        answers 400 with the reason.
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sentiment, comment]
+              properties:
+                sentiment: { type: string, enum: [up, down] }
+                topic: { type: string, description: "Composer topic; folded into the comment and mapped to a kernel category" }
+                comment: { type: string }
+                token: { type: string, description: "The token of the evidence the dialog displayed" }
+      responses:
+        "200": { description: Submitted; `message` states the feedback id and any skipped archive }
+        "400": { description: "Feedback is not configured, the category is unknown, or the kernel rejected the body" }
   /api/v1/sessions/{id}/model:
     patch:
       parameters:
