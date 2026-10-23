@@ -512,6 +512,45 @@ describe("Step Pi slash command adapters", () => {
 		});
 	});
 
+	test("a session with no file yet is not replaced by another project's conversation", async () => {
+		// The session id is authoritative: when its file has not been written, the
+		// report must carry no conversation rather than a neighbouring one. This is
+		// also why `-C/--cwd` cannot change what a report attaches: that flag routes
+		// to a session, not to `step feedback`, and a run in another project still
+		// names its own session id.
+		const root = await mkdtemp(join(tmpdir(), "step-slash-feedback-"));
+		temporaryRoots.push(root);
+		const sessions = join(root, "agent", "sessions");
+		const project = join(root, "project");
+		const folder = join(sessions, `--${project.replace(/^\//, "").replace(/[/:]/g, "-")}--`);
+		await mkdir(folder, { recursive: true });
+		await writeFile(
+			join(folder, "2026-10-23T00-00-00-000Z_other.jsonl"),
+			`${JSON.stringify({ type: "session", id: "other-session", cwd: project, parentId: null })}\n`,
+		);
+		vi.stubEnv("STEP_CODING_AGENT_DIR", join(root, "agent"));
+		vi.stubEnv("STEP_CODING_AGENT_SESSION_DIR", sessions);
+		vi.stubEnv("STEPCODE_STORAGE_ROOT_DIR", root);
+		vi.stubEnv("STEPCODE_FEEDBACK_ENDPOINT", "https://feedback.test/feedback");
+		const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 204 }));
+		vi.stubGlobal("fetch", fetchMock);
+		const { commands } = registerCommands();
+
+		await getCommand(commands, "feedback").handler("unwritten", {
+			cwd: project,
+			hasUI: true,
+			ui: { notify: vi.fn(), confirm: vi.fn().mockResolvedValue(true) },
+			sessionManager: { getSessionId: () => "unwritten-session", getSessionFile: () => undefined },
+		} as unknown as ExtensionCommandContext);
+
+		const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)) as {
+			context: { sessionId?: string };
+			sessionSummary?: unknown;
+		};
+		expect(body.sessionSummary).toBeUndefined();
+		expect(body.context.sessionId).toBe("unwritten-session");
+	});
+
 	test("cancels immediately when comment input is dismissed with Esc", async () => {
 		vi.stubEnv("STEPCODE_FEEDBACK_ENDPOINT", "https://feedback.test/feedback");
 		const fetchMock = vi.fn<typeof fetch>();

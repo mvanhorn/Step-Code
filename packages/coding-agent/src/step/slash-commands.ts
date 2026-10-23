@@ -478,11 +478,19 @@ function permissionFacts(value: string | undefined): { permissionPreset?: string
 	return normalized === "" || normalized === "unknown" ? {} : { permissionPreset: normalized };
 }
 
-/** A minimal embedder may expose only the id; the bundle then resolves by id. */
-function sessionSourceOf(ctx: ExtensionCommandContext): { sessionFile?: string; sessionId: string } {
+/**
+ * Where this session lives, for the evidence collector.
+ *
+ * `cwd` is the session's project, which under `-C/--cwd` is not the process's
+ * working directory. A session that has not written its file yet is found by
+ * id, and a guessed one only inside this project's folder.
+ *
+ * A minimal embedder may expose only the id; the bundle then resolves by id.
+ */
+function sessionSourceOf(ctx: ExtensionCommandContext): { sessionFile?: string; sessionId: string; cwd: string } {
 	const manager = ctx.sessionManager;
 	const sessionFile = typeof manager.getSessionFile === "function" ? manager.getSessionFile() : undefined;
-	return { ...(sessionFile ? { sessionFile } : {}), sessionId: manager.getSessionId() };
+	return { ...(sessionFile ? { sessionFile } : {}), sessionId: manager.getSessionId(), cwd: ctx.cwd };
 }
 
 function notifyFeedbackResult(ctx: ExtensionCommandContext, result: FeedbackSubmitResult): void {
