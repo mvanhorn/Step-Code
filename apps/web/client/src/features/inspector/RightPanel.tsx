@@ -19,12 +19,14 @@ import { applyPreviewWidth, PREVIEW_DEFAULT, restorePreviewWidth } from "../file
 import { useActiveTab } from "../files/PreviewBody";
 import { toggleTerminalDock } from "../terminal/actions";
 import { ContextPanel } from "./ContextPanel";
+import { GoalPanel } from "./GoalPanel";
 import { SummaryBoard } from "./SummaryBoard";
 import { SummaryHeader } from "./SummaryHeader";
 
 const PANELS: readonly { id: RightPanelId; icon: IconName; label: string }[] = [
 	{ id: "summary", icon: "layers", label: "rightSummary" },
 	{ id: "context", icon: "scanLine", label: "rightContext" },
+	{ id: "goal", icon: "target", label: "rightGoal" },
 	{ id: "changes", icon: "fileDiff", label: "rightChanges" },
 	{ id: "files", icon: "fileText", label: "filePreview" },
 	{ id: "subagent", icon: "bot", label: "subagents" },
@@ -35,10 +37,16 @@ export function RightToolRail() {
 	const t = useT();
 	const active = useAppStore(activeRightPanel);
 	const terminalOpen = useAppStore((state) => state.ui.terminalOpen);
+	// The rail marks a goal that is still running, so the lifecycle GUI is findable.
+	const goalActive = useAppStore((state) => {
+		const goal = state.current?.goal;
+		return goal !== undefined && goal.status !== "complete";
+	});
 	const button = (panel: (typeof PANELS)[number]) => (
 		<Tooltip key={panel.id} content={t(panel.label)}>
 			<IconButton
 				data-right-panel={panel.id}
+				className={panel.id === "goal" && goalActive ? "rail-goal-active" : undefined}
 				icon={panel.icon}
 				aria-label={t(panel.label)}
 				aria-controls="rightPanel"
@@ -212,6 +220,9 @@ export function RightPanel() {
 			</div>
 			<div className="right-panel-scroll" hidden={panel !== "context"}>
 				<ContextPanel key={`context-${currentId ?? ""}`} data={data} />
+			</div>
+			<div className="right-panel-scroll" hidden={panel !== "goal"}>
+				<GoalPanel key={`goal-${currentId ?? ""}`} />
 			</div>
 			<PreviewPanel embedded />
 			<ChildAgentView embedded />

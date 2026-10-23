@@ -18,7 +18,6 @@ test("kernel commands echo their command line", () => {
 	assert.equal(commandEchoText("/permissions approve-for-me"), "/permissions approve-for-me");
 	assert.equal(commandEchoText("/ultraloop on"), "/ultraloop on");
 	assert.equal(commandEchoText("/compact"), "/compact");
-	assert.equal(commandEchoText("/skill:demo do things"), "/skill:demo do things");
 	// Trailing whitespace is trimmed; leading whitespace is not a command — the
 	// kernel only runs a slash at position 0, so the echo follows the same rule.
 	assert.equal(commandEchoText("/init "), "/init");
@@ -30,6 +29,9 @@ test("client-side surfaces and ordinary text never echo", () => {
 	assert.equal(commandEchoText("/mcp"), null);
 	assert.equal(commandEchoText("/btw what about x"), null);
 	assert.equal(commandEchoText("/feedback"), null);
+	// `/skill:` journals as an ordinary user message that already carries the
+	// skill badge (MessageItem parses it), so it must not echo a second row.
+	assert.equal(commandEchoText("/skill:demo do things"), null);
 	// An unknown command journals as an ordinary user message; so does the keyword form.
 	assert.equal(commandEchoText("/not-a-command hi"), null);
 	assert.equal(commandEchoText("ultracode: dig in"), null);

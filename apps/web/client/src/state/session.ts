@@ -80,7 +80,20 @@ let noticeSeq = 0;
  * Append a command notice to the transcript. Notices are this page's view of
  * `ui.notify`: they are never persisted and never enter the model's context.
  */
+/**
+ * Goal lifecycle state the right rail's goal panel already shows: a notice
+ * would only repeat it as a bubble. Warnings that need a decision still show.
+ */
+const GOAL_STATUS_NOTICE =
+	/^(Goal set: |Goal (paused|resumed|cleared|updated)\.|Goal commands: |Goal: .*\(iteration |Stopped a queued goal turn |Goal .+ is (paused|blocked|usage_limited))/u;
+
+/** Whether a notice only restates goal state the goal panel already renders. */
+export function goalStatusNotice(text: string): boolean {
+	return GOAL_STATUS_NOTICE.test(text.trim());
+}
+
 export function pushNotice(level: NoticeItem["level"], text: string, options?: { readonly markdown?: boolean }): void {
+	if (goalStatusNotice(text)) return;
 	const current = getState().current;
 	noticeSeq += 1;
 	const item: NoticeItem = {
@@ -380,6 +393,13 @@ function compactedMessageCount(
  */
 export function timelineFromEntries(entries: readonly SessionEntry[] = [], retry?: SessionRetry): TimelineItem[] {
 	const items: TimelineItem[] = [];
+	/*
+	 * A command that expands into its own user message (`/plan <task>`) journals
+	 * the task twice — once as the host's echo, once as the message the kernel
+	 * sends. The echo carries the badge, so the identical message that follows
+	 * it is dropped from the timeline (it stays journaled for the model).
+	 */
+	let echoArgs: string | null = null;
 	const toolResults = new Map<string, NonNullable<SessionEntry["message"]>>();
 	for (const entry of entries) {
 		if (entry.type === "message" && entry.message?.role === "toolResult" && entry.message.toolCallId) {
@@ -403,18 +423,25 @@ export function timelineFromEntries(entries: readonly SessionEntry[] = [], retry
 		// The host's echo of a kernel slash command: the transcript's only record of the typed line.
 		if (entry.type === "custom" && entry.customType === "stepcode-web.command-echo") {
 			const command = typeof entry.command === "string" ? entry.command : "";
-			if (command)
+			if (command) {
 				items.push({
 					itemId: `command-${entry.id}`,
 					kind: "command",
 					command,
 					...(typeof entry.timestamp === "string" ? { timestamp: entry.timestamp } : {}),
 				});
+				echoArgs = /^\/[A-Za-z0-9][\w.:-]*\s*([\s\S]*)$/u.exec(command)?.[1]?.trim() || null;
+			}
 			continue;
 		}
 		if (entry.type !== "message") continue;
 		const message = entry.message;
 		if (!message || message.role === "toolResult") continue;
+		if (message.role === "user" && echoArgs !== null) {
+			const duplicate = contentText(message.content).trim() === echoArgs;
+			echoArgs = null;
+			if (duplicate) continue;
+		}
 		const index = messagePosition.get(entry.id) ?? 0;
 		const text = contentText(message.content);
 		const images = message.role === "user" ? imageSources(message.content) : [];

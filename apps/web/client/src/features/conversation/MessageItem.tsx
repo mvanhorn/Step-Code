@@ -2,7 +2,13 @@ import { memo, useMemo, useRef, useState } from "react";
 import { useT } from "../../i18n";
 import { type AttachedFile, FILE_MARKER, markAttachedFiles, splitAttachedFiles } from "../../lib/attached-files";
 import { formatBytes, formatTokens } from "../../lib/format";
-import { escapeHtml, pluginInstallInvocation, renderMarkdown, skillInvocation } from "../../lib/markdown";
+import {
+	escapeHtml,
+	pluginInstallInvocation,
+	renderMarkdown,
+	skillInvocation,
+	ultraloopInvocation,
+} from "../../lib/markdown";
 import { copyText } from "../../state/session";
 import { setUi, useAppStore } from "../../state/store";
 import type { MessageTimelineItem } from "../../state/types";
@@ -59,7 +65,12 @@ export const MessageItem = memo(function MessageItem({
 	const skill = role === "user" ? skillInvocation(attached.text) : null;
 	/** The install command a plugin pick chip sent; badge only, no body change. */
 	const pluginInstall = role === "user" && !skill ? pluginInstallInvocation(attached.text) : null;
-	const content = useSmoothText(skill ? skill.request : attached.text, live);
+	/** The ultraloop keyword form rides the message as ordinary text; its badge mirrors the skill one. */
+	const ultraloop = role === "user" && !skill && !pluginInstall ? ultraloopInvocation(attached.text) : null;
+	const content = useSmoothText(
+		skill || ultraloop ? (skill?.request ?? ultraloop?.request ?? "") : attached.text,
+		live,
+	);
 	const images = role === "user" ? (item.images ?? []) : [];
 	// Memoised: a streaming turn re-renders the timeline per frame, and parsing every earlier message each time made long sessions crawl.
 	const files = pendingFiles ?? attached.files;
@@ -86,6 +97,12 @@ export const MessageItem = memo(function MessageItem({
 				<span className="message-skill message-skill--skill" title={skill.name}>
 					<Icon name="wrench" size="xs" />
 					{skill.name}
+				</span>
+			) : null}
+			{ultraloop ? (
+				<span className="message-skill message-skill--ultraloop">
+					<Icon name="orbit" size="xs" />
+					{t("modeUltraloop")}
 				</span>
 			) : null}
 			{pluginInstall ? (

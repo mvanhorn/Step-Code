@@ -527,11 +527,14 @@ const ECHOED_COMMANDS: ReadonlySet<string> = new Set([
 	"llama",
 ]);
 
-/** The command line to echo for `text`, or null when it is not a kernel command. */
+/**
+ * The command line to echo for `text`, or null when it is not a kernel
+ * command. `/skill:` never echoes: its expansion journals as a user message
+ * that already carries the skill badge.
+ */
 export function commandEchoText(text: string): string | null {
 	const name = /^\/([A-Za-z0-9][\w.:-]*)(?:\s|$)/u.exec(text)?.[1];
-	if (!name) return null;
-	if (!name.startsWith("skill:") && !ECHOED_COMMANDS.has(name)) return null;
+	if (!name || !ECHOED_COMMANDS.has(name)) return null;
 	return text.trim();
 }
 
