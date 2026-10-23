@@ -165,7 +165,7 @@
 
 .login-select:focus-within,
 .login-key-field:focus-within {
-	border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
+	border-color: var(--focus-border);
 	box-shadow: 0 0 0 3px var(--accent-ring);
 }
 
