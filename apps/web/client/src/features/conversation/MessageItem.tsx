@@ -8,6 +8,7 @@ import { setUi, useAppStore } from "../../state/store";
 import type { MessageTimelineItem } from "../../state/types";
 import { Icon, LEGACY_ICONS, MarkdownView } from "../../ui";
 import { openFileReference } from "../files/actions";
+import { highlightFence } from "../files/index";
 import { forkAtEntry } from "./actions";
 import { openFeedback, type Sentiment } from "./feedback";
 import { clockTime } from "./message-meta";
@@ -68,13 +69,13 @@ export const MessageItem = memo(function MessageItem({
 			return renderMarkdown(
 				content,
 				{ code: codeLabel, copy: copyLabel, table: tableLabel },
-				{ localFiles: role === "assistant" && Boolean(cwd) },
+				{ localFiles: role === "assistant" && Boolean(cwd), highlightCode: highlightFence },
 			);
-		return renderMarkdown(markAttachedFiles(content, files), {
-			code: codeLabel,
-			copy: copyLabel,
-			table: tableLabel,
-		}).replace(FILE_MARKER, (_match, index: string) => fileChipHtml(files[Number(index)]));
+		return renderMarkdown(
+			markAttachedFiles(content, files),
+			{ code: codeLabel, copy: copyLabel, table: tableLabel },
+			{ highlightCode: highlightFence },
+		).replace(FILE_MARKER, (_match, index: string) => fileChipHtml(files[Number(index)]));
 	}, [content, files, codeLabel, copyLabel, tableLabel, role, cwd]);
 	useFadeIn(bodyRef, html, live);
 	if (item.error) return <MessageError entryId={item.entryId} error={item.error} />;

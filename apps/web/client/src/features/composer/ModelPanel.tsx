@@ -87,7 +87,8 @@ export function ModelPanel(props: ModelPanelProps) {
 								key={key}
 								id={key}
 								title={model.name || model.id}
-								description={model.id}
+								// The id only adds information when the model has a display name of its own.
+								description={model.name && model.name !== model.id ? model.id : undefined}
 								meta={modelMeta(model)}
 								selected={key === currentKey}
 								pinned={pinned.includes(key)}

@@ -26,6 +26,8 @@ export const MISSING_FROM_LIBRARY = [
 	"loaderCircle",
 	"plug",
 	"layers3",
+	"user",
+	"stepcode",
 ] as const;
 
 /*
@@ -40,10 +42,14 @@ export const MISSING_FROM_LIBRARY = [
  * - loaderCircle: 加载中（3/4 圆弧，旋转动画用）
  * - plug: 插头（当前未被使用）
  * - layers3: 三层图层（当前未被使用）
+ * - user: 账号入口（Lucide user-round，与相邻线性图标同粗细）
+ * - stepcode: StepCode 品牌标识（紫色圆弧 + 琥珀色提示符），双色，由 --mark-arc / --mark-chevron 着色
  */
 
 export const ICON_NAMES = [
 	"stepPlatform",
+	"user",
+	"stepcode",
 	"keyRound",
 	"accountCheck",
 	"accountExternal",
@@ -158,6 +164,44 @@ export function IconSprite() {
 					strokeWidth="1.8"
 					strokeLinecap="round"
 					strokeLinejoin="round"
+				/>
+			</symbol>
+			{/* Lucide user-round (ISC): the account entry, drawn in the same line weight as its neighbours. */}
+			<symbol
+				id="i-user"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="2"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<circle cx="12" cy="8" r="4.5" />
+				<path d="M20 21a8 8 0 0 0-16 0" />
+			</symbol>
+			{/*
+			 * The StepCode mark (the sign-in logo): two colours, so it does not use
+			 * currentColor. `--mark-arc` / `--mark-chevron` recolour it, and
+			 * `--mark-draw` (0..1, registered in stream.css) draws the chevron in.
+			 */}
+			<symbol id="i-stepcode" viewBox="0 0 48 48" fill="none">
+				<path
+					d="M34.6 13.4A15 15 0 1 0 34.6 34.6"
+					strokeWidth="7"
+					strokeLinecap="round"
+					style={{ stroke: "var(--mark-arc, #8f7cff)" }}
+				/>
+				<path
+					d="m21 17.5 6.5 6.5-6.5 6.5"
+					pathLength={1}
+					strokeWidth="4.2"
+					strokeLinecap="round"
+					strokeLinejoin="round"
+					style={{
+						stroke: "var(--mark-chevron, #f6b73c)",
+						strokeDasharray: 1,
+						strokeDashoffset: "calc(1 - var(--mark-draw, 1))",
+					}}
 				/>
 			</symbol>
 			{/* icon-library.html: ExternalLink */}

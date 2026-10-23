@@ -173,3 +173,21 @@ test("a rule inside a fenced block stays code", () => {
 	assert.equal(html.includes("<hr>"), false);
 	assert.equal(html.includes("<blockquote>"), false);
 });
+
+test("passes a fence's language to the code highlighter and keeps unhighlighted fences escaped", () => {
+	const seen: string[] = [];
+	const html = renderMarkdown("```TypeScript extra\nconst a = 1;\n```", labels, {
+		highlightCode: (code, language) => {
+			seen.push(`${language}:${code}`);
+			return `<span class="tok-keyword">const</span>${code.slice(5)}`;
+		},
+	});
+	assert.deepEqual(seen, ["typescript:const a = 1;"]);
+	assert.match(html, /<code><span class="tok-keyword">const<\/span> a = 1;<\/code>/);
+	assert.match(renderMarkdown("```\n<b>\n```", labels), /<code>&lt;b&gt;<\/code>/);
+});
+
+test("ends a bare URL where the sentence resumes after its query", () => {
+	const html = renderMarkdown("看 https://git.example.com/a/tree/x?ref_type=heads这个分支上，然后加一个流水线", labels);
+	assert.match(html, /href="https:\/\/git.example.com\/a\/tree\/x\?ref_type=heads"[^>]*>[^<]*<\/a>这个分支上，然后/);
+});
