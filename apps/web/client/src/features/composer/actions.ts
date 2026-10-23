@@ -32,7 +32,15 @@ import type {
 	TimelineItem,
 	UploadedFile,
 } from "../../state/types";
-import { MODE_LEAD_CLASS, type PromptFile } from "./prompt-editor";
+import { commandLeadIcon, MODES, modeFromCommand } from "./modes";
+import {
+	insertCommandLead,
+	insertModeLead,
+	MODE_LEAD_CLASS,
+	type PromptFile,
+	removeModeLead,
+	stripLeadingCommand,
+} from "./prompt-editor";
 
 export async function replyToClarification(
 	request: ClarificationRequest,
@@ -259,6 +267,47 @@ export function clearModes(): void {
 export function syncStagedModeLead(editor: HTMLElement): void {
 	const staged = (Object.keys(getState().modes) as ModeId[]).some((id) => getState().modes[id]);
 	if (staged && !editor.querySelector(`.${MODE_LEAD_CLASS}`)) clearModes();
+}
+
+/**
+ * Stage `command` (with its slash or keyword form, no trailing space) as the
+ * prompt's lead. The three mode commands stage their mode — the same chip and
+ * theme as picking them from the ＋ menu — so typing `/goal` and picking Goal
+ * look identical. Any other command replaces whatever was staged: the kernel
+ * runs one leading command per message.
+ */
+export function stageCommandLead(editor: HTMLElement, command: string): void {
+	const name = command.replace(/^\//u, "");
+	const mode = modeFromCommand(name.replace(/:$/u, ""));
+	const meta = mode ? MODES.find((entry) => entry.id === mode) : undefined;
+	if (mode && meta) {
+		chooseMode(mode);
+		// Insert the chip synchronously, not through the composer's render
+		// effect: the input sync that follows this very edit reads the DOM, and
+		// a staged mode without its chip yet would be dropped again at once.
+		// The effect's idempotence guard then skips the duplicate insert.
+		insertModeLead(editor, {
+			id: mode,
+			icon: meta.icon,
+			label: t(meta.labelKey),
+			command: modePrefix(mode).trim(),
+		});
+		return;
+	}
+	clearModes();
+	removeModeLead(editor);
+	insertCommandLead(editor, { command, icon: commandLeadIcon(name) });
+}
+
+/**
+ * After every prompt edit: a completed leading command (name plus its space)
+ * leaves the text and becomes its lead chip, so every command line shows the
+ * same icon and theme from the moment it is recognizable.
+ */
+export function applyLeadingCommand(editor: HTMLElement): void {
+	const name = stripLeadingCommand(editor);
+	if (name === null) return;
+	stageCommandLead(editor, name === "ultracode" ? "ultracode:" : `/${name}`);
 }
 
 /* ── Other-session context ────────────────────────────────────────────────── */

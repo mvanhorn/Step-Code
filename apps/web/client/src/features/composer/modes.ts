@@ -39,3 +39,43 @@ export const MODES: ReadonlyArray<{
 		placeholderKey: "modeUltraloopPlaceholder",
 	},
 ];
+
+/* ── Leading commands ─────────────────────────────────────────────────────── */
+
+/**
+ * The command names that stage a session mode when they lead the prompt. The
+ * ultraloop workflow's keyword form (`ultracode:`) and its slash alias both map
+ * to the same mode, so typing either renders the same lead chip as picking the
+ * mode from the ＋ menu.
+ */
+const MODE_COMMANDS: Readonly<Record<string, ModeId>> = {
+	goal: "goal",
+	plan: "plan",
+	ultraloop: "ultraloop",
+	ultracode: "ultraloop",
+};
+
+/** The mode a leading `command` name stages, or null for every other command. */
+export function modeFromCommand(command: string): ModeId | null {
+	return MODE_COMMANDS[command] ?? null;
+}
+
+/**
+ * The icon a leading command's chip shows. The three modes keep their own
+ * icons; the long tail gets one recognizable icon per command family, with a
+ * terminal-prompt icon as the default — the same command always looks the same.
+ */
+export function commandLeadIcon(command: string): IconName {
+	if (command.startsWith("skill:")) return "wrench";
+	if (command.startsWith("plugin")) return "puzzle";
+	switch (command) {
+		case "permissions":
+			return "shield";
+		case "btw":
+			return "question";
+		case "feedback":
+			return "thumbsUp";
+		default:
+			return "prompt";
+	}
+}

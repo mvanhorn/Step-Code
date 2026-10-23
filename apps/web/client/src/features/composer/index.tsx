@@ -24,6 +24,7 @@ import {
 	packageSessionContext,
 	type StagedPick,
 	sendMessage,
+	stageCommandLead,
 	syncStagedModeLead,
 	turnActive,
 	updateQueued,
@@ -129,7 +130,9 @@ export function Composer({ workspaceControl, branchControl }: ComposerProps) {
 			});
 		else removeModeLead(editor);
 	}, [activeModeMeta, t]);
-	const syncHasText = () => setHasText(Boolean(prompt.current && promptText(prompt.current).trim()));
+	const syncHasText = useCallback(() => {
+		setHasText(Boolean(prompt.current && promptText(prompt.current).trim()));
+	}, []);
 	const stopMode = status === "running" && !hasText;
 
 	const menu = (name: ComposerMenu) => ({
@@ -202,39 +205,42 @@ export function Composer({ workspaceControl, branchControl }: ComposerProps) {
 		[syncFileQuery, cwd],
 	);
 
-	const pickSlash = useCallback((item: SlashItem) => {
-		const editor = prompt.current;
-		if (!editor) return;
-		setQuery(null);
-		setPathQuery(null);
-		lastPathQuery.current = null;
-		setUi({ fileCompletionOpen: false });
-		if (item.kind === "mcp") {
-			// A status view, not a prompt: nothing is sent.
-			setPromptText(editor, "");
-			setHasText(false);
-			setUi({ slashMenu: "mcp" });
-			clearModes();
-		} else if (item.kind === "feedback") {
-			// The product's own feedback dialog, which POSTs to the same kernel
-			// submission the `/feedback` command uses. Nothing is sent as a prompt.
-			setPromptText(editor, "");
-			setHasText(false);
-			setUi({ slashMenu: null });
-			clearModes();
-			openFeedback();
-		} else {
-			// The kernel runs `/<command> [args]` and expands `/skill:<name> [request]`
-			// into the skill's instructions on send. Replacing the whole prompt also
-			// replaces the mode lead, so the mode goes with it.
-			setPromptText(editor, item.kind === "command" ? `/${item.key} ` : `/skill:${item.key} `);
-			setHasText(true);
-			setUi({ slashMenu: null });
-			clearModes();
-		}
-		editor.focus();
-		placeCaretAtEnd(editor);
-	}, []);
+	const pickSlash = useCallback(
+		(item: SlashItem) => {
+			const editor = prompt.current;
+			if (!editor) return;
+			setQuery(null);
+			setPathQuery(null);
+			lastPathQuery.current = null;
+			setUi({ fileCompletionOpen: false });
+			if (item.kind === "mcp") {
+				// A status view, not a prompt: nothing is sent.
+				setPromptText(editor, "");
+				setHasText(false);
+				setUi({ slashMenu: "mcp" });
+				clearModes();
+			} else if (item.kind === "feedback") {
+				// The product's own feedback dialog, which POSTs to the same kernel
+				// submission the `/feedback` command uses. Nothing is sent as a prompt.
+				setPromptText(editor, "");
+				setHasText(false);
+				setUi({ slashMenu: null });
+				clearModes();
+				openFeedback();
+			} else {
+				// The kernel runs `/<command> [args]` and expands `/skill:<name> [request]`
+				// into the skill's instructions on send. The pick becomes the prompt's
+				// lead chip — the same chip typing that command produces.
+				setPromptText(editor, "");
+				stageCommandLead(editor, item.kind === "command" ? `/${item.key}` : `/skill:${item.key}`);
+				syncHasText();
+				setUi({ slashMenu: null });
+			}
+			editor.focus();
+			placeCaretAtEnd(editor);
+		},
+		[syncHasText],
+	);
 
 	/** True from Enter until the prompt is cleared, so a second Enter while uploads finish sends nothing. */
 	const sending = useRef(false);

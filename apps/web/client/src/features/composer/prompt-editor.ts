@@ -19,6 +19,8 @@ const CHIP_CLASS = "prompt-file";
 const SVG_NS = "http://www.w3.org/2000/svg";
 /** The staged session mode's lead: an inline prefix chip at the line start. */
 export const MODE_LEAD_CLASS = "prompt-mode";
+/** Any other leading command's chip: serializes back to its exact command text. */
+export const COMMAND_LEAD_CLASS = "prompt-command";
 
 /** Uploads still running, by chip key: send waits for them so no chip is sent without its upload id. */
 const pendingUploads = new Map<string, Promise<void>>();
@@ -36,6 +38,8 @@ function serialize(parent: Node): string {
 			out += child.data.replace(/\u00a0/g, " ");
 		} else if (child instanceof HTMLElement) {
 			if (child.classList.contains(CHIP_CLASS)) out += chipText(child);
+			// A plain command chip is the inline rendering of the command text itself.
+			else if (child.classList.contains(COMMAND_LEAD_CLASS)) out += child.dataset.text ?? "";
 			// The staged mode's lead is the inline rendering of its command; the
 			// outgoing message gets that command from `modePrefix`, not the chip.
 			else if (child.classList.contains(MODE_LEAD_CLASS)) continue;
@@ -369,13 +373,97 @@ export function removeModeLead(root: HTMLElement): void {
 }
 
 /**
- * `:empty` cannot show the placeholder while the lead chip is the prompt's
- * only content, so the hint rides `data-empty` and renders after the chip.
+ * `data-empty` lets the placeholder render after the mode lead when the chip is
+ * the prompt's only content (the `:empty` rule cannot fire there).
  */
 export function refreshPlaceholderHint(root: HTMLElement): void {
 	const onlyLead = Boolean(root.querySelector(`.${MODE_LEAD_CLASS}`)) && !promptText(root).trim();
 	if (onlyLead) root.dataset.empty = "";
 	else delete root.dataset.empty;
+}
+
+/** What `insertCommandLead` renders: a non-mode command and the icon it shows. */
+export interface CommandLead {
+	/** The command as typed, without trailing space: `/feedback`, `/skill:foo`. */
+	readonly command: string;
+	readonly icon: string;
+}
+
+/**
+ * A plain leading command's chip: icon + the command text, at the line start
+ * like the mode lead. Unlike it, the chip serializes back to exactly its
+ * command text, so the message the kernel receives is unchanged.
+ */
+export function insertCommandLead(root: HTMLElement, lead: CommandLead): void {
+	root.querySelector(`.${COMMAND_LEAD_CLASS}`)?.remove();
+	const chip = document.createElement("span");
+	chip.className = COMMAND_LEAD_CLASS;
+	chip.contentEditable = "false";
+	chip.dataset.text = `${lead.command} `;
+	chip.title = lead.command;
+	const icon = document.createElementNS(SVG_NS, "svg");
+	icon.setAttribute("class", `icon icon--xs ${COMMAND_LEAD_CLASS}-icon`);
+	icon.setAttribute("aria-hidden", "true");
+	const use = document.createElementNS(SVG_NS, "use");
+	use.setAttribute("href", `#i-${lead.icon}`);
+	icon.append(use);
+	const label = document.createElement("span");
+	label.className = `${COMMAND_LEAD_CLASS}-label`;
+	label.textContent = lead.command;
+	chip.append(icon, label);
+	root.insertBefore(chip, root.firstChild ?? null);
+	root.insertBefore(document.createTextNode(" "), chip.nextSibling);
+	if (document.activeElement === root) {
+		const range = document.createRange();
+		range.setStart(chip.nextSibling ?? chip, chip.nextSibling ? 1 : 0);
+		range.collapse(true);
+		select(range);
+	}
+}
+
+/**
+ * The first text the user can still edit: in document order, not inside a file
+ * chip or either lead chip.
+ */
+function firstPromptTextNode(root: HTMLElement): Text | null {
+	const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+	for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+		const text = node as Text;
+		let outsideChips = true;
+		for (let el = text.parentElement; el && el !== root; el = el.parentElement) {
+			if (el.contentEditable === "false" || el.classList.contains(CHIP_CLASS)) {
+				outsideChips = false;
+				break;
+			}
+		}
+		if (outsideChips) return text;
+	}
+	return null;
+}
+
+/** A command complete enough to lead the message: `name` plus the space after it. */
+const LEADING_COMMAND = /^(\s*)(?:\/([A-Za-z0-9][\w.:-]*)|ultracode:)(\s)/;
+
+/**
+ * Take a completed leading command out of the prompt's text and report its
+ * name (slash commands without the slash; the keyword form as `ultracode`) —
+ * the caller turns it into the matching lead chip. Nothing else moves: the
+ * command must be the very first text (a command after a file chip or mid-text
+ * is not a command the kernel would run).
+ */
+export function stripLeadingCommand(root: HTMLElement): string | null {
+	const serialized = promptText(root).replace(/\u00a0/g, " ");
+	if (!/^\s*(?:\/[A-Za-z0-9]|ultracode:)/.test(serialized)) return null;
+	const node = firstPromptTextNode(root);
+	if (!node?.data) return null;
+	const match = LEADING_COMMAND.exec(node.data.replace(/\u00a0/g, " "));
+	if (!match) return null;
+	// Keep any leading spaces (they separate a mode chip), drop the command and one space.
+	const start = match[1].length;
+	const end = match[0].length;
+	node.data = node.data.slice(0, start) + node.data.slice(end);
+	if (!node.data) node.remove();
+	return match[2] ?? "ultracode";
 }
 
 /** A copy of the prompt's content, put back by `restorePrompt` when a send fails. */
