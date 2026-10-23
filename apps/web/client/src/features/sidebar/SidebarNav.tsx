@@ -18,7 +18,7 @@ export function BrandRow() {
 				<span className="brand-mark" aria-hidden="true">
 					S
 				</span>
-				<strong>StepCode</strong>
+				<strong>Step Code</strong>
 			</div>
 			<IconButton
 				id="sidebarToggle"
