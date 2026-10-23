@@ -168,17 +168,21 @@ export STEPCODE_ROOM_RENDEZVOUS_URL=https://<your-rendezvous-host>
 
 - 飞书要求建群调用方在群内
 - “主动加入群”只支持公开群，私有群进不去
-- 需要 `owner_id` 指向自然人，所以**这一步要用用户身份**（`user_access_token`），不能纯 bot
+- `owner_id` 指向自然人，但**不需要用户身份**：租户应用令牌加上应用拥有者的 open_id 即可
 
 请求要点：
 
-- `bot_id_list = [B 的 App ID]`（是 `cli_xxx`，不是 open_id）
-- `user_id_list = [A 的 open_id, B 的 open_id]`
+- `bot_id_list = [A 的 App ID, B 的 App ID]`（是 `cli_xxx`，不是 open_id，且租户级通用）
+- `user_id_list = [A 的 open_id]`——**只放发起方自己**
 - `owner_id = A 的自然人 open_id`
 - `restricted_mode_setting.status = false`（保密模式会让消息读不到）
+
+**对方的 open_id 不能放进这个请求。** open_id 按应用隔离，A 的令牌解析不了 B 应用下的 open_id，会直接报 `99992361 open_id cross app`。群成员的正确构成是「发起方本人 + 双方 bot」，对方通过自己那只 bot 进入对话。详见调研 §12.7。
 - `uuid = 房间 ID`（10 小时内去重，避免重复点创建建出两个群）
 
-**建群后必须再查一次成员列表**：`+chat-create` 的成功不保证 bot 真的进群了（实测教训，见调研 §12.1）。
+**成员校验只能尽力而为。** launcher 模板不含任何 chat 读权限，`chatMembers` 会返回 `99991672`；且 SDK 的分页封装不抛错，而是交出没有 `items` 字段的空壳页。因此“读不到”与“读到了但没有”必须区分对待，只有真正拿到列表才能断言成员缺失。
+
+**加入方怎么知道群 id。** B 是被拉进群的，不是建群者，理论上应通过 `im.chat.member.bot.added_v1` 得知。实测该事件在 launcher 模板下不送达，所以加入方改为从「发给自己的第一条消息」自举绑定：消息本身携带 `chat_id`，且只对正在等待的那个群生效。代价是 B 的界面在第一条消息到达前一直显示等待。
 
 ### 6.4 绑定建立
 
