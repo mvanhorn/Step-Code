@@ -50,6 +50,8 @@ Each line of the bundle's `events.jsonl` keeps the entry it always had and gains
 
 A tool result row gets `elapsedMs` (call issued → result recorded) only when the batch had a single call; a parallel batch shares one start, so a per-call duration would be invented. Rows with nothing to add keep their exact original bytes.
 
+`turn` numbers the user messages **in this file**, including turns the user later rewound (the file keeps them); `sessionSummary.counts.turns` counts the live branch only. The two can differ by design, and the difference is itself a useful signal that the user navigated back before filing. Tool-output names come from that transcript, so the archive carries them even when the transcript is only a head-and-tail excerpt.
+
 Sources: the token figures and cache reads are the message's own `usage`, which the session already records per assistant message — the bundle copy just derives the rate and puts it on the row. Timing, `requestId` and `outcome` are joined from the `step.usage_provenance` entry written directly after that message (`usageEntryId`); thinking time from `stepcode-web.thinking-timing`. The join runs in two passes because those entries follow the message they describe.
 
 **Size.** Only the bundle copy is annotated; the session file on disk is never rewritten. Measured on real sessions: +2.2% uncompressed, +1.2–1.8% gzipped. The transcript bound (24 MiB) applies to the pre-annotation excerpt, and the annotated copy is re-bounded if it would exceed it.

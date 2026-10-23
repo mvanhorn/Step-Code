@@ -592,6 +592,9 @@ function createSummary(options: FeedbackSummaryOptions): {
 			const runtime = options.runtime;
 			const contextWindow = runtime?.contextWindow ?? state.request?.contextWindow;
 			const model = state.model ?? requestModelOf(state.request);
+			// An empty object reads as "the host supplied nothing to say" and is only
+			// noise in a report.
+			const facts = runtime ? runtimeFacts(runtime, contextWindow) : undefined;
 			return {
 				...(model ? { model } : {}),
 				...(state.thinkingLevel ? { thinkingLevel: state.thinkingLevel } : {}),
@@ -604,7 +607,7 @@ function createSummary(options: FeedbackSummaryOptions): {
 				},
 				compactions,
 				...(compactionTotals.passes > 0 ? { compactionTotals: { ...compactionTotals } } : {}),
-				...(runtime ? { runtime: runtimeFacts(runtime, contextWindow) } : {}),
+				...(facts && Object.keys(facts).length > 0 ? { runtime: facts } : {}),
 				...(state.thinkingMs && state.thinkingMs > 0 ? { thinkingMs: state.thinkingMs } : {}),
 				recentErrors,
 				lastTurnTools: lastTurnTools.slice(-LAST_TURN_TOOL_LIMIT).map(({ name, isError }) => ({ name, isError })),

@@ -494,6 +494,10 @@ describe("feedback session summary", () => {
 		expect(collapseHomePaths("/Users/bob/code/app", "/Users/bob")).toBe("~/code/app");
 		expect(collapseHomePaths("/Users/bob2/code/app", "/Users/bob")).toBe("/Users/bob2/code/app");
 		expect(collapseHomePaths("see /Users/bob and /Users/bob/x", "/Users/bob")).toBe("see ~ and ~/x");
+		// A home directory that is a symlinked prefix of the resolved path must not
+		// match inside it; the result would be a corrupted path in the report.
+		expect(collapseHomePaths("/private/var/tmp/project", "/var/tmp/project")).toBe("/private/var/tmp/project");
+		expect(collapseHomePaths("cwd=/Users/bob/w", "/Users/bob")).toBe("cwd=~/w");
 	});
 });
 
