@@ -674,10 +674,14 @@ try {
 		const feedbackSettingsManager =
 			currentStepSettingsManager ?? createStepSettingsManager(process.cwd(), resolveStepAgentDir());
 		const feedbackIdentity = readCurrentFeedbackIdentity();
+		const permissionPreset = feedbackSettingsManager.getStepPermissionPreset();
 		const exitCode = await runFeedbackCommand(process.argv.slice(3), {
 			storageRootDir: resolveStepStorageRoot(process.env),
 			...(feedbackIdentity.uid ? { uid: feedbackIdentity.uid } : {}),
 			...(feedbackIdentity.username ? { username: feedbackIdentity.username } : {}),
+			// The session file does not record the permission tier; a blocked
+			// command is the first thing an investigator checks.
+			runtime: permissionPreset ? { permissionPreset } : {},
 			telemetry: telemetryReporter,
 			settings: feedbackSettingsManager,
 			env: process.env,
