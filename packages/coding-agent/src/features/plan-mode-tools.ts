@@ -41,7 +41,7 @@ export interface StepPlanModeController {
 	 */
 	enterPlanMode(extensionContext: ExtensionContext): string;
 	/**
-	 * Leave plan mode: restore tools, persist state, record telemetry.
+	 * Leave plan mode: restore any tools plan mode added, persist state, record telemetry.
 	 * `submittedPlanHash` records a proposal handed to an external reviewer.
 	 */
 	exitPlanMode(outcome: StepPlanExitOutcome, extensionContext: ExtensionContext, submittedPlanHash?: string): void;
