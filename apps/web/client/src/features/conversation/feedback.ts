@@ -60,8 +60,6 @@ export interface FeedbackPreview {
 	readonly archive?: readonly FeedbackPreviewFile[];
 	/** Why the archive is absent, when the kernel skipped it. */
 	readonly archiveNote?: string;
-	/** What the archive holds, in the kernel's own words. */
-	readonly archiveDetail?: string;
 }
 
 /**
@@ -172,7 +170,15 @@ export async function submitFeedback(): Promise<void> {
 		// Legacy used the default (danger) toast tone here too.
 		showError(result.message || t("feedbackSubmitted"));
 	} catch (error) {
-		showError(errorMessage(error));
+		const message = errorMessage(error);
+		// The prepared evidence expired or was cleared (a fork, a `/new`). The
+		// dialog closed on the user's behalf only because the report could not be
+		// sent as reviewed; offer them a fresh review instead of a dead end.
+		if (/expired before sending/i.test(message)) {
+			feedbackStore.setState({ submitting: false });
+			openFeedback(feedback.sentiment ?? undefined, feedback.comment);
+		}
+		showError(message);
 	} finally {
 		feedbackStore.setState({ submitting: false });
 	}

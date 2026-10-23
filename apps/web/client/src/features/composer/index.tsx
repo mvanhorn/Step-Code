@@ -231,14 +231,17 @@ export function Composer({ workspaceControl, branchControl }: ComposerProps) {
 			// `/feedback` needs a dialog, not a turn: opening the product's feedback
 			// dialog keeps one submission path and sends no prompt. A comment typed
 			// after it rides along, so both spellings file the same report with the
-			// same evidence instead of the kernel running its own wizard.
-			const feedbackText = /^\/feedback(?:\s+([\s\S]+))?$/u.exec(text)?.[1]?.trim();
-			if (feedbackText !== undefined) {
+			// same evidence instead of the kernel running its own wizard. The match
+			// has to be tested on the whole command: a bare `/feedback` has no
+			// capture group, and reading the group alone would fall through to the
+			// kernel.
+			const feedbackCommand = /^\/feedback(?:\s+([\s\S]+))?$/u.exec(text);
+			if (feedbackCommand) {
 				setPromptText(editor, "");
 				setHasText(false);
 				setQuery(null);
 				setUi({ slashMenu: null });
-				openFeedback(undefined, feedbackText);
+				openFeedback(undefined, feedbackCommand[1]?.trim() ?? "");
 				return;
 			}
 			/*

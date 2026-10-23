@@ -146,9 +146,11 @@ function FeedbackAttachments() {
 						<span>{t("feedbackDiagnostics")}</span>
 					</li>
 				) : null}
-				<li id="feedbackSummary">
-					<span>{t("feedbackSummary")}</span>
-				</li>
+				{preview.summary ? (
+					<li id="feedbackSummary">
+						<span>{t("feedbackSummary")}</span>
+					</li>
+				) : null}
 			</ul>
 			{preview.archive?.map((file) => (
 				<p className="feedback-attachments-file" key={file.name}>

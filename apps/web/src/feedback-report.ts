@@ -15,7 +15,7 @@
 
 import { randomUUID } from "node:crypto";
 import type { FeedbackEvidence } from "@step-harness/coding-agent";
-import { describeFeedbackBundle, formatFeedbackBundleSkipMessage } from "@step-harness/coding-agent";
+import { formatFeedbackBundleSkipMessage } from "@step-harness/coding-agent";
 
 /** One archived file, with the bound or truncation the kernel applied to it. */
 export interface WebFeedbackArchiveFile {
@@ -37,8 +37,6 @@ export interface WebFeedbackPreview {
 	readonly archive?: readonly WebFeedbackArchiveFile[];
 	/** Why the archive is absent, when the kernel skipped it. */
 	readonly archiveNote?: string;
-	/** What the archive holds, in the kernel's own words (contents and redaction). */
-	readonly archiveDetail?: string;
 }
 
 export interface WebFeedbackDraft {
@@ -84,10 +82,6 @@ export class FeedbackDrafts {
 		return { token, preview };
 	}
 
-	previewOf(token: string): WebFeedbackPreview | undefined {
-		return this.drafts.get(token)?.preview;
-	}
-
 	/**
 	 * Take the evidence a preview prepared, or `undefined` when the token is
 	 * unknown or stale. Taking (not reading) keeps one preview from paying for
@@ -101,8 +95,9 @@ export class FeedbackDrafts {
 		return draft.evidence;
 	}
 
-	drop(token: string): void {
-		this.drafts.delete(token);
+	/** Forget every prepared report: they belong to one conversation branch. */
+	clear(): void {
+		this.drafts.clear();
 	}
 
 	private prune(): void {
@@ -142,7 +137,6 @@ export function describeFeedbackEvidence(input: {
 						bytes: file.bytes,
 						...(file.note ? { note: file.note } : {}),
 					})),
-					archiveDetail: describeFeedbackBundle(archive),
 				}
 			: {}),
 		// No bundle at all means the host resolved no bundle endpoint, so nothing

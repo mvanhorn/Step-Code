@@ -1895,7 +1895,6 @@ paths:
                             bytes: { type: integer }
                             note: { type: string, description: "Bound or truncation the kernel applied" }
                       archiveNote: { type: string, description: "Why the archive is absent, when it was skipped" }
-                      archiveDetail: { type: string, description: "What the archive holds, in the kernel's words" }
   /api/v1/sessions/{id}/feedback:
     post:
       description: >-

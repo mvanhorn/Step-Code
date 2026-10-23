@@ -26,6 +26,7 @@ import {
 	type FeedbackEvidence,
 	FULL_ACCESS_RISK_OPTIONS,
 	findInitialModel,
+	formatFeedbackBundleFailureDetails,
 	formatFeedbackBundleSkipMessage,
 	formatFeedbackPendingDetails,
 	getStepAuthPath,
@@ -46,6 +47,7 @@ import {
 	readGlobalStepDefaults,
 	readStepBuildIdentity,
 	resolveFeedbackEndpoint,
+	resolveFeedbackSettings,
 	resolveStepAgentDir,
 	resolveStepConfigDir,
 	resolveStepConfigRoot,
@@ -938,6 +940,10 @@ export class WebSession {
 		// guard already ignores them. Dismiss them so the new session starts clean.
 		this.selections.clear();
 		this.textInputs.clear();
+		// A prepared report describes the conversation it was prepared from. After
+		// a fork or `/new` that is a different branch and a different file, so a
+		// token from before the rebind must not submit it under the new id.
+		this.feedbackDrafts.clear();
 		this.livePermission = undefined;
 		// Keep the advertised id in step with the session actually bound, so a
 		// fork or /new does not leave the UI pointing at the previous session.
@@ -1400,7 +1406,7 @@ export class WebSession {
 	async prepareFeedback(): Promise<WebFeedbackDraft> {
 		// Refuse before preparing anything: building an archive for a report that
 		// cannot be delivered would read the session file for nothing.
-		if (!resolveFeedbackEndpoint()) throw new Error("Feedback is not configured for this build.");
+		this.assertFeedbackEnabled();
 		return this.feedbackDrafts.keep(await this.prepareFeedbackEvidence());
 	}
 
@@ -1424,6 +1430,11 @@ export class WebSession {
 		if (!endpoint) {
 			return { ok: false, message: "Feedback is not configured for this build." };
 		}
+		// An opt-out is a decision about sending anything at all, not just about
+		// the dialog: refuse here too, so a caller that skipped the preview cannot
+		// file a report the user disabled.
+		const disabled = this.feedbackDisabledReason();
+		if (disabled) return { ok: false, message: disabled };
 		const category = feedbackCategoryFor(input.sentiment, input.topic);
 		// The topic table is a copy of a kernel contract; fail loudly if it drifts
 		// rather than letting the kernel reject the submission downstream.
@@ -1434,9 +1445,17 @@ export class WebSession {
 		const topic = input.topic?.trim();
 		const comment = topic ? `[${topic}] ${input.comment.trim()}` : input.comment.trim();
 		const bundleEndpoint = resolveFeedbackEndpoint(process.env, true);
-		// Send exactly what the dialog showed; a stale or absent token re-prepares.
-		const evidence =
-			(input.token ? this.feedbackDrafts.take(input.token) : undefined) ?? (await this.prepareFeedbackEvidence());
+		// Send exactly what the dialog showed. A token that no longer names
+		// prepared evidence (expired, consumed, or cleared by a rebind) must not
+		// silently send freshly prepared evidence the user never reviewed.
+		const prepared = input.token ? this.feedbackDrafts.take(input.token) : undefined;
+		if (input.token && !prepared) {
+			return {
+				ok: false,
+				message: "The report details expired before sending. Reopen the dialog to review them again.",
+			};
+		}
+		const evidence = prepared ?? (await this.prepareFeedbackEvidence());
 		const bundle = evidence.bundle;
 		const result = await submitKernelFeedback({
 			category: normalized,
@@ -1467,11 +1486,18 @@ export class WebSession {
 			};
 		}
 		// A skipped archive is not a failed report, but the user who was shown a
-		// file list must learn which part of it never left the machine.
-		const skipNote = bundle?.status === "skipped" ? ` ${formatFeedbackBundleSkipMessage(bundle)}` : "";
+		// file list must learn which part of it never left the machine. The same
+		// holds for an archive whose upload failed after the body was accepted: the
+		// kernel keeps it beside the pending body for `step feedback --retry`.
+		const bundleNote =
+			bundle?.status === "skipped"
+				? ` ${formatFeedbackBundleSkipMessage(bundle)}`
+				: result.outcome.status === "delivered" && result.outcome.bundle?.status === "pending"
+					? ` ${formatFeedbackBundleFailureDetails(result.outcome.bundle)}`
+					: "";
 		return {
 			ok: true,
-			message: `Submitted. Feedback ID: ${result.submission.feedbackId}${skipNote}`,
+			message: `Submitted. Feedback ID: ${result.submission.feedbackId}${bundleNote}`,
 			feedbackId: result.submission.feedbackId,
 		};
 	}
@@ -1498,6 +1524,24 @@ export class WebSession {
 				mcpServerNames: mcpStatuses().map((status) => status.name),
 			},
 		});
+	}
+
+	/** Why this host will not file a report, or undefined when it will. */
+	private feedbackDisabledReason(): string | undefined {
+		const settings = resolveFeedbackSettings({
+			env: process.env,
+			settings: (this.session.settingsManager as StepSettingsManager).getStepSettings(),
+		});
+		if (settings.enabled) return undefined;
+		return settings.reason === "env-opt-out"
+			? "Feedback is disabled by environment settings."
+			: "Feedback is disabled in Step settings.";
+	}
+
+	private assertFeedbackEnabled(): void {
+		const disabled = this.feedbackDisabledReason();
+		if (disabled) throw new Error(disabled);
+		if (!resolveFeedbackEndpoint()) throw new Error("Feedback is not configured for this build.");
 	}
 
 	/** Which product filed the report; Desktop runs this same host under Electron. */
@@ -1797,6 +1841,8 @@ export class WebSession {
 		this.clarifications.clear();
 		this.selections.clear();
 		this.textInputs.clear();
+		// A prepared archive is up to 8 MiB; a closed session must not keep it.
+		this.feedbackDrafts.clear();
 		this.broker.clear();
 		this.unsubscribeSession?.();
 		await this.runtime.dispose();

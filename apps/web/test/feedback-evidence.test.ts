@@ -132,6 +132,7 @@ const ENVIRONMENT_KEYS = [
 	"STEPCODE_STORAGE_ROOT_DIR",
 	"STEPCODE_FEEDBACK_ENDPOINT",
 	"STEPCODE_FEEDBACK_BUNDLE_ENDPOINT",
+	"STEPCODE_DISABLE_FEEDBACK",
 	"STEP_API_KEY",
 	"STEPCODE_STEPGO_IMPORT",
 ] as const;
@@ -203,7 +204,7 @@ test("a report carries the session evidence, the archive and this host's surface
 			draft.preview.archive?.some((file) => file.name === "events.jsonl"),
 			"the transcript archive is not prepared",
 		);
-		assert.ok(draft.preview.archiveDetail?.includes("session"), "the archive description is missing");
+		assert.ok(draft.preview.archive?.length, "the archive names no files");
 
 		const result = await session.submitFeedback({
 			sentiment: "down",
@@ -318,6 +319,72 @@ test("feedback without an endpoint is refused and nothing is prepared", { timeou
 	} finally {
 		await store.interruptAndClose().catch(() => {});
 		await fixture.stop();
+		await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+		restoreEnvironment(previous);
+	}
+});
+
+test("a token that no longer names prepared evidence is refused, not re-prepared", { timeout: 60_000 }, async () => {
+	const previous = snapshotEnvironment();
+	const fixture = await startFixture();
+	const collector = await startCollector();
+	const home = await startHome(fixture.baseUrl);
+	const store = new WebSessionStore();
+	try {
+		isolate(home);
+		process.env.STEPCODE_FEEDBACK_ENDPOINT = collector.endpoint;
+		delete process.env.STEPCODE_FEEDBACK_BUNDLE_ENDPOINT;
+
+		const session = await store.create(home);
+		const draft = await session.prepareFeedback();
+		// A second submission consumes the first: one preview, one report.
+		const first = await session.submitFeedback({ sentiment: "up", comment: "one", token: draft.token });
+		assert.equal(first.ok, true, first.message);
+		const replay = await session.submitFeedback({ sentiment: "up", comment: "two", token: draft.token });
+		assert.equal(replay.ok, false, "the same preview paid for two reports");
+		assert.match(replay.message, /expired before sending/i, replay.message);
+		assert.equal(collector.bodies.length, 1, "unreviewed evidence was sent after the preview expired");
+
+		// A fork rebinds this object to another branch and another file: a token
+		// prepared before it must not carry the parent's conversation into the child.
+		await session.send("fork me");
+		await waitForIdle(session);
+		const bound = await session.prepareFeedback();
+		await session.fork();
+		const afterRebind = await session.submitFeedback({ sentiment: "up", comment: "three", token: bound.token });
+		assert.equal(afterRebind.ok, false, "a token from the parent branch was accepted after a fork");
+	} finally {
+		await store.interruptAndClose().catch(() => {});
+		await fixture.stop();
+		await collector.stop();
+		await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+		restoreEnvironment(previous);
+	}
+});
+
+test("a configured opt-out refuses the report on this surface too", { timeout: 60_000 }, async () => {
+	const previous = snapshotEnvironment();
+	const fixture = await startFixture();
+	const collector = await startCollector();
+	const home = await startHome(fixture.baseUrl);
+	const store = new WebSessionStore();
+	try {
+		isolate(home);
+		process.env.STEPCODE_FEEDBACK_ENDPOINT = collector.endpoint;
+		delete process.env.STEPCODE_FEEDBACK_BUNDLE_ENDPOINT;
+		// The documented opt-out (docs/feedback-report.md, "Consent") has to hold
+		// on the surface that owns the dialog, not only in the terminal.
+		process.env.STEPCODE_DISABLE_FEEDBACK = "1";
+
+		const session = await store.create(home);
+		await assert.rejects(() => session.prepareFeedback(), /disabled by environment settings/i);
+		const result = await session.submitFeedback({ sentiment: "up", comment: "hello" });
+		assert.deepEqual(result, { ok: false, message: "Feedback is disabled by environment settings." });
+		assert.equal(collector.bodies.length, 0, "a disabled host still sent a report");
+	} finally {
+		await store.interruptAndClose().catch(() => {});
+		await fixture.stop();
+		await collector.stop();
 		await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
 		restoreEnvironment(previous);
 	}

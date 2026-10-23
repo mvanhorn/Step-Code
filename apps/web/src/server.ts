@@ -988,7 +988,7 @@ const server = createServer(async (request, response) => {
 				await session.refreshModels();
 				return json(response, 200, session.snapshot());
 			}
-			if (parts[4] === "feedback" && parts[5] === "evidence" && method === "GET") {
+			if (parts[4] === "feedback" && parts[5] === "evidence" && parts.length === 6 && method === "GET") {
 				// The consent dialog reads this before it offers to send anything: it
 				// names the evidence the submission will carry, and prepares it once.
 				try {
