@@ -73,7 +73,7 @@ export type ThemeChoice = "system" | "light" | "dark" | "violet";
 export type ConversationView = "project" | "group";
 export type ModeId = "goal" | "plan" | "ultraloop";
 export type DirectoryPickerMode = "native" | "browse";
-export type RightPanelId = "summary" | "context" | "changes" | "files" | "subagent" | "browser";
+export type RightPanelId = "summary" | "context" | "goal" | "changes" | "files" | "subagent" | "browser";
 
 /** Lazy file tree of one workspace (legacy `state.tree`). */
 export interface TreeState {

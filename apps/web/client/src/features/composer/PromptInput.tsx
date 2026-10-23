@@ -19,7 +19,7 @@ import { errorMessage } from "../../lib/api";
 import { useImeGuard } from "../../lib/ime";
 import { showError } from "../../state/session";
 import { getState, useAppStore } from "../../state/store";
-import { addAttachments, uploadFile } from "./actions";
+import { addAttachments, applyLeadingCommand, uploadFile } from "./actions";
 import { FileDropOverlay } from "./FileDropOverlay";
 import {
 	insertFileChip,
@@ -28,6 +28,7 @@ import {
 	placeCaretAtEnd,
 	placeCaretAtPoint,
 	promptText,
+	refreshPlaceholderHint,
 	tidyEmptyPrompt,
 } from "./prompt-editor";
 
@@ -102,7 +103,10 @@ export function PromptInput({
 	const changed = useCallback(() => {
 		const root = promptRef.current;
 		if (!root) return;
+		// A completed leading command becomes its chip before anyone reads the prompt.
+		applyLeadingCommand(root);
 		tidyEmptyPrompt(root);
+		refreshPlaceholderHint(root);
 		onValueInput?.(promptText(root));
 	}, [promptRef, onValueInput]);
 

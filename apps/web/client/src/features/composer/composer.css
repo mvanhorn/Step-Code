@@ -87,6 +87,16 @@
 	color: var(--ink-3);
 	pointer-events: none;
 }
+/*
+ * With the mode lead as the prompt's only content the editor is not `:empty`,
+ * so the placeholder rides `data-empty` (refreshed by the editor helpers) and
+ * renders after the chip, where the typed text will start.
+ */
+.prompt-editor[data-empty]:not(:empty)::after {
+	content: attr(data-placeholder);
+	color: var(--ink-3);
+	pointer-events: none;
+}
 .prompt-editor[aria-disabled="true"] {
 	cursor: not-allowed;
 	opacity: 0.6;
@@ -1146,6 +1156,169 @@ form:has(#prompt:empty):not(:has(.attachment-chip)) #sendButton:not(:disabled) {
 	color: var(--ink-2);
 }
 
+/*
+ * ===== 模式主题（暂存模式的专属展示） =====
+ *
+ * 每种模式一个固定强调色（token 定义在 styles/global.css 的 --mode-*，与
+ * 对话流的命令回显行共用）：goal 绿（目标达成）、plan 靛（先谋后动）、
+ * ultraloop 品红（多智能体循环）。卡片、模式 chip、＋菜单的模式行和
+ * goal/plan 常驻条都从这里取色。
+ */
+.composer-card[data-mode="goal"] {
+	--mode-accent: var(--mode-goal);
+}
+.composer-card[data-mode="plan"] {
+	--mode-accent: var(--mode-plan);
+}
+.composer-card[data-mode="ultraloop"] {
+	--mode-accent: var(--mode-ultraloop);
+}
+/*
+ * 模式暂存期间，输入卡片整卡染色：描边和投影带模式色，一眼可辨当前模式；
+ * 聚焦时比常态更亮一档（覆盖 .composer-card:focus-within 的中性描边）。
+ */
+.composer-card[data-mode] {
+	border-color: color-mix(in srgb, var(--mode-accent) 55%, var(--line-strong));
+	box-shadow:
+		0 0 0 1px color-mix(in srgb, var(--mode-accent) 22%, transparent),
+		0 7px 24px color-mix(in srgb, var(--mode-accent) 16%, rgb(0 0 0 / 7%));
+}
+.composer-card[data-mode]:focus-within {
+	border-color: color-mix(in srgb, var(--mode-accent) 70%, var(--focus-border));
+}
+/*
+ * 流光描边：一圈模式色高光沿卡片边框循环掠过（mask 只留 1px 边框环，不遮内
+ * 容、不挡点击）。prefers-reduced-motion 时被全局规则停用，只剩静态描边。
+ */
+.composer-card[data-mode]::before {
+	content: "";
+	position: absolute;
+	inset: -1px;
+	border-radius: inherit;
+	padding: 1px;
+	background: linear-gradient(
+		115deg,
+		transparent 0 45%,
+		color-mix(in srgb, var(--mode-accent) 90%, white 10%) 50%,
+		transparent 55% 100%
+	);
+	background-size: 300% 100%;
+	-webkit-mask:
+		linear-gradient(#fff 0 0) content-box,
+		linear-gradient(#fff 0 0);
+	-webkit-mask-composite: xor;
+	mask:
+		linear-gradient(#fff 0 0) content-box,
+		linear-gradient(#fff 0 0);
+	mask-composite: exclude;
+	animation: mode-border-sweep 3s linear infinite;
+	pointer-events: none;
+}
+@keyframes mode-border-sweep {
+	from {
+		background-position: 100% 0;
+	}
+	to {
+		background-position: 0% 0;
+	}
+}
+/*
+ * 命令前缀 chip：暂存模式（`.prompt-mode`，三色主题+动效）与普通命令
+ * （`.prompt-command`，中性紫、静态）都是 #prompt 行首的行内渲染——退格即
+ * 删；模式 chip 不产生文本（发送由 modePrefix 补命令），普通命令 chip 序列
+ * 化回它的命令文本，内核收到的消息不变。
+ */
+.prompt-mode,
+.prompt-command {
+	--lead-accent: var(--ink-3);
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	margin: 0 2px;
+	padding: 1px 7px;
+	vertical-align: baseline;
+	border: 1px solid color-mix(in srgb, var(--lead-accent) 35%, transparent);
+	border-radius: var(--radius-chip);
+	background: color-mix(in srgb, var(--lead-accent) 10%, transparent);
+	color: var(--lead-accent);
+	font-weight: 500;
+	white-space: nowrap;
+	user-select: all;
+	cursor: default;
+}
+.prompt-mode {
+	--lead-accent: var(--mode-accent, var(--ink-3));
+}
+.prompt-command {
+	--lead-accent: var(--command-accent);
+}
+.prompt-mode-icon,
+.prompt-command-icon {
+	display: inline-flex;
+}
+.prompt-mode[data-mode="goal"] .prompt-mode-icon {
+	animation: mode-icon-breathe 2.4s ease-in-out infinite;
+}
+.prompt-mode[data-mode="ultraloop"] .prompt-mode-icon {
+	animation: mode-icon-spin 3.6s linear infinite;
+}
+.prompt-mode[data-mode="plan"] .prompt-mode-label {
+	background: linear-gradient(
+		100deg,
+		currentColor 0 42%,
+		color-mix(in srgb, currentColor 40%, var(--ink)) 50%,
+		currentColor 58% 100%
+	);
+	background-size: 300% 100%;
+	-webkit-background-clip: text;
+	background-clip: text;
+	-webkit-text-fill-color: transparent;
+	animation: mode-label-sweep 2.4s linear infinite;
+}
+@keyframes mode-icon-breathe {
+	0%,
+	100% {
+		opacity: 0.8;
+		transform: scale(1);
+	}
+	50% {
+		opacity: 1;
+		transform: scale(1.12);
+	}
+}
+@keyframes mode-icon-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+@keyframes mode-label-sweep {
+	from {
+		background-position: 100% 0;
+	}
+	to {
+		background-position: 0% 0;
+	}
+}
+/*
+ * ＋ 菜单的模式行：图标常显模式色（选没选都看得见主题），选中的标题也染
+ * 上，和模式 chip、卡片特效互相呼应。
+ */
+.control-option--goal {
+	--mode-accent: var(--mode-goal);
+}
+.control-option--plan {
+	--mode-accent: var(--mode-plan);
+}
+.control-option--ultraloop {
+	--mode-accent: var(--mode-ultraloop);
+}
+.control-option--mode .control-option-icon {
+	color: var(--mode-accent);
+}
+.control-option--mode[aria-selected="true"] .control-option-title {
+	color: var(--mode-accent);
+}
+
 /* ===== ＋ 菜单的更多行与二级面板（PlusMenu / PlusSubPanels） ===== */
 /*
  * `.control-popover` clips (overflow-y:auto computes overflow-x to auto), which
@@ -1324,98 +1497,8 @@ form:has(#prompt:empty):not(:has(.attachment-chip)) #sendButton:not(:disabled) {
 }
 
 /*
- * `.goal-strip`: the running goal, docked on the composer's top edge exactly
- * like `.queue-dock` (same inset, square bottom, same row height), because the
- * two stack above the same card. A goal outlives the message that started it,
- * so it carries pause / edit / delete instead of riding a one-shot chip.
- */
-.goal-strip {
-	position: relative;
-	z-index: 1;
-	display: flex;
-	align-items: center;
-	gap: 10px;
-	margin: 0 14px -1px;
-	padding: 4px 6px 4px 12px;
-	border: 1px solid var(--line);
-	border-bottom: 0;
-	border-radius: var(--radius-panel) var(--radius-panel) 0 0;
-	background: var(--surface-soft);
-	color: var(--ink);
-	font-size: 13px;
-}
-.goal-strip[hidden] {
-	display: none;
-}
-.goal-strip-lead {
-	flex: none;
-	color: var(--ink-3);
-}
-.goal-strip-body {
-	display: flex;
-	align-items: baseline;
-	gap: 8px;
-	flex: 1 1 auto;
-	min-width: 0;
-	min-height: var(--control-h-lg);
-}
-.goal-strip-title {
-	flex: none;
-	font-weight: 500;
-}
-.goal-strip-objective {
-	min-width: 0;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-	color: var(--ink-2);
-}
-.goal-strip-status {
-	flex: none;
-	color: var(--ink-3);
-}
-.goal-strip-editor {
-	flex: 1 1 auto;
-	min-width: 0;
-	height: var(--input-h);
-	padding: 0 8px;
-	border: 1px solid var(--line-strong);
-	border-radius: var(--radius-input);
-	background: var(--surface);
-	color: var(--ink);
-	font: inherit;
-	font-size: 13px;
-}
-.goal-strip-editor:focus {
-	border-color: var(--focus-border);
-	outline: none;
-}
-.goal-strip-actions {
-	display: flex;
-	align-items: center;
-	gap: 2px;
-	flex: none;
-}
-.goal-strip-text {
-	padding: 0 8px;
-	border-radius: var(--radius-chip);
-	color: var(--ink-2);
-	font-size: 13px;
-	line-height: 20px;
-}
-.goal-strip-text:hover {
-	background: var(--surface);
-	color: var(--ink);
-}
-.goal-strip-text:disabled {
-	cursor: default;
-	opacity: 0.55;
-}
-
-/*
- * `.plan-strip`: plan mode, docked exactly like `.goal-strip` (same inset and
- * square bottom): it stands on the card's top edge, and a goal strip, when one
- * exists, sits above it.
+ * `.plan-strip`: plan mode, docked on the composer's top edge exactly like the
+ * queue dock (same inset and square bottom): it stands on the card's top edge.
  */
 .plan-strip {
   position: relative;
@@ -1439,7 +1522,8 @@ form:has(#prompt:empty):not(:has(.attachment-chip)) #sendButton:not(:disabled) {
   display: inline-flex;
   flex: none;
   align-items: center;
-  color: var(--ink-3);
+  /* Plan's own mode colour, matching the staged-mode chip and card glow. */
+  color: var(--mode-plan);
 }
 .plan-strip-label {
   flex: none;

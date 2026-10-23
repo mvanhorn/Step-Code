@@ -24,24 +24,27 @@ import {
 	packageSessionContext,
 	type StagedPick,
 	sendMessage,
+	stageCommandLead,
+	syncStagedModeLead,
 	turnActive,
 	updateQueued,
 } from "./actions";
-import { ClarificationPanel } from "./ClarificationPanel";
 import { FileMenu, type FileMenuHandle } from "./FileMenu";
 import { type FileQuery, fileCompletionText, sameFileQuery } from "./file-completion";
-import { GoalStrip } from "./GoalStrip";
 import { ModelMenu } from "./ModelMenu";
+import { MODES } from "./modes";
 import { PerformanceBar } from "./PerformanceBar";
 import { PlanStrip } from "./PlanStrip";
-import { MODES, PlusMenu } from "./PlusMenu";
+import { PlusMenu } from "./PlusMenu";
 import { PolicyMenu } from "./PolicyMenu";
 import { PromptInput } from "./PromptInput";
 import {
+	insertModeLead,
 	placeCaretAtEnd,
 	promptFileQuery,
 	promptFiles,
 	promptText,
+	removeModeLead,
 	replaceFileQuery,
 	restorePrompt,
 	setPromptText,
@@ -52,6 +55,9 @@ import { QueueDock } from "./QueueDock";
 import { type SlashItem, SlashMenu, type SlashMenuHandle, slashQuery } from "./SlashMenu";
 
 export { ImagePreview } from "./ImagePreview";
+// The conversation's command-echo rows reuse the composer's command icon map
+// and mode metadata, so a command looks the same in the flow as at the prompt.
+export { commandLeadIcon, MODES, modeFromCommand } from "./modes";
 export { SelectionDialog } from "./SelectionDialog";
 export { TextInputDialog } from "./TextInputDialog";
 
@@ -104,7 +110,30 @@ export function Composer({ workspaceControl, branchControl }: ComposerProps) {
 	// Single-select and single-shot: at most one mode rides the next message.
 	const modes = useAppStore((state) => state.modes);
 	const activeMode = (Object.keys(modes) as ModeId[]).find((id) => modes[id]);
-	const syncHasText = () => setHasText(Boolean(prompt.current && promptText(prompt.current).trim()));
+	// The staged mode's presentation: the card's accent, the lead chip and the
+	// prompt's placeholder all read this entry (see modes.ts).
+	const activeModeMeta = activeMode ? MODES.find((mode) => mode.id === activeMode) : undefined;
+	/*
+	 * The staged mode is the prompt's leading chip — icon + label at the line
+	 * start, part of the text, deleted with a backspace (the input sync in
+	 * `onValueInput` then unstages it). The chip renders the command; the send
+	 * itself still leads the message with it (see `modePrefix`).
+	 */
+	useEffect(() => {
+		const editor = prompt.current;
+		if (!editor) return;
+		if (activeModeMeta)
+			insertModeLead(editor, {
+				id: activeModeMeta.id,
+				icon: activeModeMeta.icon,
+				label: t(activeModeMeta.labelKey),
+				command: modePrefix(activeModeMeta.id).trim(),
+			});
+		else removeModeLead(editor);
+	}, [activeModeMeta, t]);
+	const syncHasText = useCallback(() => {
+		setHasText(Boolean(prompt.current && promptText(prompt.current).trim()));
+	}, []);
 	const stopMode = status === "running" && !hasText;
 
 	const menu = (name: ComposerMenu) => ({
@@ -130,6 +159,8 @@ export function Composer({ workspaceControl, branchControl }: ComposerProps) {
 
 	const onValueInput = useCallback(
 		(value: string) => {
+			// Backspacing over the staged mode's lead chip drops the mode, like deleting its command.
+			if (prompt.current) syncStagedModeLead(prompt.current);
 			setHasText(Boolean(value.trim()));
 			const next = slashQuery(value);
 			setQuery(next);
@@ -175,35 +206,42 @@ export function Composer({ workspaceControl, branchControl }: ComposerProps) {
 		[syncFileQuery, cwd],
 	);
 
-	const pickSlash = useCallback((item: SlashItem) => {
-		const editor = prompt.current;
-		if (!editor) return;
-		setQuery(null);
-		setPathQuery(null);
-		lastPathQuery.current = null;
-		setUi({ fileCompletionOpen: false });
-		if (item.kind === "mcp") {
-			// A status view, not a prompt: nothing is sent.
-			setPromptText(editor, "");
-			setHasText(false);
-			setUi({ slashMenu: "mcp" });
-		} else if (item.kind === "feedback") {
-			// The product's own feedback dialog, which POSTs to the same kernel
-			// submission the `/feedback` command uses. Nothing is sent as a prompt.
-			setPromptText(editor, "");
-			setHasText(false);
-			setUi({ slashMenu: null });
-			openFeedback();
-		} else {
-			// The kernel runs `/<command> [args]` and expands `/skill:<name> [request]`
-			// into the skill's instructions on send.
-			setPromptText(editor, item.kind === "command" ? `/${item.key} ` : `/skill:${item.key} `);
-			setHasText(true);
-			setUi({ slashMenu: null });
-		}
-		editor.focus();
-		placeCaretAtEnd(editor);
-	}, []);
+	const pickSlash = useCallback(
+		(item: SlashItem) => {
+			const editor = prompt.current;
+			if (!editor) return;
+			setQuery(null);
+			setPathQuery(null);
+			lastPathQuery.current = null;
+			setUi({ fileCompletionOpen: false });
+			if (item.kind === "mcp") {
+				// A status view, not a prompt: nothing is sent.
+				setPromptText(editor, "");
+				setHasText(false);
+				setUi({ slashMenu: "mcp" });
+				clearModes();
+			} else if (item.kind === "feedback") {
+				// The product's own feedback dialog, which POSTs to the same kernel
+				// submission the `/feedback` command uses. Nothing is sent as a prompt.
+				setPromptText(editor, "");
+				setHasText(false);
+				setUi({ slashMenu: null });
+				clearModes();
+				openFeedback();
+			} else {
+				// The kernel runs `/<command> [args]` and expands `/skill:<name> [request]`
+				// into the skill's instructions on send. The pick becomes the prompt's
+				// lead chip — the same chip typing that command produces.
+				setPromptText(editor, "");
+				stageCommandLead(editor, item.kind === "command" ? `/${item.key}` : `/skill:${item.key}`);
+				syncHasText();
+				setUi({ slashMenu: null });
+			}
+			editor.focus();
+			placeCaretAtEnd(editor);
+		},
+		[syncHasText],
+	);
 
 	/** True from Enter until the prompt is cleared, so a second Enter while uploads finish sends nothing. */
 	const sending = useRef(false);
@@ -225,6 +263,8 @@ export function Composer({ workspaceControl, branchControl }: ComposerProps) {
 				setHasText(false);
 				setQuery(null);
 				setUi({ slashMenu: null });
+				// The prompt (and the mode lead in it) is gone; the mode does not survive it.
+				clearModes();
 				void askSideQuestion(sideQuestion);
 				return;
 			}
@@ -242,6 +282,8 @@ export function Composer({ workspaceControl, branchControl }: ComposerProps) {
 				setQuery(null);
 				setUi({ slashMenu: null });
 				openFeedback(undefined, feedbackCommand[1]?.trim() ?? "");
+				clearModes();
+				openFeedback();
 				return;
 			}
 			/*
@@ -289,7 +331,7 @@ export function Composer({ workspaceControl, branchControl }: ComposerProps) {
 		void submit(false);
 	};
 
-	/** A mode picked in `#plusMenu`: stage it as a chip for the next message only. */
+	/** A mode picked in `#plusMenu`: stage it as the prompt's lead chip for the next message only. */
 	const pickMode = useCallback((id: ModeId) => {
 		chooseMode(id);
 		prompt.current?.focus();
@@ -368,34 +410,19 @@ export function Composer({ workspaceControl, branchControl }: ComposerProps) {
 		<form className="composer" id="composer" ref={form} onSubmit={(event) => onFormSubmit(event)}>
 			<SlashMenu handle={slash} query={query} promptRef={prompt} onPick={pickSlash} />
 			<FileMenu handle={files} cwd={cwd} query={pathQuery} promptRef={prompt} onPick={pickFile} />
-			<ClarificationPanel />
 			<div className="composer-pickers" id="composerPickers">
 				{workspaceControl}
 				{branchControl}
 			</div>
-			<GoalStrip />
 			<PlanStrip />
 			<QueueDock />
-			<div className="composer-card">
+			{/* The staged mode paints the card through `data-mode` (accent border, glow and sweep in composer.css). */}
+			<div className="composer-card" data-mode={activeMode ?? undefined}>
 				<AttachmentList />
-				{contextPackages.length || stagedPicks.length || activeMode ? (
+				{contextPackages.length || stagedPicks.length ? (
 					<div className="attachment-list" id="contextChipList">
-						{/* A mode is a chip, not prompt text: sending the message consumes it. */}
-						{activeMode ? (
-							<span className="attachment-chip pick-chip pick-chip--mode" id="modeChip">
-								<Icon name={MODES.find((mode) => mode.id === activeMode)?.icon ?? "cube"} size="xs" />
-								<span>{t(MODES.find((mode) => mode.id === activeMode)?.labelKey ?? "modeGoal")}</span>
-								<button
-									type="button"
-									className="attachment-remove"
-									title={t("removePick")}
-									aria-label={t("removePick")}
-									onClick={() => clearModes()}
-								>
-									<Icon name="close-sm" size="xs" />
-								</button>
-							</span>
-						) : null}
+						{/* The mode is no chip here: it rides the prompt as its leading
+						 * text (see `insertModeLead`), not the attachment row. */}
 						{stagedPicks.map((pick) => (
 							<span
 								className={
@@ -450,7 +477,12 @@ export function Composer({ workspaceControl, branchControl }: ComposerProps) {
 					onSubmit={() => form.current?.requestSubmit()}
 					onSteer={steer}
 					placeholder={
-						active ? t(queuedCount ? "queuePlaceholderSteerAll" : "queuePlaceholderRunning") : undefined
+						// A running turn's queue hint outranks the mode's coaching text.
+						active
+							? t(queuedCount ? "queuePlaceholderSteerAll" : "queuePlaceholderRunning")
+							: activeModeMeta
+								? t(activeModeMeta.placeholderKey)
+								: undefined
 					}
 					onValueInput={onValueInput}
 					onCaretChange={syncFileQuery}

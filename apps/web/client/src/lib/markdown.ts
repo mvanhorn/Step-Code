@@ -295,6 +295,15 @@ export function skillInvocation(text: string): SkillInvocation | null {
 	return command ? { name: command[1], request: command[2]?.trim() ?? "" } : null;
 }
 
+/**
+ * A user message that opted its turn into the ultraloop workflow through the
+ * keyword form (`ultracode: request`): the request the user typed after it.
+ */
+export function ultraloopInvocation(text: string): { readonly request: string } | null {
+	const match = /^ultracode:[ \t]*([\s\S]+)$/.exec(text);
+	return match ? { request: match[1].trim() } : null;
+}
+
 /** A plugin install sent from the composer's pick chip: `/plugin install <name>`. */
 export function pluginInstallInvocation(text: string): SkillInvocation | null {
 	const command = /^\/plugin install (\S+)(?:\s+([\s\S]*))?$/.exec(text);

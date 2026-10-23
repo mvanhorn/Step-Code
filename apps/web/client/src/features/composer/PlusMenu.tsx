@@ -6,8 +6,8 @@
  * skills and other sessions' context. The permission preset stays a sibling
  * button, not an entry here.
  *
- * Picking a mode is single-select and stages the mode's command line in the
- * composer (see `chooseMode`); the goal text itself is typed after `/goal `.
+ * Picking a mode is single-select and stages it as the prompt's lead chip (see
+ * `chooseMode` + `insertModeLead`); the goal text itself is typed after it.
  * The 更多 rows open their panel on hover or click; the panel closes with the
  * menu.
  */
@@ -15,23 +15,11 @@
 import { type ChangeEvent, useLayoutEffect, useRef, useState } from "react";
 import { useT } from "../../i18n";
 import { type ModeId, useAppStore } from "../../state/store";
-import type { IconName } from "../../ui";
 import { Icon, IconButton, Popover } from "../../ui";
 import { ControlOption, PopoverGroupLabel } from "./ControlOption";
+import { MODES } from "./modes";
 import { PluginsPanel, SessionsPanel, SkillsPanel } from "./PlusSubPanels";
 import type { ComposerMenuProps } from "./PolicyMenu";
-
-/** The three session modes, shared with the composer's mode chip. */
-export const MODES: ReadonlyArray<{
-	readonly id: ModeId;
-	readonly icon: IconName;
-	readonly labelKey: string;
-	readonly descKey: string;
-}> = [
-	{ id: "goal", icon: "target", labelKey: "modeGoal", descKey: "modeGoalDesc" },
-	{ id: "plan", icon: "listCheck", labelKey: "modePlan", descKey: "modePlanDesc" },
-	{ id: "ultraloop", icon: "orbit", labelKey: "modeUltraloop", descKey: "modeUltraloopDesc" },
-];
 
 /** The 更多 entries that carry a secondary panel. */
 type SubKey = "plugins" | "skills" | "sessions";
@@ -155,6 +143,8 @@ export function PlusMenu({
 									<ControlOption
 										key={mode.id}
 										id={mode.id}
+										// The per-mode class carries the row's accent (`--mode-*` in composer.css).
+										className={`control-option--mode control-option--${mode.id}`}
 										icon={mode.icon}
 										title={t(mode.labelKey)}
 										description={t(mode.descKey)}

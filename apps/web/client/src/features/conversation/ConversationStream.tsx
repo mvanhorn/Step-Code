@@ -4,6 +4,8 @@ import { collectTurnChanges } from "../../lib/turn-changes";
 import { setUi, useAppStore } from "../../state/store";
 import type { SteeringMessage, TimelineItem } from "../../state/types";
 import { Icon } from "../../ui";
+import { ClarificationPanel } from "./ClarificationPanel";
+import { CommandRow } from "./CommandRow";
 import { CompactionRow, CompactionRunningRow } from "./CompactionRow";
 import { MessageActions, MessageItem } from "./MessageItem";
 import { NoticeRow } from "./NoticeRow";
@@ -199,6 +201,8 @@ export function ConversationStream() {
 										<ThinkingDisclosure item={row.item} active={running} />
 									) : row.item.kind === "retry" ? (
 										<RetryRow item={row.item} />
+									) : row.item.kind === "command" ? (
+										<CommandRow item={row.item} />
 									) : row.item.kind === "compaction" ? (
 										<CompactionRow item={row.item} />
 									) : (
@@ -261,6 +265,9 @@ export function ConversationStream() {
 				) : (
 					<EmptyConversation />
 				)}
+				{/* The pending questionnaire is conversation, not composer chrome: it
+				 * renders as the stream's latest element, where the question was asked. */}
+				<ClarificationPanel />
 			</div>
 		</div>
 	);

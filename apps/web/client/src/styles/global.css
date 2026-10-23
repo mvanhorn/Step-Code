@@ -175,10 +175,26 @@
   /* Selected text gets a neutral grey wash, like the rest of the selection language. */
   --selection: rgb(23 23 24 / 12%);
   /* Status badges and the shared focus ring. */
+<<<<<<< ours
   --badge-surface: #eeeef0;
   --attention-ink: #8a5d06;
   /* A focused field firms its edge in neutral grey; violet is not a border colour. */
   --focus-border: #9a9aa2;
+=======
+  --badge-surface: #eeeeef;
+  --attention-ink: #9a6b12;
+  --focus-border: #9d9da1;
+  --accent: #1677ff;
+  --accent-ring: rgb(22 119 255 / 12%);
+  /* ── Session-mode accents ────────────────────────────────────────── */
+  /* Shared by the composer (card glow, prompt lead chips, ＋ menu rows) and
+     the conversation's command-echo rows: fixed values, mixed with the theme
+     surfaces at each use site, so light and dark both work. */
+  --mode-goal: #10b981;
+  --mode-plan: #6366f1;
+  --mode-ultraloop: #d946ef;
+  --command-accent: #8b5cf6;
+>>>>>>> theirs
   /* ── Source preview tokens ───────────────────────────────────────── */
   --tok-comment: #6e6d7a;
   /*
