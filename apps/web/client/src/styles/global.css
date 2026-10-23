@@ -12,7 +12,9 @@
 /* legacy 1-116: tokens and dark theme */
 :root {
   --canvas: #ffffff;
-  --sidebar: #f7f7f8;
+  /* The sidebar is the workbench plane itself now, not a raised panel: its
+     surfaces follow the workbench tone in both themes. */
+  --sidebar: var(--workbench);
   --surface: #ffffff;
   --surface-soft: #f5f5f6;
   --hover: #ededee;
@@ -109,7 +111,6 @@ html[data-theme="dark"] {
   --canvas: #181819;
   --workbench: #111113;
   --card-shadow: 0 1px 3px rgb(0 0 0 / 45%), 0 6px 18px rgb(0 0 0 / 35%);
-  --sidebar: #202022;
   --surface: #272729;
   --surface-soft: #303033;
   --hover: #353538;
@@ -266,7 +267,12 @@ select {
   transition: none;
 }
 
-/* legacy 191-203: sidebar column (App.tsx renders aside.sidebar) */
+/*
+ * legacy 191-203: sidebar column (App.tsx renders aside.sidebar). The sidebar
+ * is the bottom layer of the stack — same tone as the workbench, no divider;
+ * the cards' edges mark the boundary. Row feedback gets its own step so it
+ * stays readable on the merged tone.
+ */
 .sidebar {
   position: relative;
   grid-column: 1;
@@ -276,11 +282,13 @@ select {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  border-right: 1px solid var(--line);
   background: var(--sidebar);
+  --hover: #e6e6e8;
+  --selected: #e0e0e2;
 }
-.app.sidebar-hidden .sidebar {
-  border-right: 0;
+html[data-theme="dark"] .sidebar {
+  --hover: #26262a;
+  --selected: #2e2e33;
 }
 
 /* legacy 248-257: brand mark, shared by the sidebar brand row and the logged-out overlay */
