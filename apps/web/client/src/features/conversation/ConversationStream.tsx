@@ -24,7 +24,7 @@ import { collectTurnFooters } from "./turn-footers";
 /**
  * Shown while the timeline is empty (legacy index.html 835-842, `renderTimeline`):
  * the StepCode mark, whose amber prompt chevron draws in once on mount, over a
- * question and one line on what happens next.
+ * single question.
  */
 function EmptyConversation() {
 	const t = useT();
@@ -34,7 +34,6 @@ function EmptyConversation() {
 				<Icon name="stepcode" />
 			</span>
 			<h1 className="empty-title">{t("emptyTitle")}</h1>
-			<p className="empty-hint">{t("emptyHint")}</p>
 		</div>
 	);
 }

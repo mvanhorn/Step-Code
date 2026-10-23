@@ -160,7 +160,6 @@ const zhCN = {
 	loggedOutHint: "请从终端重新启动 StepCode Web 获取新的访问链接。",
 	emptyConversation: "还没有消息 — 在下方输入开始对话",
 	emptyTitle: "今天想推进什么？",
-	emptyHint: "描述一个目标，或贴上一段报错。\nStepCode 会在当前工作区里一步步完成，每一步都可以展开查看。",
 	messagePlaceholder: "输入消息…",
 	fileUploadFailed: "无法添加 {name}：{reason}",
 	idle: "空闲",
@@ -932,8 +931,6 @@ const enUS: Record<MessageKey, string> = {
 	loggedOutHint: "Restart StepCode Web from the terminal to get a new access link.",
 	emptyConversation: "No messages yet — start a conversation below",
 	emptyTitle: "What should we move forward today?",
-	emptyHint:
-		"Describe a goal or paste an error.\nStepCode works through it step by step in this workspace, and every step can be opened for review.",
 	messagePlaceholder: "Type a message…",
 	fileUploadFailed: "Could not add {name}: {reason}",
 	idle: "Idle",

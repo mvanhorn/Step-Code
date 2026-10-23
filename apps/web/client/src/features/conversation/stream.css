@@ -144,7 +144,7 @@
 	inherits: true;
 	initial-value: 1;
 }
-/* One centred stack: the mark, the question, then the hint. */
+/* One centred stack, the mark over the question, sitting just above the composer. */
 .empty-state {
 	display: flex;
 	flex-direction: column;
@@ -152,7 +152,7 @@
 	justify-content: flex-end;
 	flex: 1;
 	min-height: 320px;
-	padding: 0 2px 40px;
+	padding: 0 2px 16px;
 	color: var(--ink-2);
 	text-align: center;
 }
@@ -180,16 +180,6 @@
 	line-height: 1.16;
 	text-wrap: balance;
 }
-.empty-hint {
-	/* The hint breaks between its two sentences (the newline in the message), never inside a word. */
-	max-width: 36em;
-	white-space: pre-line;
-	margin-top: 12px;
-	color: var(--ink-2);
-	font-size: 14px;
-	line-height: 1.7;
-	text-wrap: pretty;
-}
 @media (prefers-reduced-motion: no-preference) {
 	.empty-mark {
 		animation: empty-mark-settle 520ms var(--ease-out) both;
@@ -197,16 +187,9 @@
 	.empty-mark > .icon {
 		animation: empty-mark-draw 640ms var(--ease-out) 260ms both;
 	}
-	.empty-title,
-	.empty-hint {
-		animation: empty-rise 560ms var(--ease-out) both;
-	}
-	/* Mark and title share a row, so they arrive together; only the hint follows. */
 	.empty-title {
+		animation: empty-rise 560ms var(--ease-out) both;
 		animation-delay: 40ms;
-	}
-	.empty-hint {
-		animation-delay: 140ms;
 	}
 }
 @keyframes empty-mark-settle {
