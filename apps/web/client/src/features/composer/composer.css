@@ -187,6 +187,9 @@
 }
 .control-popover-search input {
 	width: 100%;
+	/* CJK placeholder glyphs fall back to PingFang and sit about 1px above Geist's line box;
+	   2px of top padding moves the centred text down 1px onto the field's middle. */
+	padding: 2px 0 0;
 	border: 0;
 	outline: 0;
 	background: transparent;
@@ -254,9 +257,13 @@
 	color: var(--ink-3);
 	font-size: 12px;
 }
+/* The check and the pin star share one 18px box centred on the 20px title
+ * line (8px row inset + 1px), so the two icons line up side by side. */
 .control-option-check {
 	flex: none;
-	margin-top: 3px;
+	box-sizing: content-box;
+	margin-top: 1px;
+	padding: 1.5px;
 	margin-left: auto;
 	color: var(--accent);
 }
@@ -266,12 +273,17 @@
  * reflowing when the star appears. */
 .control-option-pin {
 	flex: none;
-	margin-top: 2px;
+	margin-top: 1px;
 	margin-left: auto;
 	padding: 2px;
 	border-radius: var(--radius-tiny);
 	color: var(--ink-3);
 	visibility: hidden;
+}
+/* The check sits left of the star and takes the row's free space, so the star
+ * stays in the same right-edge column on every row. */
+.control-option-check + .control-option-pin {
+	margin-left: 0;
 }
 .control-option:hover .control-option-pin,
 .control-option:focus-visible .control-option-pin {
@@ -733,7 +745,9 @@ form:has(#prompt:empty):not(:has(.attachment-chip)) #sendButton:not(:disabled) {
  * the cursor and box a <button> had.
  */
 .control-option-pin {
-	display: inline-block;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
 	cursor: pointer;
 }
 

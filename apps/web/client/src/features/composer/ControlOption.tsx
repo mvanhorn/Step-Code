@@ -56,6 +56,7 @@ export function ControlOption<T extends string>({
 				{description ? <span className="control-option-desc">{description}</span> : null}
 				{meta?.length ? <span className="control-option-meta">{meta.join(" · ")}</span> : null}
 			</span>
+			{selected ? <Icon name="check" size="sm" className="control-option-check" /> : null}
 			{onPin ? (
 				// biome-ignore lint/a11y/useSemanticElements: a <button> cannot nest inside the option <button>; see above.
 				<span
@@ -70,7 +71,6 @@ export function ControlOption<T extends string>({
 					<Icon name="star" size="xs" />
 				</span>
 			) : null}
-			{selected ? <Icon name="check" size="sm" className="control-option-check" /> : null}
 		</button>
 	);
 }
