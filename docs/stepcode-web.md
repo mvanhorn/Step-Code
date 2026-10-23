@@ -255,7 +255,9 @@ keeps its zh-CN default.
 The approval path is an adapter: Step extensions call
 `ExtensionUIContext.confirm`, the Web Host's approval broker emits an SSE
 request, and the browser returns `approve`, `approve_for_session`, or `deny`.
-Missing or cancelled approvals fail closed.
+Missing or cancelled approvals fail closed. A plan-mode denial never reaches
+`confirm`: the kernel blocks a mutation outside the plan file before the
+permission policy runs, so no approval card is emitted for it.
 
 Approval snapshots and SSE requests include the full captured tool `input` and
 the specific policy `reason`. The browser renders a neutral card with a localized

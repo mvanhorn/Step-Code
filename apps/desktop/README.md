@@ -31,6 +31,8 @@ Electron main (src/main.ts)
  ├─ server-host.ts ── spawn ──▶ <electron as node> apps/web/dist/server.js
  │     env: STEPCODE_WEB_PORT=<free loopback port>, STEPCODE_WEB_CWD=<workspace>, STEPCODE_WEB_OPEN=0, ELECTRON_RUN_AS_NODE=1
  │          (STEPCODE_WEB_OPEN=0: the window shows the client, so the server must not open a browser tab too)
+ │          packaged: version/channel/commit/buildTime/installSource/feedback endpoints from
+ │          <server>/stepcode-release.json replace any inherited STEPCODE_* build identity
  │     stdout "Local: http://127.0.0.1:<port>/#token=<launch token>"  ──▶ parsed (redacted in the log)
  │     stdout/stderr ──▶ <logs>/web-server.log
  ├─ window.ts ── BrowserWindow (contextIsolation, sandbox, no nodeIntegration)
@@ -52,7 +54,7 @@ an error page; **File → Restart Server** starts a new one.
 | `pnpm --filter @step-harness/desktop dev` | Bundle the desktop and launch; builds the web app only if its output is missing. |
 | `pnpm --filter @step-harness/desktop build` | esbuild: `src/main.ts` → `dist/main.js` (ESM), `src/preload.ts` → `dist/preload.cjs`. |
 | `pnpm --filter @step-harness/desktop typecheck` | `tsgo --noEmit` (source and tests). |
-| `pnpm --filter @step-harness/desktop test` | Offline Node-environment and hosted-child regressions. |
+| `pnpm --filter @step-harness/desktop test` | Offline Node-environment, hosted-child and release-envelope regressions. |
 
 The packages the server imports (`@step-harness/coding-agent` and below) must be built (`pnpm build` at the root).
 
@@ -72,6 +74,15 @@ The packages the server imports (`@step-harness/coding-agent` and below) must be
 | `STEPCODE_DESKTOP_USER_DATA_DIR` | Isolated Electron profile (window state, logs, single-instance lock). |
 | `STEPCODE_DESKTOP_SMOKE` | `1`: load the app hidden, print `STEPCODE_DESKTOP_SMOKE {json}` (bridge, auth, `/healthz`), exit 0/1. |
 
+Packaging reads the release identity from these; an unpackaged run ignores them.
+
+| Variable | Effect |
+| --- | --- |
+| `STEPCODE_BUILD_VERSION` | Product version in the staged app and the envelope (a `v0.2.0` tag is accepted). |
+| `STEPCODE_BUILD_COMMIT` / `STEP_HARNESS_BUILD_COMMIT` | Commit recorded in the release envelope. |
+| `STEPCODE_FEEDBACK_ENDPOINT` | Feedback API URL written into the envelope (http/https, no credentials). |
+| `STEPCODE_FEEDBACK_BUNDLE_ENDPOINT` | Feedback bundle URL written into the envelope (http/https, no credentials). |
+
 Electron switches such as `--remote-debugging-port=9222` can be appended to `electron .`.
 
 ## Files
@@ -81,6 +92,8 @@ Electron switches such as `--remote-debugging-port=9222` can be appended to `ele
 - Private Node wrapper (macOS/Linux, when using Electron's runtime): `<userData>/node-bin/node`. Refreshed when
   the server starts so moving or upgrading the app does not leave it pointing at an old executable. Wrapper-write
   failures are warnings, not host-startup failures. An explicit `STEPCODE_DESKTOP_NODE` bypasses this fallback.
+- Release envelope (packaged app only): `<resources>/server/stepcode-release.json`, written by `scripts/package.mjs`
+  beside the staged server. A source checkout has none, so dev runs keep their own identity.
 
 The CLI still requires Node.js 20+ on PATH for StepPage. Windows keeps its existing behavior: no POSIX wrapper and
 no automatic StepPage installation.
@@ -111,6 +124,16 @@ Run `pnpm build` at the repo root first, then from the repo root:
 `<version>` is the product version shown by `step --version` and the web host, not the workspace package version:
 `STEPCODE_BUILD_VERSION` when set (a release tag such as `v0.2.0` is accepted), otherwise the root `package.json`
 version. It is also what the app reports (`app.getVersion()`, `window.stepcodeDesktop.version`).
+
+Each target also gets a `stepcode-release.json` in the staged server tree, which `src/release-envelope.ts` reads when
+the shell spawns the server. It records `version`, `channel: "release"`, `buildTime` (packaging time), `installSource`
+(`dmg` for the mac targets, `nsis` for Windows) and, when set at package time, `commit` and the two feedback endpoints.
+Optional values are normalized and dropped when invalid (non-http(s), credentials in the URL, control characters,
+over-long strings), so a bad value never reaches a report. The file exists only inside the installer; nothing here
+commits an endpoint. Its values replace inherited `STEPCODE_BUILD_*`/`STEPCODE_FEEDBACK_*` identity (and
+`STEPCODE_VERSION_OVERRIDE`), so a shell exported for a source build cannot change what a packaged app reports.
+Without the file (source checkout, `pnpm dev`) the server keeps the dev/fallback identity and the host stays
+unconfigured for feedback.
 
 `scripts/package.mjs` stages two trees under `release/stage/` and hands them to electron-builder (appId
 `com.stepfun.stepcode`):

@@ -37,12 +37,13 @@ apps/desktop/
   package.json           main: dist/main.js
   tsconfig.json
   scripts/build.mjs      esbuild bundle; --ensure-web builds @step-harness/web if its output is missing
-  scripts/package.mjs    stage the app and the server's dependency closure, run electron-builder (dmg / NSIS)
+  scripts/package.mjs    stage the app and the server's dependency closure, write the release envelope, run electron-builder
   scripts/icons.mjs      regenerate resources/icon.{png,icns,ico} from resources/icon.svg (macOS)
   resources/             app icons; icon.svg is the source
   src/
     main.ts              app lifecycle, single-instance lock, wiring, smoke mode
     server-host.ts       resolve server entry, pick a free loopback port, spawn, parse the #token banner, log, stop
+    release-envelope.ts  validate the packaged stepcode-release.json and map it to the server's identity environment
     window.ts            BrowserWindow options, navigation pinning, external links, macOS inset title bar
     preload.ts           contextBridge -> window.stepcodeDesktop (implements the web contract)
     ipc.ts               ipcMain handlers + sender validation
@@ -93,6 +94,9 @@ Type checks of both packages (`pnpm run check`) catch a mismatch; do not cast ar
 - On macOS/Linux, append `<userData>/node-bin` to the server's PATH. Its private `node` wrapper runs Electron with
   `ELECTRON_RUN_AS_NODE=1`, so StepPage works without a system Node while MCP still uses its restricted environment.
   System Node and explicit MCP PATH overrides retain precedence. Do not modify global PATH or shell profiles.
+- A packaged app carries `stepcode-release.json` beside the server entry. `src/release-envelope.ts` validates it and
+  supplies version, channel, commit, build time, install source and feedback endpoints; its values replace inherited
+  identity variables. Do not add a second source for those values, and keep source/dev launches without an envelope.
 - Desktop environment variables (`STEPCODE_DESKTOP_*`) are listed in `README.md`; update that table when you add one.
 
 ## Coding conventions
@@ -115,7 +119,7 @@ Run from the repo root.
 | `pnpm --filter @step-harness/desktop dev` | Bundle and launch; builds the web app only when its output is missing |
 | `pnpm --filter @step-harness/desktop build` | esbuild bundle only |
 | `pnpm --filter @step-harness/desktop typecheck` | Type check source and tests (also part of `pnpm run check`) |
-| `pnpm --filter @step-harness/desktop test` | Offline child-process and Node fallback regressions |
+| `pnpm --filter @step-harness/desktop test` | Offline child-process, Node fallback and release-envelope regressions |
 | `pnpm --filter @step-harness/desktop package[:mac\|:win]` | Unsigned installers in `release/<version>/` (run `pnpm build` first; see README) |
 | `STEPCODE_DESKTOP_SMOKE=1 pnpm --filter @step-harness/desktop dev` | Load hidden, print `STEPCODE_DESKTOP_SMOKE {json}`, exit 0/1 |
 | `pnpm run check` | Required before handing back any code change |

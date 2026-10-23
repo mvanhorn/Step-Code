@@ -13,7 +13,8 @@
 //
 //   stage/app      -> <app>/resources/app.asar    desktop main + preload, icon; no dependencies
 //   stage/server   -> <app>/resources/server      @step-harness/web and its production dependency
-//                                                  closure in a flat node_modules
+//                                                  closure in a flat node_modules, plus the
+//                                                  stepcode-release.json build identity
 //
 // The server stays outside the asar archive: it runs with its own directory as
 // cwd and spawns helper processes (node-pty, subagents) from real files. The
@@ -45,6 +46,11 @@ const desktopPackage = readJson(join(root, "package.json"));
 const electronVersion = readJson(join(root, "node_modules", "electron", "package.json")).version;
 const version = productVersion();
 
+/** Bounds mirror apps/desktop/src/release-envelope.ts and the kernel's report fields. */
+const MAX_COMMIT_LENGTH = 40;
+const MAX_ENDPOINT_LENGTH = 2048;
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
+
 /**
  * The installer carries the product version users see from `step --version`
  * and the web host, not the workspace package version (`0.84.4`, which tracks
@@ -62,6 +68,73 @@ function productVersion() {
 		throw new Error(`Not a semver product version: ${JSON.stringify(value)}`);
 	}
 	return value;
+}
+
+/**
+ * Identity the staged server reports as, read by src/release-envelope.ts.
+ * Only the built installer carries this file, so feedback endpoints and release
+ * metadata never enter the repository. Optional values are dropped when they do
+ * not satisfy the same bounds the reader applies.
+ */
+function releaseEnvelope(installSource) {
+	const commitValue = firstEnvironmentValue("STEPCODE_BUILD_COMMIT", "STEP_HARNESS_BUILD_COMMIT");
+	const commit = boundedString(commitValue, MAX_COMMIT_LENGTH);
+	if (commitValue !== undefined && commit === undefined) {
+		console.warn("[package] ignoring invalid STEPCODE_BUILD_COMMIT/STEP_HARNESS_BUILD_COMMIT");
+	}
+	const feedbackEndpoint = feedbackUrl("STEPCODE_FEEDBACK_ENDPOINT");
+	const feedbackBundleEndpoint = feedbackUrl("STEPCODE_FEEDBACK_BUNDLE_ENDPOINT");
+	return {
+		version,
+		channel: "release",
+		...(commit === undefined ? {} : { commit }),
+		buildTime: new Date().toISOString(),
+		installSource,
+		...(feedbackEndpoint === undefined ? {} : { feedbackEndpoint }),
+		...(feedbackBundleEndpoint === undefined ? {} : { feedbackBundleEndpoint }),
+	};
+}
+
+function writeReleaseEnvelope(installSource) {
+	const envelope = releaseEnvelope(installSource);
+	writeFileSync(join(serverStage, "stepcode-release.json"), `${JSON.stringify(envelope, null, "\t")}\n`);
+	console.log(`[package] release envelope ${version} (${installSource}) staged for the server`);
+}
+
+function firstEnvironmentValue(...names) {
+	for (const name of names) {
+		const value = process.env[name]?.trim();
+		if (value) return value;
+	}
+	return undefined;
+}
+
+function boundedString(value, maxLength) {
+	if (typeof value !== "string") return undefined;
+	const trimmed = value.trim();
+	if (!trimmed || trimmed.length > maxLength || CONTROL_CHARACTERS.test(trimmed)) return undefined;
+	return trimmed;
+}
+
+/** http(s) only, with a host and without embedded credentials. */
+function feedbackUrl(name) {
+	const value = process.env[name];
+	const bounded = boundedString(value, MAX_ENDPOINT_LENGTH);
+	if (bounded !== undefined) {
+		try {
+			const url = new URL(bounded);
+			const valid =
+				(url.protocol === "http:" || url.protocol === "https:") &&
+				Boolean(url.hostname) &&
+				!url.username &&
+				!url.password;
+			if (valid) return url.toString();
+		} catch {
+			// Reported as invalid below.
+		}
+	}
+	if (typeof value === "string" && value.trim() !== "") console.warn(`[package] ignoring invalid ${name}`);
+	return undefined;
 }
 
 const args = new Set(process.argv.slice(2));
@@ -260,11 +333,15 @@ const config = () => ({
 stage();
 const artifacts = [];
 if (wantMac) {
+	// Both mac architectures share the dmg install source. Rewritten before each
+	// target because afterPack copies one shared server stage into every app.
+	writeReleaseEnvelope("dmg");
 	artifacts.push(
 		...(await build({ projectDir: appStage, config: config(), targets: Platform.MAC.createTarget(["dmg"], Arch.arm64, Arch.x64), publish: "never" })),
 	);
 }
 if (wantWin) {
+	writeReleaseEnvelope("nsis");
 	artifacts.push(
 		...(await build({ projectDir: appStage, config: config(), targets: Platform.WINDOWS.createTarget(["nsis"], Arch.x64), publish: "never" })),
 	);

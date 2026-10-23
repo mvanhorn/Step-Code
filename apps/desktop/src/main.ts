@@ -21,6 +21,7 @@ import { installDesktopIpc } from "./ipc.ts";
 import { installApplicationMenu } from "./menu.ts";
 import { addBundledNodeToPath } from "./node-environment.ts";
 import { errorPageUrl, loadingPageUrl } from "./pages.ts";
+import { readReleaseEnvelope } from "./release-envelope.ts";
 import { launchWebServer, type RunningWebServer, resolveNodeExecutable, resolveWebServerEntry } from "./server-host.ts";
 import { readShellEnvironment } from "./shell-environment.ts";
 import { DesktopStateStore } from "./state.ts";
@@ -91,6 +92,13 @@ async function main(): Promise<void> {
 			process.env,
 			app.isPackaged ? join(process.resourcesPath, "server") : undefined,
 		);
+		// The installer's envelope is the only source of installed-build identity
+		// (launchWebServer applies the same file to the server's environment).
+		const release = readReleaseEnvelope(dirname(entry));
+		if (release !== undefined) {
+			const install = release.installSource === undefined ? "" : `, ${release.installSource}`;
+			console.info(`[desktop] release ${release.version} (channel ${release.channel}${install})`);
+		}
 		const publicDir = process.env.STEPCODE_WEB_PUBLIC_DIR?.trim() || join(dirname(entry), "public");
 		if (!existsSync(join(publicDir, "index.html"))) {
 			throw new Error(
