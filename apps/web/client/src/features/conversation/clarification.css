@@ -1,16 +1,21 @@
+/*
+ * The pending questionnaire reads like an ordinary message with quick-reply
+ * options, not a floating card: no border, no surface of its own — question
+ * text in the message column, options as compact pills under it.
+ */
 .clarification-panel {
 	--clarification-muted: color-mix(in srgb, var(--ink-3) 55%, var(--surface));
 	--clarification-line: color-mix(in srgb, var(--line) 65%, var(--surface));
-	margin-bottom: 8px;
+	max-width: min(100%, 68ch);
+	margin: 14px 0 6px;
 }
 .clarification-card {
-	padding: 16px 16px 14px;
-	border: 1px solid var(--clarification-line);
-	border-radius: var(--radius-card);
-	background: var(--surface);
-	color: color-mix(in srgb, var(--ink) 95%, var(--surface));
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: var(--ink);
 	font-size: 14px;
-	line-height: 1.5;
+	line-height: 1.65;
 }
 .clarification-header,
 .clarification-title,
@@ -73,10 +78,10 @@
 	padding: 0 0 2px;
 }
 .clarification-body h2 {
-	margin: 0 8px 8px;
-	font-size: 13px;
-	font-weight: 600;
-	line-height: 22px;
+	margin: 0 8px 10px;
+	font-size: 14px;
+	font-weight: 500;
+	line-height: 1.65;
 	overflow-wrap: anywhere;
 }
 .clarification-reason {
@@ -85,21 +90,22 @@
 	font-size: 12px;
 }
 .clarification-options {
-	display: grid;
-	gap: 4px;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
 	min-width: 0;
 	border: 0;
 }
 .clarification-option {
-	display: flex;
+	display: inline-flex;
 	align-items: center;
 	gap: 8px;
-	width: 100%;
-	min-height: 32px;
-	padding: 4px 8px;
-	border-radius: var(--radius-surface);
+	min-height: 28px;
+	padding: 3px 12px;
+	border: 1px solid var(--line);
+	border-radius: var(--radius-pill);
 	text-align: left;
-	font-weight: 550;
+	font-weight: 500;
 	font-size: 13px;
 	transition: background-color var(--fast);
 }
@@ -107,6 +113,7 @@
 .clarification-option:focus-visible,
 .clarification-option[aria-pressed="true"] {
 	background: var(--surface-soft);
+	border-color: var(--line-strong);
 }
 .clarification-number {
 	display: grid;
