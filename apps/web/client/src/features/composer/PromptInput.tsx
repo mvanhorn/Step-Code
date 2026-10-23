@@ -28,6 +28,7 @@ import {
 	placeCaretAtEnd,
 	placeCaretAtPoint,
 	promptText,
+	refreshPlaceholderHint,
 	tidyEmptyPrompt,
 } from "./prompt-editor";
 
@@ -103,6 +104,7 @@ export function PromptInput({
 		const root = promptRef.current;
 		if (!root) return;
 		tidyEmptyPrompt(root);
+		refreshPlaceholderHint(root);
 		onValueInput?.(promptText(root));
 	}, [promptRef, onValueInput]);
 

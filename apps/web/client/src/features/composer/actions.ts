@@ -32,7 +32,7 @@ import type {
 	TimelineItem,
 	UploadedFile,
 } from "../../state/types";
-import type { PromptFile } from "./prompt-editor";
+import { MODE_LEAD_CLASS, type PromptFile } from "./prompt-editor";
 
 export async function replyToClarification(
 	request: ClarificationRequest,
@@ -213,11 +213,12 @@ export async function selectEffort(level: string): Promise<boolean> {
  * A mode used to be a session switch: picking one typed `/ultraloop on`,
  * `/goal clear` or a bare `/plan` into the prompt and kept it on until picked
  * again. That made "turn this off" a second command the user had to send, and
- * left the input showing keywords they never typed. A mode is now a chip that
- * rides one message and drops once that message is sent, so turning it off is
- * removing the chip.
+ * left the input showing keywords they never typed. A mode is now staged as a
+ * lead chip at the prompt's line start — part of the text line, deleted with a
+ * backspace — and rides one message, dropping once that message is sent.
  *
- * The prefix is what the kernel reads for that one turn:
+ * The prefix is what the kernel reads for that one turn (the chip itself adds
+ * no prompt text; the send prepends the prefix):
  * - `/plan ` — plan this task;
  * - `/goal ` — start a goal with the message body;
  * - the `ultracode` keyword — the kernel's own per-turn workflow opt-in
@@ -236,7 +237,8 @@ export function modePrefix(id: ModeId): string {
 
 /**
  * Single-select: picking `id` makes it the only staged mode, picking it again
- * removes it. Nothing is written into the prompt.
+ * removes it. Nothing is written into the prompt here; the composer renders the
+ * staged mode as the prompt's lead chip (see `insertModeLead`).
  */
 export function chooseMode(id: ModeId): boolean {
 	const enabled = !getState().modes[id];
@@ -247,6 +249,16 @@ export function chooseMode(id: ModeId): boolean {
 /** Drop every staged mode; a sent message consumes them. */
 export function clearModes(): void {
 	setState({ modes: { goal: false, plan: false, ultraloop: false } });
+}
+
+/**
+ * The staged mode renders as the prompt's leading chip, so deleting that chip
+ * (a backspace over it) is how the user drops the mode — exactly like deleting
+ * the command text it stands for. Call after every prompt edit.
+ */
+export function syncStagedModeLead(editor: HTMLElement): void {
+	const staged = (Object.keys(getState().modes) as ModeId[]).some((id) => getState().modes[id]);
+	if (staged && !editor.querySelector(`.${MODE_LEAD_CLASS}`)) clearModes();
 }
 
 /* ── Other-session context ────────────────────────────────────────────────── */

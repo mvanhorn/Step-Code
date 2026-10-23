@@ -81,6 +81,16 @@
 	color: var(--ink-3);
 	pointer-events: none;
 }
+/*
+ * With the mode lead as the prompt's only content the editor is not `:empty`,
+ * so the placeholder rides `data-empty` (refreshed by the editor helpers) and
+ * renders after the chip, where the typed text will start.
+ */
+.prompt-editor[data-empty]:not(:empty)::after {
+	content: attr(data-placeholder);
+	color: var(--ink-3);
+	pointer-events: none;
+}
 .prompt-editor[aria-disabled="true"] {
 	cursor: not-allowed;
 	opacity: 0.6;
@@ -1140,34 +1150,42 @@
 	}
 }
 /*
- * 模式 chip：比技能/插件 chip 更重一档的染色（边框更深、底色更实、标签带模
- * 式色），并按模式给图标或标签一个专属动效——goal 的靶心呼吸、plan 的标签
- * 流光、ultraloop 的轨道旋转。
+ * 模式前缀 chip（`.prompt-mode`）：暂存模式的行内渲染，位于 #prompt 行首、
+ * 与文字同行——退格即可删除（删除即取消暂存），发送时由 modePrefix 补上命
+ * 令。轻量胶囊样式与文件 chip 同族；图标/标签带各自动效：goal 靶心呼吸、
+ * plan 标签流光、ultraloop 轨道旋转。
  */
-.pick-chip--mode {
-	--pick-accent: var(--mode-accent, #8b5cf6);
-	border-color: color-mix(in srgb, var(--pick-accent) 55%, var(--line));
-	background: color-mix(in srgb, var(--pick-accent) 14%, var(--surface));
-}
-.pick-chip--mode > span {
-	color: color-mix(in srgb, var(--pick-accent) 55%, var(--ink));
+.prompt-mode {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	margin: 0 2px;
+	padding: 1px 7px;
+	vertical-align: baseline;
+	border: 1px solid color-mix(in srgb, var(--mode-accent, var(--ink-3)) 35%, transparent);
+	border-radius: var(--radius-chip);
+	background: color-mix(in srgb, var(--mode-accent, var(--ink-3)) 10%, transparent);
+	color: var(--mode-accent, var(--ink-3));
 	font-weight: 500;
+	white-space: nowrap;
+	user-select: all;
+	cursor: default;
 }
-.mode-chip-icon {
+.prompt-mode-icon {
 	display: inline-flex;
 }
-.pick-chip--goal .mode-chip-icon {
+.prompt-mode[data-mode="goal"] .prompt-mode-icon {
 	animation: mode-icon-breathe 2.4s ease-in-out infinite;
 }
-.pick-chip--ultraloop .mode-chip-icon {
+.prompt-mode[data-mode="ultraloop"] .prompt-mode-icon {
 	animation: mode-icon-spin 3.6s linear infinite;
 }
-.pick-chip--plan .mode-chip-label {
+.prompt-mode[data-mode="plan"] .prompt-mode-label {
 	background: linear-gradient(
 		100deg,
-		var(--ink-2) 0 42%,
-		color-mix(in srgb, var(--pick-accent) 80%, var(--ink)) 50%,
-		var(--ink-2) 58% 100%
+		currentColor 0 42%,
+		color-mix(in srgb, currentColor 40%, var(--ink)) 50%,
+		currentColor 58% 100%
 	);
 	background-size: 300% 100%;
 	-webkit-background-clip: text;

@@ -6,8 +6,8 @@
  * skills and other sessions' context. The permission preset stays a sibling
  * button, not an entry here.
  *
- * Picking a mode is single-select and stages the mode's command line in the
- * composer (see `chooseMode`); the goal text itself is typed after `/goal `.
+ * Picking a mode is single-select and stages it as the prompt's lead chip (see
+ * `chooseMode` + `insertModeLead`); the goal text itself is typed after it.
  * The 更多 rows open their panel on hover or click; the panel closes with the
  * menu.
  */

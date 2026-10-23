@@ -17,6 +17,8 @@ import { type FileCompletionText, type FileQuery, fileQuery, sameFileQuery } fro
 
 const CHIP_CLASS = "prompt-file";
 const SVG_NS = "http://www.w3.org/2000/svg";
+/** The staged session mode's lead: an inline prefix chip at the line start. */
+export const MODE_LEAD_CLASS = "prompt-mode";
 
 /** Uploads still running, by chip key: send waits for them so no chip is sent without its upload id. */
 const pendingUploads = new Map<string, Promise<void>>();
@@ -34,6 +36,9 @@ function serialize(parent: Node): string {
 			out += child.data.replace(/\u00a0/g, " ");
 		} else if (child instanceof HTMLElement) {
 			if (child.classList.contains(CHIP_CLASS)) out += chipText(child);
+			// The staged mode's lead is the inline rendering of its command; the
+			// outgoing message gets that command from `modePrefix`, not the chip.
+			else if (child.classList.contains(MODE_LEAD_CLASS)) continue;
 			else if (child.tagName === "BR") out += "\n";
 			else if (child.tagName === "DIV" || child.tagName === "P") {
 				// A block starts a new line unless one just ended.
@@ -304,6 +309,73 @@ export function insertFileChip(
 /** Resolve once every chip inserted so far has its upload id or has been removed. */
 export async function waitForUploads(): Promise<void> {
 	await Promise.all(pendingUploads.values());
+}
+
+/* ── The staged session mode's lead chip ─────────────────────────────────── */
+
+/** What `insertModeLead` renders: the mode's icon, its label and the command the send will run. */
+export interface ModeLead {
+	readonly id: string;
+	readonly icon: string;
+	readonly label: string;
+	/** Tooltip: the command line the chip stands for, e.g. `/goal`. */
+	readonly command: string;
+}
+
+/**
+ * The mode's lead sits at the very start of the line, before any text: a
+ * backspace over it removes it like a word (the composer then unstages the
+ * mode), and `modePrefix` still leads the outgoing message. Re-staging another
+ * mode replaces the chip in place.
+ */
+export function insertModeLead(root: HTMLElement, lead: ModeLead): void {
+	const existing = root.querySelector<HTMLElement>(`.${MODE_LEAD_CLASS}`);
+	if (existing?.dataset.mode === lead.id && existing.textContent === lead.label) return;
+	existing?.remove();
+	const chip = document.createElement("span");
+	chip.className = MODE_LEAD_CLASS;
+	chip.contentEditable = "false";
+	chip.dataset.mode = lead.id;
+	chip.title = lead.command;
+	const icon = document.createElementNS(SVG_NS, "svg");
+	icon.setAttribute("class", `icon icon--xs ${MODE_LEAD_CLASS}-icon`);
+	icon.setAttribute("aria-hidden", "true");
+	const use = document.createElementNS(SVG_NS, "use");
+	use.setAttribute("href", `#i-${lead.icon}`);
+	icon.append(use);
+	const label = document.createElement("span");
+	label.className = `${MODE_LEAD_CLASS}-label`;
+	label.textContent = lead.label;
+	chip.append(icon, label);
+	root.insertBefore(chip, root.firstChild ?? null);
+	// The space after it is where the caret sits and what separates the chip from the typed text.
+	root.insertBefore(document.createTextNode(" "), chip.nextSibling);
+	if (document.activeElement === root) {
+		const range = document.createRange();
+		range.setStart(chip.nextSibling ?? chip, chip.nextSibling ? 1 : 0);
+		range.collapse(true);
+		select(range);
+	}
+	refreshPlaceholderHint(root);
+}
+
+/** Drop the lead chip and its separating space (toggling the mode off, or a wiped prompt). */
+export function removeModeLead(root: HTMLElement): void {
+	const chip = root.querySelector(`.${MODE_LEAD_CLASS}`);
+	if (!chip) return;
+	if (chip.nextSibling?.textContent === " ") chip.nextSibling.remove();
+	chip.remove();
+	refreshPlaceholderHint(root);
+}
+
+/**
+ * `:empty` cannot show the placeholder while the lead chip is the prompt's
+ * only content, so the hint rides `data-empty` and renders after the chip.
+ */
+export function refreshPlaceholderHint(root: HTMLElement): void {
+	const onlyLead = Boolean(root.querySelector(`.${MODE_LEAD_CLASS}`)) && !promptText(root).trim();
+	if (onlyLead) root.dataset.empty = "";
+	else delete root.dataset.empty;
 }
 
 /** A copy of the prompt's content, put back by `restorePrompt` when a send fails. */

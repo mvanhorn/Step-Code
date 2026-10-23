@@ -1,9 +1,9 @@
 /**
  * The three session modes' presentation metadata, shared by the ＋ menu's mode
- * rows, the composer's staged-mode chip and the prompt's mode placeholder. The
- * per-mode accent colour lives in composer.css (`--mode-*` on `.composer`);
- * this file carries only the icon and copy keys, so a new mode is one entry
- * here plus one accent there.
+ * rows, the prompt's mode lead chip and its mode placeholder. The per-mode
+ * accent colour lives in composer.css (`--mode-*` on `.composer`); this file
+ * carries only the icon and copy keys, so a new mode is one entry here plus one
+ * accent there.
  */
 
 import type { ModeId } from "../../state/store";

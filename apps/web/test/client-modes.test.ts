@@ -74,14 +74,15 @@ test("each mode carries its icon, labels and placeholder in every locale", () =>
 	}
 });
 
-test("each mode has its accent and chip theme in composer.css", () => {
+test("each mode has its accent and lead theme in composer.css", () => {
 	// A mode is one metadata entry plus its CSS accent (see modes.ts): the card
-	// paints through `[data-mode]`, the chip and the ＋ menu row through their
-	// per-mode classes. This keeps a new mode from rendering unthemed.
+	// paints through `[data-mode]`, the prompt's lead chip through
+	// `.prompt-mode[data-mode]`, and the ＋ menu row through its per-mode class.
+	// This keeps a new mode from rendering unthemed.
 	const css = readFileSync(new URL("../client/src/features/composer/composer.css", import.meta.url), "utf8");
 	for (const mode of MODES) {
 		assert.ok(css.includes(`[data-mode="${mode.id}"]`), `${mode.id}: no composer-card accent block`);
-		assert.ok(css.includes(`.pick-chip--${mode.id}`), `${mode.id}: no mode chip class`);
+		assert.ok(css.includes(`.prompt-mode[data-mode="${mode.id}"]`), `${mode.id}: no prompt lead theme`);
 		assert.ok(css.includes(`.control-option--${mode.id}`), `${mode.id}: no ＋ menu row class`);
 	}
 });
