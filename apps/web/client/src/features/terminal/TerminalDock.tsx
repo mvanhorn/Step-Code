@@ -53,7 +53,7 @@ function terminalTheme(): ITheme {
 	const style = getComputedStyle(document.documentElement);
 	const color = (name: string) => style.getPropertyValue(name).trim();
 	return {
-		background: color("--canvas"),
+		background: color("--term-bg"),
 		foreground: color("--ink"),
 		cursor: color("--caret"),
 		selectionBackground: color("--focus-border"),

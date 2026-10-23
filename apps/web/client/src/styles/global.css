@@ -29,7 +29,14 @@
   color-scheme: light;
   /* ── Planes ──────────────────────────────────────────────────────── */
   --canvas: #ffffff;
-  --sidebar: #f7f7f8;
+  /* Theme base: a very light blue workbench (no violet in the hue) — the whole
+     bottom layer of the window, with the cards floating on it. The sidebar IS
+     that plane (same tone, no separate module — its grid column alone sets it
+     apart); only frosted overlays (sticky list header, file tree) tint with
+     --sidebar-glass over a backdrop blur. The periwinkle base lives on as the
+     "violet" theme choice below. */
+  --sidebar: var(--workbench);
+  --sidebar-glass: rgb(240 246 253 / 72%);
   --surface: #ffffff;
   --surface-soft: #f4f4f5;
   --hover: #f1f1f3;
@@ -41,6 +48,9 @@
   --line-strong: #d8d8dc;
   --switch-track: var(--line-strong);
   --switch-knob: var(--surface);
+  /* The terminal surface: a near-white light blue, a touch bluer than the
+     workbench so the dock reads as its own instrument without going dark. */
+  --term-bg: #f0f5fd;
   /* ANSI colours xterm would otherwise take from its dark-terminal defaults (≥4.5:1 on the canvas). */
   --term-green: #15803d;
   --term-yellow: #a16207;
@@ -150,6 +160,16 @@
   --radius-dialog: 16px;
   --radius-pill: 999px;
   /* ── Chrome ──────────────────────────────────────────────────────── */
+  /*
+   * Workbench: the theme base tone behind the sidebar and the floating
+   * column cards — a very light blue in the light theme, a deep navy in the
+   * dark one. The main and right columns sit on it as rounded cards, so it
+   * stays a step darker than the card surface (`--canvas`).
+   */
+  --workbench: #edf4fc;
+  --workbench-inset: 4px;
+  --workbench-gap: 2px;
+  --card-shadow: 0 1px 2px rgb(20 24 60 / 5%), 0 4px 12px rgb(20 24 60 / 5%);
   --scrollbar-size: 8px;
   --scrollbar-thumb: #d6d6da;
   /* Selected text gets a neutral grey wash, like the rest of the selection language. */
@@ -175,7 +195,6 @@
 html[data-theme="dark"] {
   color-scheme: dark;
   --canvas: #161618;
-  --sidebar: #111113;
   /* One step clearer of the #161618 canvas, so cards and menus read as raised. */
   --surface: #1f1f23;
   --surface-soft: #232327;
@@ -192,6 +211,7 @@ html[data-theme="dark"] {
   /* An off switch: a dark knob on a dark track disappears, so the knob takes a light grey. */
   --switch-track: #4a4a52;
   --switch-knob: #a8a8b0;
+  --term-bg: var(--canvas);
   --term-green: var(--success);
   --term-yellow: #e8c06a;
   --term-cyan: #6cc6d4;
@@ -228,6 +248,24 @@ html[data-theme="dark"] {
   --tok-keyword: var(--ink);
   --tok-key: #a9b4cc;
   --tok-tag: #8ab8ff;
+  --workbench: #101724;
+  --card-shadow: var(--elev-1);
+  /* Frosted overlay tint for the dark base plane. */
+  --sidebar-glass: rgb(16 23 36 / 68%);
+}
+
+/*
+ * Violet: the periwinkle base kept as its own theme choice — the same planes
+ * as Porcelain (sidebar merged into the workbench, floating cards), tinted
+ * lilac instead of blue.
+ */
+html[data-theme="violet"] {
+  --workbench: #f4f5fc;
+  --sidebar-glass: rgb(244 245 252 / 72%);
+}
+html[data-theme="violet"] .sidebar {
+  --hover: #e8eaf6;
+  --selected: #dde1f1;
 }
 
 /* legacy 118-155: reset, focus ring, scrollbars, icon sizing */
@@ -374,6 +412,7 @@ select {
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   width: 100vw;
   height: 100vh;
+  background: var(--workbench);
   transition: grid-template-columns 0.18s ease;
 }
 .app.sidebar-hidden {
@@ -397,7 +436,13 @@ select {
   transition: none;
 }
 
-/* legacy 191-203: sidebar column (App.tsx renders aside.sidebar) */
+/*
+ * legacy 191-203: sidebar column (App.tsx renders aside.sidebar). The sidebar
+ * is the workbench plane itself — identical tone, no divider, no gradient;
+ * only its grid column (width/height) delimits it, and the cards' edges mark
+ * the boundary. Row feedback gets its own step so it stays readable on the
+ * tinted plane.
+ */
 .sidebar {
   position: relative;
   grid-column: 1;
@@ -407,11 +452,13 @@ select {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  border-right: 1px solid var(--line);
   background: var(--sidebar);
+  --hover: #dfe9f7;
+  --selected: #d3e0f4;
 }
-.app.sidebar-hidden .sidebar {
-  border-right: 0;
+html[data-theme="dark"] .sidebar {
+  --hover: #1f2940;
+  --selected: #273352;
 }
 
 /*
@@ -433,7 +480,11 @@ select {
   height: 72%;
 }
 
-/* legacy 675-684: main column (App.tsx renders main.main) */
+/*
+ * legacy 675-684: main column (App.tsx renders main.main).
+ * The column sits on the workbench as a rounded card, so its children clip at
+ * the corners; fixed-position surfaces (the toast) are unaffected.
+ */
 .main {
   position: relative;
   grid-column: 2;
@@ -442,7 +493,12 @@ select {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  margin: var(--workbench-inset) var(--workbench-gap) var(--workbench-inset) var(--workbench-inset);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-surface);
   background: var(--canvas);
+  box-shadow: var(--card-shadow);
 }
 
 /*
@@ -799,6 +855,22 @@ select {
   right: 0;
   left: 0;
   height: var(--session-header-h);
+  -webkit-app-region: drag;
+}
+/*
+ * The workbench inset pulls the cards off the window edge, so the strip above
+ * them is chrome, not card: drag the window from that band too. Nothing
+ * interactive renders in the top inset band (the cards' own strips take over
+ * below it).
+ */
+[data-host="desktop"][data-platform="darwin"] .app::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 30;
+  height: var(--workbench-inset);
   -webkit-app-region: drag;
 }
 [data-host="desktop"][data-platform="darwin"]
