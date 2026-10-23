@@ -102,7 +102,9 @@ function checkWebClientSurface() {
   const globalCss = readFileSync(globalCssPath, "utf8")
   if (
     !globalCss.includes("--sidebar: var(--workbench)") ||
-    !globalCss.includes("--workbench: #f0f0f1") ||
+    !globalCss.includes("--sidebar-glass: rgb(240 246 253 / 72%)") ||
+    !globalCss.includes("--workbench: #edf4fc") ||
+    !globalCss.includes('html[data-theme="violet"]') ||
     !globalCss.includes("--ink: #171718") ||
     !globalCss.includes("--composer-width: 760px")
   ) {

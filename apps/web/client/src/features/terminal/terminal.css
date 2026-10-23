@@ -8,7 +8,7 @@
 	min-height: 140px;
 	min-width: 0;
 	border-top: 1px solid var(--line);
-	background: var(--canvas);
+	background: var(--term-bg);
 }
 .terminal-dock[hidden] { display: none; }
 .terminal-dock-resizer {
@@ -48,7 +48,7 @@
 .terminal-output { position: relative; flex: 1; min-height: 0; min-width: 0; margin: 2px 8px 6px 12px; overflow: hidden; }
 .terminal-view { position: absolute; inset: 0; min-width: 0; }
 .terminal-view .xterm { height: 100%; }
-.terminal-view .xterm-viewport { background: var(--canvas) !important; }
+.terminal-view .xterm-viewport { background: var(--term-bg) !important; }
 .terminal-view .composition-view { background: var(--surface); color: var(--ink); }
 @media (prefers-reduced-motion: reduce) {
 	.terminal-view .xterm .xterm-scrollable-element > .visible,

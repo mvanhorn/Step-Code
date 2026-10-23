@@ -29,9 +29,14 @@
   color-scheme: light;
   /* ── Planes ──────────────────────────────────────────────────────── */
   --canvas: #ffffff;
-  /* The sidebar is the workbench plane itself now, not a raised panel: its
-     surfaces follow the workbench tone in both themes. */
+  /* Theme base: a very light blue workbench (no violet in the hue) — the whole
+     bottom layer of the window, with the cards floating on it. The sidebar IS
+     that plane (same tone, no separate module — its grid column alone sets it
+     apart); only frosted overlays (sticky list header, file tree) tint with
+     --sidebar-glass over a backdrop blur. The periwinkle base lives on as the
+     "violet" theme choice below. */
   --sidebar: var(--workbench);
+  --sidebar-glass: rgb(240 246 253 / 72%);
   --surface: #ffffff;
   --surface-soft: #f4f4f5;
   --hover: #f1f1f3;
@@ -43,6 +48,9 @@
   --line-strong: #d8d8dc;
   --switch-track: var(--line-strong);
   --switch-knob: var(--surface);
+  /* The terminal surface: a near-white light blue, a touch bluer than the
+     workbench so the dock reads as its own instrument without going dark. */
+  --term-bg: #f0f5fd;
   /* ANSI colours xterm would otherwise take from its dark-terminal defaults (≥4.5:1 on the canvas). */
   --term-green: #15803d;
   --term-yellow: #a16207;
@@ -153,14 +161,15 @@
   --radius-pill: 999px;
   /* ── Chrome ──────────────────────────────────────────────────────── */
   /*
-   * Workbench: the window tone behind the sidebar and the floating column
-   * cards. The main and right columns sit on it as rounded cards, so it stays
-   * a step darker than the card surface (`--canvas`) in both themes.
+   * Workbench: the theme base tone behind the sidebar and the floating
+   * column cards — a very light blue in the light theme, a deep navy in the
+   * dark one. The main and right columns sit on it as rounded cards, so it
+   * stays a step darker than the card surface (`--canvas`).
    */
-  --workbench: #f0f0f1;
+  --workbench: #edf4fc;
   --workbench-inset: 4px;
   --workbench-gap: 2px;
-  --card-shadow: 0 1px 2px rgb(0 0 0 / 4%), 0 4px 12px rgb(0 0 0 / 4%);
+  --card-shadow: 0 1px 2px rgb(20 24 60 / 5%), 0 4px 12px rgb(20 24 60 / 5%);
   --scrollbar-size: 8px;
   --scrollbar-thumb: #d6d6da;
   /* Selected text gets a neutral grey wash, like the rest of the selection language. */
@@ -202,6 +211,7 @@ html[data-theme="dark"] {
   /* An off switch: a dark knob on a dark track disappears, so the knob takes a light grey. */
   --switch-track: #4a4a52;
   --switch-knob: #a8a8b0;
+  --term-bg: var(--canvas);
   --term-green: var(--success);
   --term-yellow: #e8c06a;
   --term-cyan: #6cc6d4;
@@ -238,8 +248,24 @@ html[data-theme="dark"] {
   --tok-keyword: var(--ink);
   --tok-key: #a9b4cc;
   --tok-tag: #8ab8ff;
-  --workbench: #111113;
+  --workbench: #101724;
   --card-shadow: var(--elev-1);
+  /* Frosted overlay tint for the dark base plane. */
+  --sidebar-glass: rgb(16 23 36 / 68%);
+}
+
+/*
+ * Violet: the periwinkle base kept as its own theme choice — the same planes
+ * as Porcelain (sidebar merged into the workbench, floating cards), tinted
+ * lilac instead of blue.
+ */
+html[data-theme="violet"] {
+  --workbench: #f4f5fc;
+  --sidebar-glass: rgb(244 245 252 / 72%);
+}
+html[data-theme="violet"] .sidebar {
+  --hover: #e8eaf6;
+  --selected: #dde1f1;
 }
 
 /* legacy 118-155: reset, focus ring, scrollbars, icon sizing */
@@ -412,9 +438,10 @@ select {
 
 /*
  * legacy 191-203: sidebar column (App.tsx renders aside.sidebar). The sidebar
- * is the bottom layer of the stack — same tone as the workbench, no divider;
- * the cards' edges mark the boundary. Row feedback gets its own step so it
- * stays readable on the merged tone.
+ * is the workbench plane itself — identical tone, no divider, no gradient;
+ * only its grid column (width/height) delimits it, and the cards' edges mark
+ * the boundary. Row feedback gets its own step so it stays readable on the
+ * tinted plane.
  */
 .sidebar {
   position: relative;
@@ -426,12 +453,12 @@ select {
   min-height: 0;
   overflow: hidden;
   background: var(--sidebar);
-  --hover: #e6e6e8;
-  --selected: #e0e0e2;
+  --hover: #dfe9f7;
+  --selected: #d3e0f4;
 }
 html[data-theme="dark"] .sidebar {
-  --hover: #26262a;
-  --selected: #2e2e33;
+  --hover: #1f2940;
+  --selected: #273352;
 }
 
 /*

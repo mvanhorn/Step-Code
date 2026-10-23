@@ -11,7 +11,7 @@ import { closeStream, showError } from "../../state/session";
 import { getState, setState, setUi, type ThemeChoice } from "../../state/store";
 import type { LoginReport } from "../../state/types";
 
-const THEMES: readonly ThemeChoice[] = ["system", "light", "dark"];
+const THEMES: readonly ThemeChoice[] = ["system", "light", "dark", "violet"];
 
 /**
  * Where "Upgrade" leads: the Step Plan page of the signed-in account's
@@ -26,8 +26,11 @@ function systemPrefersDark(): boolean {
 	return typeof matchMedia === "function" && matchMedia("(prefers-color-scheme: dark)").matches;
 }
 
-/** "light" or "dark" for a theme choice (legacy `resolvedTheme`, 524-526). */
-export function resolvedTheme(theme: ThemeChoice = getState().theme): "light" | "dark" {
+/**
+ * "light", "dark" or "violet" for a theme choice (legacy `resolvedTheme`, 524-526);
+ * "violet" is a light-plane theme of its own, so it passes through unmixed.
+ */
+export function resolvedTheme(theme: ThemeChoice = getState().theme): "light" | "dark" | "violet" {
 	return theme === "system" ? (systemPrefersDark() ? "dark" : "light") : theme;
 }
 
