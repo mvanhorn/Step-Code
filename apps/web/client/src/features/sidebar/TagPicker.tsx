@@ -10,10 +10,21 @@ function TagNameInput({ sessionId, color }: { readonly sessionId: string; readon
 	const t = useT();
 	const input = useRef<HTMLInputElement>(null);
 	const ime = useImeGuard();
+	const [error, setError] = useState(false);
 	useEffect(() => input.current?.focus(), []);
 	const accept = () => {
 		const fallback = TAG_COLOR_NAMES[getState().locale][color];
-		createGroupAndTag(sessionId, color, input.current?.value.trim() || fallback);
+		const name = input.current?.value.trim() || fallback;
+		// Identical names leave the colour as the only difference between two
+		// groups, which the picker and grouped view cannot show apart.
+		const duplicate = getState().groups.some((group) => group.name.toLowerCase() === name.toLowerCase());
+		if (duplicate) {
+			setError(true);
+			input.current?.focus();
+			input.current?.select();
+			return;
+		}
+		createGroupAndTag(sessionId, color, name);
 		closeTagPicker();
 	};
 	const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -30,12 +41,19 @@ function TagNameInput({ sessionId, color }: { readonly sessionId: string; readon
 				id="tagNameInput"
 				maxLength={12}
 				placeholder={t("groupNamePlaceholder")}
+				aria-invalid={error || undefined}
 				{...ime.handlers}
+				onInput={() => setError(false)}
 				onKeyDown={onKeyDown}
 			/>
 			<button type="button" id="tagNameConfirm" onClick={accept}>
 				{t("confirm")}
 			</button>
+			{error ? (
+				<div className="tag-create-error" role="alert">
+					{t("groupNameDuplicate")}
+				</div>
+			) : null}
 		</div>
 	);
 }

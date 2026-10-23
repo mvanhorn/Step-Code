@@ -109,12 +109,10 @@
 	width: 8px;
 	height: 8px;
 	border: 1.5px solid var(--tag-color, var(--line-strong));
+	/* Filled: at 8px a border-only diamond washes every hue together. */
+	background: var(--tag-color, transparent);
 	border-radius: var(--radius-hairline);
 	transform: rotate(45deg);
-}
-.filter-chip .tag-diamond,
-.group-heading .tag-diamond {
-	background: var(--tag-color, transparent);
 }
 .session-tag-button {
 	display: none;

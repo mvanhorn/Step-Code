@@ -190,6 +190,9 @@
 	border-radius: var(--radius-input);
 	text-align: left;
 }
+.tag-picker .tag-create {
+	flex-wrap: wrap;
+}
 .tag-picker button:hover {
 	background: var(--hover);
 }
@@ -211,4 +214,15 @@
 	border-radius: var(--radius-input);
 	outline: none;
 	background: var(--surface);
+}
+.tag-create input[aria-invalid="true"] {
+	border-color: var(--danger);
+}
+.tag-create-error {
+	flex-basis: 100%;
+	/* Under the name input: row padding plus diamond and gap. */
+	padding: 0 9px 5px 26px;
+	color: var(--danger);
+	font-size: 10px;
+	line-height: 1.4;
 }

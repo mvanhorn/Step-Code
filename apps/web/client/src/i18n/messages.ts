@@ -175,6 +175,7 @@ const zhCN = {
 	useColor: "用这个颜色新建",
 	noCategory: "无分类",
 	groupNamePlaceholder: "分组名称",
+	groupNameDuplicate: "已存在同名分组",
 	tagSession: "为该会话设置分组",
 	confirm: "确定",
 	rename: "重命名",
@@ -1021,6 +1022,7 @@ const enUS: Record<MessageKey, string> = {
 	useColor: "Create with this color",
 	noCategory: "No category",
 	groupNamePlaceholder: "Group name",
+	groupNameDuplicate: "A group with this name already exists",
 	tagSession: "Group this conversation",
 	confirm: "Confirm",
 	rename: "Rename",
@@ -1724,7 +1726,7 @@ export const MESSAGES: Readonly<Record<Locale, Readonly<Record<string, string>>>
 	"en-US": enUS,
 };
 
-export type TagColor = "red" | "orange" | "yellow" | "green" | "blue" | "purple" | "pink" | "gray";
+export type TagColor = "red" | "orange" | "yellow" | "green" | "teal" | "blue" | "purple" | "gray";
 
 /** Default group names per tag colour (legacy `TAG_COLOR_NAMES`). */
 export const TAG_COLOR_NAMES: Readonly<Record<Locale, Readonly<Record<TagColor, string>>>> = {
@@ -1733,9 +1735,9 @@ export const TAG_COLOR_NAMES: Readonly<Record<Locale, Readonly<Record<TagColor, 
 		orange: "橙色",
 		yellow: "黄色",
 		green: "绿色",
+		teal: "青色",
 		blue: "蓝色",
 		purple: "紫色",
-		pink: "粉色",
 		gray: "灰色",
 	},
 	"en-US": {
@@ -1743,9 +1745,9 @@ export const TAG_COLOR_NAMES: Readonly<Record<Locale, Readonly<Record<TagColor, 
 		orange: "Orange",
 		yellow: "Yellow",
 		green: "Green",
+		teal: "Teal",
 		blue: "Blue",
 		purple: "Purple",
-		pink: "Pink",
 		gray: "Gray",
 	},
 };
