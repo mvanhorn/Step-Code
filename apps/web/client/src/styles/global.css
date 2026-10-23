@@ -767,11 +767,15 @@ select {
   top: calc(var(--brand-row-h) + var(--titlebar-inset));
 }
 /*
- * The same title strip runs across the top of the main column, so the window
- * drags (and double-click zooms) from above the conversation too, not only
- * from the sidebar. The strip stops short of the right edge to leave the
- * stream's scrollbar grabbable. Controls that land in it (the sidebar show
- * button, market and cron headers, child-agent bar) opt out.
+ * The whole top band of the window is title bar: across the main column it
+ * covers the session header's full height (--session-header-h), and it
+ * continues over the right panel's header and the top of the tool rail, so
+ * the window drags (and a double-click applies the macOS "double-click a
+ * window's title bar" action, zoom by default) from anywhere on that line.
+ * The main strip stops short of the right edge to leave the stream's
+ * scrollbar grabbable. Controls that land in the band (session menu, sidebar
+ * show button, market and cron headers, child-agent bar, panel and rail
+ * buttons) opt out.
  */
 [data-host="desktop"][data-platform="darwin"] .main::before {
   content: "";
@@ -779,10 +783,27 @@ select {
   top: 0;
   right: 12px;
   left: 0;
-  height: var(--titlebar-inset);
+  height: var(--session-header-h);
   -webkit-app-region: drag;
 }
-[data-host="desktop"][data-platform="darwin"] .main :is(button, a, input, textarea, select, [role="button"]) {
+[data-host="desktop"][data-platform="darwin"] .right-panel-header {
+  -webkit-app-region: drag;
+}
+[data-host="desktop"][data-platform="darwin"] .right-tool-rail {
+  position: relative;
+}
+[data-host="desktop"][data-platform="darwin"] .right-tool-rail::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: var(--session-header-h);
+  -webkit-app-region: drag;
+}
+[data-host="desktop"][data-platform="darwin"]
+  :is(.main, .right-panel, .right-tool-rail)
+  :is(button, a, input, textarea, select, [role="button"], [role="tab"], [contenteditable="true"]) {
   -webkit-app-region: no-drag;
 }
 [data-host="desktop"][data-platform="darwin"]

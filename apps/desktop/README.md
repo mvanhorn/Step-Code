@@ -89,7 +89,9 @@ no automatic StepPage installation.
 
 The client marks `<html data-host="desktop" data-platform="darwin|win32|linux">` when the bridge is present. On macOS
 the window uses `titleBarStyle: "hiddenInset"` with the traffic lights at `{ x: 16, y: 16 }`; the client reserves the
-top-left strip of the sidebar for them and marks it `-webkit-app-region: drag`.
+top-left strip of the sidebar for them and marks it `-webkit-app-region: drag`. The whole top band (session header,
+right panel header, top of the tool rail) is a drag region too, so the window drags and double-click zooms from
+anywhere on it; controls inside it opt out with `no-drag`.
 
 ## Icons
 

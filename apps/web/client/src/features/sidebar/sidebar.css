@@ -121,8 +121,6 @@
   overflow-y: auto;
   /* No right padding: the stable scrollbar gutter is the row's right inset. */
   padding: 2px 0 16px 8px;
-  /* The last row fades into the footer instead of being cut by its edge. */
-  mask-image: linear-gradient(to bottom, #000 calc(100% - 24px), transparent);
   /* Like the stream, the thumb shows only while the pointer is over the list. */
   scrollbar-color: transparent transparent;
   scrollbar-width: thin;
@@ -131,6 +129,23 @@
 }
 .conversation-list:hover {
   scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+/*
+ * The last row fades into the footer instead of being cut by its edge. This is
+ * a painted overlay, not a mask-image on the list: a mask clips every
+ * descendant to the list's box, fixed ones included, so the row action hints
+ * (Tooltip) that overhang the sidebar's right edge would be cut off.
+ */
+.conversation-list::after {
+  content: "";
+  position: sticky;
+  bottom: -16px;
+  z-index: 6;
+  display: block;
+  height: 24px;
+  margin: -8px 0 -16px -8px;
+  background: linear-gradient(to bottom, transparent, var(--sidebar));
+  pointer-events: none;
 }
 .list-header-row {
   position: sticky;
