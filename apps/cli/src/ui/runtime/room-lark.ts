@@ -40,7 +40,11 @@ export async function authorizeRoomBot(
 			context.ui.notify("room · 授权未返回你的身份，无法建群", "warning");
 			return undefined;
 		}
-		return { credentials: result.credentials, ownerOpenId };
+		return {
+			credentials: result.credentials,
+			ownerOpenId,
+			...(result.userInfo?.unionId ? { ownerUnionId: result.userInfo.unionId } : {}),
+		};
 	} catch {
 		context.ui.notify("room · 授权过程失败，请重试 /room", "warning");
 		return undefined;
@@ -97,7 +101,9 @@ export function liveRoomTransport(
 		createChat(input) {
 			return api.createChat({
 				name: input.name,
-				userOpenIds: input.userOpenIds,
+				...(input.userIds
+					? { userIdType: input.userIdType ?? "open_id", userIds: input.userIds }
+					: { userOpenIds: input.userOpenIds }),
 				botIds: input.botIds,
 				...(input.ownerOpenId ? { ownerOpenId: input.ownerOpenId } : {}),
 				dedupeKey: input.dedupeKey,
@@ -108,6 +114,7 @@ export function liveRoomTransport(
 			sendCard: (chatId, card, replyTo) => api.sendCard(chatId, card, replyTo),
 			updateCard: (messageId, card) => api.updateCard(messageId, card),
 			listChatMembers: (chatId) => api.listChatMembers(chatId),
+			addMembers: (chatId, ids, idType) => api.addChatMembers(chatId, ids, idType),
 			close: () => api.close(),
 		},
 	};

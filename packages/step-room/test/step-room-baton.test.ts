@@ -102,7 +102,10 @@ describe("room turn arbitration", () => {
 });
 
 describe("room hand-off", () => {
-	it("continues only when answering a peer bot", () => {
+	it("hands the turn on only when a peer bot spoke", () => {
+		// A peer's message is a hand-off, so answering it continues the exchange. A human writing to
+		// their own bot is a request aimed at this side; whether the peer needs it is the agent's
+		// call through `room_send`, and defaulting to yes is how two bots talk forever.
 		expect(shouldHandOff("bot")).toBe(true);
 		expect(shouldHandOff("user")).toBe(false);
 	});

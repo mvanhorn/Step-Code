@@ -23,6 +23,7 @@ import {
 	RoomAgentStore,
 	RoomBindingStore,
 	RoomCodeBook,
+	shouldHandOff,
 } from "@step-harness/step-room";
 import {
 	describeFailure,
@@ -37,6 +38,17 @@ const POLL_INTERVAL_MS = 2_000;
 const MAX_PEER_TURNS = 4;
 const ROOM_TOOL = "room_send";
 
+/**
+ * Appended to every room message so the agent knows the rules of the turn it is about to take.
+ * The room must end when the work is settled: an agent that always answers keeps both sides
+ * talking forever, because each reply is a new message the other side is addressed in.
+ */
+const ROOM_PROTOCOL_NOTE =
+	"[room protocol] You are in a StepCode room with another person's agent. Reply normally, and use room_send " +
+	"to share anything the other side cannot see. Add handOff: true only if the other agent still has work to do " +
+	"with what you are sending. If the matter is settled — you agree, or there is nothing left for them to act on " +
+	"— send without handOff, or just reply: the exchange then stops until a human addresses an agent again.";
+
 /** What the product needs from the platform; kept small so a test can stand in for it. */
 export interface RoomTransport {
 	/** Start listening. Resolves once the platform confirms the connection. */
@@ -47,7 +59,11 @@ export interface RoomTransport {
 	/** Create the group with this bot already inside. Returns the chat id. */
 	createChat(input: {
 		name: string;
-		userOpenIds: readonly string[];
+		/** People by an id in `userIdType`'s space. */
+		userIds?: readonly string[];
+		userIdType?: "open_id" | "union_id";
+		/** Kept for callers whose people are all in this app's own scope. */
+		userOpenIds?: readonly string[];
 		botIds: readonly string[];
 		ownerOpenId?: string;
 		dedupeKey: string;
@@ -61,6 +77,12 @@ export interface RoomTransport {
 		listChatMembers(
 			chatId: string,
 		): Promise<readonly { openId: string; memberType: "user" | "bot" | "unknown" }[] | undefined>;
+		/** Add people to an existing chat. Partial failures are reported, never thrown away. */
+		addMembers(
+			chatId: string,
+			ids: readonly string[],
+			idType: "open_id" | "union_id",
+		): Promise<{ added: readonly string[]; failed: readonly string[]; approvalPending: readonly string[] }>;
 		close(): Promise<void>;
 	};
 }
@@ -81,7 +103,7 @@ export interface RoomExtensionOptions {
 	/** Turn a fresh authorization into credentials. Absent means the room command stays off. */
 	authorize?: (
 		context: ExtensionContext,
-	) => Promise<{ credentials: LarkCredentials; ownerOpenId: string } | undefined>;
+	) => Promise<{ credentials: LarkCredentials; ownerOpenId: string; ownerUnionId?: string } | undefined>;
 	/** Build the live transport from credentials. Absent in tests that supply no platform. */
 	transport?: (
 		credentials: LarkCredentials,
@@ -91,8 +113,8 @@ export interface RoomExtensionOptions {
 	/** Rendezvous client; defaults to the trial deployment. */
 	/** Only the calls the command makes, so a test can stand in without impersonating the class. */
 	rendezvous?: Pick<RoomRendezvousClient, "configured" | "publish" | "status" | "claim" | "retire">;
-	/** Title for the group. */
-	roomName?: (selfName: string, peerName: string | undefined) => string;
+	/** Title for the group; receives the room code so the name is recognisable at a glance. */
+	roomName?: (selfName: string, peerName: string | undefined, code: string) => string;
 }
 
 interface ActiveRoom {
@@ -103,14 +125,40 @@ interface ActiveRoom {
 	appId: string;
 	/** The person who started the room; they own the group. */
 	ownerOpenId: string;
+	/** The same person in the tenant-wide id space, so the other side can invite them. */
+	ownerUnionId?: string;
 	botOpenId: string;
 	botName: string;
 	transport: RoomTransport;
-	/** `openId` is the peer's bot; `userOpenId` is the peer himself, and he must be in the group. */
-	peer?: { appId: string; openId: string; userOpenId: string; name?: string };
+	/** `openId` is the peer's bot; `userUnionId` is the peer himself, addable from either side. */
+	peer?: { appId: string; openId: string; userOpenId: string; userUnionId?: string; name?: string };
 	/** The session this room speaks for; needed to bind a chat that arrives before any event does. */
 	sessionId: string;
+	/** The message id last posted by this side; used for cancel/replace of a live card. */
 	lastSpoken?: string;
+	/**
+	 * The text last posted by this side, kept separately from `lastSpoken`: that field holds a
+	 * message id after a send, so comparing assistant text against it would always report a change
+	 * and post the same reply twice.
+	 */
+	lastSpokenText?: string;
+	/**
+	 * Who triggered the turn currently running, so the reply can be attributed and the peer-turn
+	 * budget advanced correctly.
+	 */
+	pendingAddressedBy?: "user" | "bot" | "self";
+	/**
+	 * Set by `room_send` when the agent wants the peer to respond. Absent means "I am done": the
+	 * reply still reaches the room, but it does not address the peer bot, and the exchange goes
+	 * quiet until a human on either side starts it again.
+	 */
+	pendingHandOff?: boolean;
+	/** Whether a bot-to-bot exchange is in flight; used only to decide whether to report its end. */
+	exchangeOpen?: boolean;
+	/** Set when `room_send` posted the message for this turn, so `message_end` stays silent. */
+	pendingSpokenInTool?: boolean;
+	/** The terminal this room reports to, kept for callbacks that have no command context. */
+	ui?: { notify(message: string, level?: "info" | "warning" | "error"): void };
 	polling?: NodeJS.Timeout;
 }
 
@@ -123,8 +171,11 @@ export function createRoomExtension(options: RoomExtensionOptions): ExtensionFac
 		let bindings: RoomBindingStore | undefined;
 		let peerTurns = 0;
 
-		const title = (self: string, peer: string | undefined) =>
-			options.roomName?.(self, peer) ?? (peer ? `chat with ${peer}` : `room-${room?.roomId.slice(0, 8) ?? "new"}`);
+		// The room code is the one identifier both people already share, so it is what the group is
+		// named after; `roomId` is an internal UUID nobody has seen.
+		const title = (self: string, peer: string | undefined, code: string) =>
+			options.roomName?.(self, peer, code) ??
+			(code ? `StepCode会议室-${code}` : `room-${room?.roomId.slice(0, 8) ?? "new"}`);
 
 		const stop = async (notify: boolean, context?: ExtensionCommandContext) => {
 			const current = room;
@@ -133,6 +184,13 @@ export function createRoomExtension(options: RoomExtensionOptions): ExtensionFac
 			if (!current) {
 				if (notify) context?.ui.notify("room · 当前不在会议室", "info");
 				return;
+			}
+			// Say goodbye before tearing the transport down: the other side would otherwise keep
+			// addressing an agent that has already stopped listening.
+			if (current.chatId) {
+				await current.transport.api
+					.sendCard(current.chatId, card(`会议室已结束：${current.botName} 已离开。`))
+					.catch(() => undefined);
 			}
 			if (current.polling) clearInterval(current.polling);
 			current.transport.close();
@@ -143,13 +201,23 @@ export function createRoomExtension(options: RoomExtensionOptions): ExtensionFac
 			if (notify) context?.ui.notify("room · 已离开会议室", "info");
 		};
 
-		/** Speak into the room; hand the turn to the peer only when the trigger came from a bot. */
+		/**
+		 * Speak into the room. `handOffTo` addresses the peer's bot, which is what makes the other
+		 * side's agent take a turn; leaving it out posts the message without waking anyone.
+		 *
+		 * `lastSpokenText` records the text *without* the address prefix: it is compared against
+		 * assistant output to decide whether a reply is already in the group, and the assistant never
+		 * writes the `<at>` markup itself.
+		 */
 		const speak = async (text: string, handOffTo: string | undefined) => {
 			const current = room;
 			if (!current?.chatId) return;
 			const body = handOffTo ? `<at user_id="${handOffTo}"></at> ${text}` : text;
 			try {
 				current.lastSpoken = await current.transport.api.sendCard(current.chatId, card(body));
+				// Only a message that actually reached the group counts as spoken; recording it first
+				// would make a failed send look delivered and suppress the retry on the next turn.
+				current.lastSpokenText = text;
 			} catch {
 				// The room is a projection of the session, never its source of truth.
 			}
@@ -188,7 +256,18 @@ export function createRoomExtension(options: RoomExtensionOptions): ExtensionFac
 				{ selfOpenId: current.botOpenId, maxPeerTurns: MAX_PEER_TURNS, peerTurns },
 			);
 			if (!decision.speak) return;
-			peerTurns = decision.addressedBy === "user" ? 0 : peerTurns + 1;
+			// A human talking to this side restarts the exchange. A peer's turn is counted when this
+			// side actually hands the word back (see `message_end`), not on arrival, so the budget
+			// measures round-trips instead of inbound messages.
+			peerTurns = decision.addressedBy === "user" ? 0 : peerTurns;
+			// Remember who triggered this turn; `message_end` needs it to decide the hand-off. A new
+			// turn starts clean: if the previous one was interrupted before its reply landed, a stale
+			// `pendingSpokenInTool` would make this turn believe its message was already posted and
+			// drop it silently.
+			current.pendingAddressedBy = decision.addressedBy;
+			current.pendingHandOff = undefined;
+			current.pendingSpokenInTool = undefined;
+			current.exchangeOpen = true;
 			// A peer bot is untrusted input: it becomes a user message, never a tool instruction, and
 			// this session's own permission policy still governs whatever it asks for.
 			const content: TextContent[] = [
@@ -196,6 +275,7 @@ export function createRoomExtension(options: RoomExtensionOptions): ExtensionFac
 					type: "text",
 					text: `[room · ${message.senderType ?? "unknown"} · ${message.senderOpenId ?? "unknown"}] ${message.text}`,
 				},
+				{ type: "text", text: ROOM_PROTOCOL_NOTE },
 			];
 			pi.sendUserMessage(content, { deliverAs: "followUp", expandPromptTemplates: false });
 		};
@@ -238,7 +318,7 @@ export function createRoomExtension(options: RoomExtensionOptions): ExtensionFac
 				context.ui.notify("room · 授权未完成", "warning");
 				return undefined;
 			}
-			const { credentials, ownerOpenId } = authorized;
+			const { credentials, ownerOpenId, ownerUnionId } = authorized;
 			const probe = new LarkApi(credentials);
 			try {
 				const identity = await probe.getBotIdentity();
@@ -248,6 +328,7 @@ export function createRoomExtension(options: RoomExtensionOptions): ExtensionFac
 					botOpenId: identity.openId,
 					botName: identity.name,
 					ownerOpenId,
+					...(ownerUnionId ? { ownerUnionId } : {}),
 					brand: credentials.brand,
 					createdAt: new Date().toISOString(),
 				};
@@ -315,11 +396,19 @@ export function createRoomExtension(options: RoomExtensionOptions): ExtensionFac
 				chatId: "",
 				appId: record.appId,
 				ownerOpenId: record.ownerOpenId,
+				...(record.ownerUnionId ? { ownerUnionId: record.ownerUnionId } : {}),
 				botOpenId: self.openId,
 				botName: self.name,
 				transport,
 				sessionId: context.sessionManager.getSessionId(),
+				ui: context.ui,
 			};
+			if (!record.ownerUnionId) {
+				context.ui.notify(
+					"room · 本机凭证缺少 union_id（旧版授权产生），对方无法自动把你拉进群；重新授权 /room 可补上",
+					"warning",
+				);
+			}
 			context.ui.notify(`room · @${self.name} · 房间码 ${code} · 2 分钟内有效，念给对方`, "info");
 
 			room.polling = setInterval(() => {
@@ -349,17 +438,87 @@ export function createRoomExtension(options: RoomExtensionOptions): ExtensionFac
 		 * Confirm the invite landed.
 		 *
 		 * `undefined` means the tenant cannot read members at all — the launcher template grants no
-		 * chat-read scope, so this is the normal case and proves nothing. Only a listing we actually
-		 * received may be read as evidence that the peer's bot is missing.
+		 * chat-read scope, so this is the common case and proves nothing. Only a listing we actually
+		 * received may be read as evidence that someone is missing.
 		 */
-		const verifyMembers = async (current: ActiveRoom, context: ExtensionCommandContext) => {
-			const members = await current.transport.api.listChatMembers(current.chatId);
+		const verifyMembers = (
+			current: ActiveRoom,
+			context: ExtensionCommandContext,
+			members: readonly { openId: string; memberType: string }[] | undefined,
+		) => {
 			if (!members) return;
 			const hasPeerBot = members.some(
 				(member) => member.memberType === "bot" && member.openId !== current.botOpenId,
 			);
 			if (!hasPeerBot) {
 				context.ui.notify("room · 群已建好，但对方机器人没进群，请在飞书里手动拉一次", "warning");
+			}
+			const humans = members.filter((member) => member.memberType === "user").length;
+			if (humans < 2) {
+				context.ui.notify(`room · 群里只有 ${humans} 个人，请把对方也拉进来`, "warning");
+			}
+		};
+
+		/** Invite the people who belong in the room, naming the id space so no id is cross-app. */
+		const invitePeople = (current: ActiveRoom): { userIds: string[]; userIdType: "open_id" | "union_id" } => {
+			const peerUnionId = current.peer?.userUnionId;
+			// `union_id` is tenant-wide, so one list carries both people regardless of which app
+			// created them. This is the only way to put the peer *person* in a group we create, so it
+			// wins whenever either union id is known — a peer's union id is still usable even when this
+			// side's old record has none.
+			if (current.ownerUnionId || peerUnionId) {
+				return {
+					userIds: [current.ownerUnionId, peerUnionId].filter((id): id is string => Boolean(id)),
+					userIdType: "union_id",
+				};
+			}
+			// Neither side published a union id: our own open id is still resolvable in our own scope.
+			// The peer is left out here and reported by `ensurePeerPerson`, which is honest about it.
+			return { userIds: [current.ownerOpenId], userIdType: "open_id" };
+		};
+
+		/**
+		 * After the group exists, make sure the peer's person is actually in it.
+		 *
+		 * Creating the group with a `union_id` is expected to place the person directly; this call is
+		 * the belt-and-braces path for when it does not. A member listing is keyed by `open_id`, so it
+		 * cannot tell us whether a given *union_id* is inside — but when it shows two people, both are
+		 * there and there is nothing to add. Every failure is reported: a silently missing person is
+		 * exactly what makes a room look like it is working when it is not.
+		 */
+		const ensurePeerPerson = async (
+			current: ActiveRoom,
+			context: ExtensionCommandContext,
+			members: readonly { memberType: string }[] | undefined,
+		) => {
+			const peerUnionId = current.peer?.userUnionId;
+			if (!peerUnionId) {
+				context.ui.notify(
+					"room · 对方没有上报 union_id，无法自动邀请对方本人进群；请让对方用新版 step 重新 /room join",
+					"warning",
+				);
+				return;
+			}
+			// The group was created with this union id already listed, so two people in a readable
+			// listing means the create call did its job. An unreadable listing (`undefined`) proves
+			// nothing either way, but adding is idempotent — asking again is the only way to find out,
+			// and a person already present is simply not reported.
+			if (members && members.filter((member) => member.memberType === "user").length >= 2) return;
+			try {
+				const result = await current.transport.api.addMembers(current.chatId, [peerUnionId], "union_id");
+				if (result.failed.length) {
+					context.ui.notify("room · 邀请对方本人进群失败（id 无效），请在飞书里手动拉一次", "warning");
+				} else if (result.approvalPending.length) {
+					context.ui.notify("room · 对方本人进群需要对方管理员审批", "info");
+				}
+			} catch (error) {
+				// The create call already added whoever it could; this is the fallback, so say how to
+				// proceed by hand and keep the room working rather than failing a usable room.
+				const detail = error instanceof Error ? error.message : String(error);
+				context.ui.notify(
+					`room · 未能自动把对方本人拉进群（${detail}）；请在飞书里把对方加进来，或给对方机器人开通 im:chat.members:write_only`,
+					"warning",
+				);
 			}
 		};
 
@@ -371,16 +530,17 @@ export function createRoomExtension(options: RoomExtensionOptions): ExtensionFac
 				appId: peer.appId,
 				openId: peer.openId,
 				userOpenId: peer.userOpenId,
+				...(peer.userUnionId ? { userUnionId: peer.userUnionId } : {}),
 				...(peer.name ? { name: peer.name } : {}),
 			};
+			const invitees = invitePeople(current);
 			let chatId: string;
 			try {
 				chatId = await current.transport.createChat({
-					name: title(current.botName, peer.name),
-					// Only the starter's own open id is usable here: the peer's open id is scoped to the
-					// peer's app, so passing it back fails with "open_id cross app". Their bot is added by
-					// app id instead, which is tenant-wide, and it brings the conversation to them.
-					userOpenIds: [current.ownerOpenId],
+					name: title(current.botName, peer.name, current.code),
+					...invitees,
+					// Bots are named by application id (`cli_…`), which is tenant-wide and needs no
+					// per-app id translation.
 					botIds: [current.appId, peer.appId],
 					ownerOpenId: current.ownerOpenId,
 					dedupeKey: current.roomId,
@@ -393,8 +553,12 @@ export function createRoomExtension(options: RoomExtensionOptions): ExtensionFac
 			current.chatId = chatId;
 			bindings = new RoomBindingStore();
 			bindings.bind(chatId, context.sessionManager.getSessionId());
-			await verifyMembers(current, context);
+			// Read the listing once: it costs a platform call, and both checks need the same snapshot.
+			const members = await current.transport.api.listChatMembers(current.chatId);
+			await ensurePeerPerson(current, context, members);
+			verifyMembers(current, context, members);
 			await rendezvous.retire(current.code, current.secret).catch(() => undefined);
+			await openConversation(current, context);
 			context.ui.notify(`room · 群已就绪 · 在群里 @${current.botName} 开始`, "info");
 		};
 
@@ -418,6 +582,7 @@ export function createRoomExtension(options: RoomExtensionOptions): ExtensionFac
 				appId: record.appId,
 				openId: record.botOpenId,
 				userOpenId: record.ownerOpenId,
+				...(record.ownerUnionId ? { userUnionId: record.ownerUnionId } : {}),
 				name: self.name,
 			});
 			if (!claimed.ok) {
@@ -433,10 +598,12 @@ export function createRoomExtension(options: RoomExtensionOptions): ExtensionFac
 				chatId: "",
 				appId: record.appId,
 				ownerOpenId: record.ownerOpenId,
+				...(record.ownerUnionId ? { ownerUnionId: record.ownerUnionId } : {}),
 				botOpenId: self.openId,
 				botName: self.name,
 				transport,
 				sessionId: context.sessionManager.getSessionId(),
+				ui: context.ui,
 			};
 			context.ui.notify("room · 已登记，等待对方建群后把你拉进群（进群后即可对话）", "info");
 		};
@@ -459,6 +626,30 @@ export function createRoomExtension(options: RoomExtensionOptions): ExtensionFac
 			// leaves the person watching "waiting for the other side", which reads as a hang.
 			if (first) {
 				context.ui.notify(`room · 已进群，可以开始对话（@${current.botName} 或直接说话）`, "info");
+			}
+		};
+
+		/**
+		 * Open the conversation.
+		 *
+		 * A room is only useful once one side speaks, and nothing starts on its own: the starting
+		 * side's bot posts the first message and addresses the peer bot, which is what wakes the
+		 * peer's agent. Without this the two people stare at a group where neither agent says
+		 * anything.
+		 */
+		const openConversation = async (current: ActiveRoom, context: ExtensionCommandContext) => {
+			const peer = current.peer;
+			if (!current.chatId || !peer) return;
+			const handOff = `<at user_id="${peer.openId}"></at>`;
+			const opening =
+				`${handOff} 会议室已就绪：${current.botName} ↔ ${peer.name ?? "对方 agent"}。` +
+				"请在群里 @ 自己的机器人说明要一起讨论的事，两边会交替接棒。";
+			current.lastSpokenText = opening;
+			try {
+				current.lastSpoken = await current.transport.api.sendCard(current.chatId, card(opening));
+			} catch {
+				// Failing to announce does not invalidate the room; the person can still @ their bot.
+				context.ui.notify("room · 群已建好，但开场消息发送失败，请直接在群里 @ 自己的机器人", "warning");
 			}
 		};
 
@@ -499,8 +690,53 @@ export function createRoomExtension(options: RoomExtensionOptions): ExtensionFac
 				.map((part) => part.text)
 				.join("\n")
 				.trim();
-			if (!text || text === room.lastSpoken) return;
-			void speak(text, undefined);
+			// One reply consumes the turn and everything the tool recorded for it.
+			const addressedBy = room.pendingAddressedBy;
+			const handOffRequested = room.pendingHandOff;
+			const spokenInTool = room.pendingSpokenInTool === true;
+			room.pendingAddressedBy = undefined;
+			room.pendingHandOff = undefined;
+			room.pendingSpokenInTool = undefined;
+
+			// Whether to address the peer bot is a decision, not a default. `shouldHandOff` covers a
+			// peer's message, which earns an answer; `handOffRequested` lets the agent stop (`false`)
+			// or continue (`true`) either way. A human's message never forces an address: the room is
+			// already open — `openConversation` posted an addressed greeting when the group was made —
+			// and forwarding every question a person asks their own agent would interrupt the peer
+			// for nothing. Addressing the peer on every reply is exactly how two bots talk forever.
+			const eligible = addressedBy !== undefined && shouldHandOff(addressedBy);
+			const wantsPeer = handOffRequested === undefined ? eligible : handOffRequested;
+
+			if (wantsPeer) {
+				if (peerTurns >= MAX_PEER_TURNS) {
+					// Budget spent. Post whatever is unsaid, unaddressed, and stop the chain here.
+					if (text && text !== room.lastSpokenText) void speak(text, undefined);
+					room.exchangeOpen = false;
+					room.ui?.notify(
+						`room · 已连续接棒 ${MAX_PEER_TURNS} 轮，暂停自动转给对方（在群里 @ 机器人可继续）`,
+						"info",
+					);
+					return;
+				}
+				// Count only a hand-off that actually happens, so the budget measures round-trips
+				// rather than inbound messages.
+				// `room_send` already counted and posted this turn's message, address included; posting
+				// the assistant text again would duplicate it in the group.
+				if (!spokenInTool) {
+					peerTurns += 1;
+					if (text && text !== room.lastSpokenText) void speak(text, room.peer?.openId);
+				}
+				return;
+			}
+
+			// No hand-off: the reply still reaches the room, but nobody is woken by it.
+			if (!spokenInTool && text && text !== room.lastSpokenText) void speak(text, undefined);
+			if (room.exchangeOpen && addressedBy === "bot") {
+				// This side answered the peer and chose not to continue: the room now waits for a
+				// human on either end, and saying so beats looking stuck.
+				room.ui?.notify("room · 本轮已结束（本侧未继续交棒），在群里 @ 机器人可继续", "info");
+			}
+			room.exchangeOpen = false;
 		});
 
 		/**
@@ -511,13 +747,21 @@ export function createRoomExtension(options: RoomExtensionOptions): ExtensionFac
 		pi.registerTool({
 			name: ROOM_TOOL,
 			label: "Room message",
-			description:
-				"Send a short conclusion to the room. Use it when the human asks you to share something with the other person's agent. Say only what the other side cannot see on its own; never pass file contents or secrets.",
+			description: [
+				"Send a short conclusion to the room while you are in a StepCode room.",
+				"Pass handOff: true only when the other agent still needs to act on what you wrote.",
+				"If the matter is settled — you agree, nothing is left for them to do — omit handOff:",
+				"the message is posted without addressing them and the exchange ends there.",
+				"Say only what the other side cannot see on its own; never pass file contents or secrets.",
+			].join(" "),
 			parameters: {
 				type: "object",
 				properties: {
 					summary: { type: "string", description: "The conclusion, a few sentences at most." },
-					handOff: { type: "boolean", description: "Address the other agent so it continues." },
+					handOff: {
+						type: "boolean",
+						description: "Address the other agent so it continues. Omit when there is nothing left for it to do.",
+					},
 				},
 				required: ["summary"],
 			},
@@ -525,8 +769,24 @@ export function createRoomExtension(options: RoomExtensionOptions): ExtensionFac
 				const current = room;
 				if (!current) return { ok: false, error: "not in a room" };
 				const summary = String(args.summary ?? "").slice(0, 2000);
-				const target = args.handOff ? current.peer?.openId : undefined;
-				void speak(summary, target || undefined);
+				// The tool is the agent's own path to the peer, so the budget is enforced here as well;
+				// otherwise every turn could call `room_send` and the cap would never apply.
+				const mayHandOff = peerTurns < MAX_PEER_TURNS;
+				const handOff = args.handOff === true && Boolean(current.peer?.openId) && mayHandOff;
+				if (handOff) {
+					peerTurns += 1;
+				}
+				// The tool posts the message itself, address included. Mark the turn as already spoken so
+				// `message_end` neither repeats this text nor appends another address to it.
+				current.pendingHandOff = handOff;
+				current.pendingSpokenInTool = true;
+				await speak(summary, handOff ? current.peer?.openId : undefined);
+				if (args.handOff === true && !handOff) {
+					return {
+						ok: true,
+						note: `已发言但未转给对方：本侧已到 ${MAX_PEER_TURNS} 轮接棒上限，等人在群里 @ 再继续`,
+					};
+				}
 				return { ok: true };
 			},
 		} as never);

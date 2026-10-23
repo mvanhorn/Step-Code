@@ -94,9 +94,12 @@ export function decideRoomTurn(message: RoomMessage, options: RoomTurnOptions): 
 }
 
 /**
- * Whether the reply this agent is about to write should hand the turn back to a peer bot.
- * Rules: answer a human without continuing the chain; answer a peer only when explicitly
- * addressed — otherwise the conversation ends, which is the default termination condition.
+ * Whether a turn triggered by this sender is handed to the peer bot by default.
+ *
+ * A peer bot's message is a hand-off, so an answer continues the exchange. A human writing to
+ * their own bot is starting a conversation with their own agent: the agent decides whether the
+ * other side needs to hear about it, which is what `room_send`'s `handOff` flag is for. Handing
+ * every human message to the peer would make a routine question to one agent interrupt the other.
  */
 export function shouldHandOff(addressedBy: "user" | "bot" | "self"): boolean {
 	return addressedBy === "bot";

@@ -215,6 +215,7 @@ function recordingTransport() {
 					sendCard: async () => "om_card",
 					updateCard: async () => undefined,
 					listChatMembers: async () => undefined,
+					addMembers: async (_chatId, ids) => ({ added: ids, failed: [], approvalPending: [] }),
 					close: async () => undefined,
 				},
 			};
