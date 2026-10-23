@@ -564,7 +564,7 @@
 	cursor: zoom-in;
 }
 .attachment-thumb:focus-visible {
-	outline: 2px solid var(--accent);
+	outline: 2px solid var(--focus-border);
 	outline-offset: 1px;
 }
 .attachment-thumb img {

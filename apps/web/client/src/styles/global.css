@@ -152,7 +152,8 @@
   /* ── Chrome ──────────────────────────────────────────────────────── */
   --scrollbar-size: 8px;
   --scrollbar-thumb: #d6d6da;
-  --selection: rgb(91 71 224 / 15%);
+  /* Selected text gets a neutral grey wash, like the rest of the selection language. */
+  --selection: rgb(23 23 24 / 12%);
   /* Status badges and the shared focus ring. */
   --badge-surface: #eeeef0;
   --attention-ink: #8a5d06;
@@ -217,7 +218,7 @@ html[data-theme="dark"] {
   --thumb: #38383e;
   --inline-code: rgb(255 255 255 / 7%);
   --scrollbar-thumb: #38383e;
-  --selection: rgb(160 143 255 / 28%);
+  --selection: rgb(237 237 239 / 22%);
   --badge-surface: #2c2c31;
   --attention-ink: #f2bf58;
   --focus-border: #626269;
