@@ -10,6 +10,7 @@ import type { ExtensionAPI, ExtensionContext, ToolDefinition } from "../src/core
 import { KeybindingsManager } from "../src/core/keybindings.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { getPlanFilePath } from "../src/features/plan-mode-tools.ts";
+import { createStepExtension } from "../src/features/step.ts";
 import { createStepPlanExtension } from "../src/features/step-plan.ts";
 import { createStepTasksExtension, type StepTask } from "../src/features/step-tasks.ts";
 import type { PlanReviewDetails } from "../src/render/plan-review.ts";
@@ -116,6 +117,7 @@ function createHarness(
 		registerTool(tool: ToolDefinition) {
 			tools.set(tool.name, tool);
 		},
+		registerProvider: () => {},
 		registerCommand(name: string, command: { handler: (args: string, ctx: ExtensionContext) => unknown }) {
 			commands.set(name, command);
 		},
@@ -289,6 +291,105 @@ test("run_command is not gated in plan mode; non-plan-file mutations still are",
 			context,
 		),
 	).resolves.toBeUndefined();
+});
+
+// ---------------------------------------------------------------------------
+// Plan mode decides before the permission prompt
+// ---------------------------------------------------------------------------
+
+/**
+ * Mount the Step extension and the plan extension on one API, in the order the
+ * product hosts register them: Step (permissions) first, capabilities (plan)
+ * second. ExtensionRunner short-circuits a `tool_call` block, so that order is
+ * what decides which handler gets to answer first.
+ */
+function createPlanAndPermissionHarness(cwd: string, initialPreset: "ask" | "approve-for-me" | "full-access") {
+	const harness = createHarness({ cwd });
+	createStepExtension({
+		permission: { env: {}, initialPreset },
+		stepSettings: () => ({ getStepSettings: () => ({}), setEffectiveStepSettings: () => {} }),
+	})(harness.api);
+	createStepPlanExtension()(harness.api);
+	const confirm = vi.fn(async (_title: string, _message: string) => true);
+	// The harness ctx builds a fresh UI object per call, so merge the spy into a
+	// copy rather than replacing the whole surface the extensions reach for.
+	const context = harness.ctx({ ui: { ...(harness.ctx().ui as object), confirm } });
+	return { harness, confirm, context };
+}
+
+test("plan mode denies a non-plan mutation without asking for approval first", async () => {
+	// The `ask` preset used to open its approval dialog before the plan guard
+	// ran: the user was asked to approve an edit plan mode forbids, the turn
+	// stalled while the dialog was open, and approving still returned the
+	// plan-mode block. Plan mode decides its own denials now.
+	const cwd = makeWorkspace();
+	const { harness, confirm, context } = createPlanAndPermissionHarness(cwd, "ask");
+	await harness.emit({ type: "session_start", reason: "startup" }, context);
+	await harness.commands.get("plan")!.handler("add a readme", context);
+
+	const blocked = await harness.emit(
+		{
+			type: "tool_call",
+			toolName: "write_file",
+			toolCallId: "outside-plan",
+			input: { path: "src/app.ts", content: "x" },
+		},
+		context,
+	);
+	expect(blocked).toMatchObject({ block: true });
+	expect(JSON.stringify(blocked)).toContain("Only the plan file may be written");
+	// Nothing is left pending for the user to answer.
+	expect(confirm).not.toHaveBeenCalled();
+});
+
+test("a write to the plan file still goes through the ask permission policy", async () => {
+	const cwd = makeWorkspace();
+	const { harness, confirm, context } = createPlanAndPermissionHarness(cwd, "ask");
+	await harness.emit({ type: "session_start", reason: "startup" }, context);
+	await harness.commands.get("plan")!.handler("add a readme", context);
+	const planPath = path.join(cwd, ".stepcode", "plans", "session-sess-1.md");
+
+	await expect(
+		harness.emit(
+			{
+				type: "tool_call",
+				toolName: "write_file",
+				toolCallId: "plan-file",
+				input: { path: planPath, content: "# plan" },
+			},
+			context,
+		),
+	).resolves.toBeUndefined();
+	expect(confirm).toHaveBeenCalledTimes(1);
+	expect(String(confirm.mock.calls[0]?.[0])).toContain("write_file");
+	// A refused approval is still a refusal: plan mode allows the target, it does
+	// not grant the write.
+	confirm.mockClear();
+	confirm.mockResolvedValue(false);
+	await expect(
+		harness.emit(
+			{ type: "tool_call", toolName: "edit_file", toolCallId: "plan-file-2", input: { path: planPath } },
+			context,
+		),
+	).resolves.toMatchObject({ block: true, reason: "Tool call denied: edit_file" });
+	expect(confirm).toHaveBeenCalledTimes(1);
+});
+
+test("plan mode still denies non-plan mutations without a permission controller in the way", async () => {
+	// The pre-check is an addition, not a replacement: a host that mounts only
+	// the capabilities extension gets the same denial from the plan guard.
+	const cwd = makeWorkspace();
+	const harness = createHarness({ cwd });
+	createStepPlanExtension()(harness.api);
+	const context = harness.ctx();
+	await harness.commands.get("plan")!.handler("add a readme", context);
+
+	await expect(
+		harness.emit(
+			{ type: "tool_call", toolName: "write_file", toolCallId: "no-step", input: { path: "src/app.ts" } },
+			context,
+		),
+	).resolves.toMatchObject({ block: true, reason: expect.stringContaining("Only the plan file may be written") });
 });
 
 // ---------------------------------------------------------------------------

@@ -9,7 +9,12 @@
 import { existsSync, readFileSync } from "node:fs";
 import type { AgentMessage } from "@step-harness/agent-core";
 import type { EventBus } from "../core/event-bus.ts";
-import type { ExtensionAPI, ExtensionContext, ExtensionFactory } from "../core/extensions/types.ts";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+	ExtensionFactory,
+	ToolCallEventResult,
+} from "../core/extensions/types.ts";
 import { resolveToCwd } from "../core/tools/path-utils.ts";
 import { type StepTelemetryReporter, trackStepTelemetry } from "../step/telemetry.ts";
 import { type LegacyPlanTodoFields, migrateLegacyPlanTodos } from "./plan-mode-migration.ts";
@@ -117,6 +122,80 @@ export function getStepPlanState(
 		};
 	}
 	return undefined;
+}
+
+/**
+ * The session-manager surface the plan decision reads.
+ *
+ * Structural, so a host or a test can answer it without a full SessionManager;
+ * the extension context's `sessionManager` already satisfies it.
+ */
+interface PlanModeSessionView {
+	getBranch(): readonly { type: string; customType?: string; data?: unknown }[];
+	getSessionId(): string;
+}
+
+/** Plan mode's verdict on one tool call. */
+export interface PlanModeToolCallDecision {
+	/** The plan file this session may write while plan mode is on. */
+	planFilePath: string;
+	/** The path the call targets, exactly as the model spelled it. */
+	targetPath: string;
+	/** The call targets the plan file, so plan mode lets it through. */
+	targetsPlanFile: boolean;
+	/** The denial for a forbidden mutation; absent when the call is allowed. */
+	block?: ToolCallEventResult;
+}
+
+/**
+ * What plan mode decides about one tool call, or undefined when it decides nothing.
+ *
+ * This is the single source of truth for the plan-file boundary, shared by the
+ * plan extension's own `tool_call` guard and the Step permission pre-check that
+ * runs ahead of it. Two spellings of the rule would drift, and the drift is
+ * silent: a path one side accepts and the other blocks is an edit the user is
+ * asked to approve and then refused.
+ *
+ * State is read from the branch rather than an in-memory flag, because the Step
+ * permission extension is registered before the plan extension: by the time its
+ * handler runs, the plan extension may not have replayed `session_start` yet,
+ * and a restored session must still be guarded. `enter`/`exit` persist
+ * synchronously, so the branch is never behind the live mode.
+ */
+export function planModeToolCallDecision(options: {
+	manager: PlanModeSessionView;
+	cwd: string;
+	toolName: string;
+	input: unknown;
+}): PlanModeToolCallDecision | undefined {
+	if (!MUTATING_TOOLS.has(options.toolName)) return undefined;
+	const planState = getStepPlanState(options.manager.getBranch());
+	if (!planState?.enabled) return undefined;
+	// Resolve exactly as resolvePlanFilePath does: the persisted path, else the
+	// per-session default for this cwd.
+	const planFilePath = planState.planFilePath ?? getPlanFilePath(options.manager.getSessionId(), options.cwd);
+	const toolInput = (options.input ?? {}) as Record<string, unknown>;
+	const targetPath = typeof toolInput.path === "string" ? toolInput.path : "";
+	// Resolve exactly as the file tools do (`~`, `@`, unicode spaces), so an
+	// allowed target cannot land somewhere else than the guard checked.
+	if (targetPath && resolveToCwd(targetPath, options.cwd) === resolveToCwd(planFilePath, options.cwd)) {
+		return { planFilePath, targetPath, targetsPlanFile: true };
+	}
+	return {
+		planFilePath,
+		targetPath,
+		targetsPlanFile: false,
+		block: {
+			block: true,
+			reason: [
+				`Plan mode is active, so this file mutation was blocked. Only the plan file may be written: ${planFilePath}`,
+				`Target: ${targetPath || "(no path provided)"}`,
+				"Plan mode is a permission restriction, not a missing tool: do not retry this edit or rephrase the path.",
+				"run_command keeps its normal permissions, but stay read-only while planning: do not use it to write or patch files.",
+				`Write the implementation proposal to the plan file with write_file, then call exit_plan_mode to submit it for review.`,
+			].join("\n"),
+		},
+	};
 }
 
 /**
@@ -356,28 +435,23 @@ export const createStepPlanExtension =
 		});
 		registerPlanModeTools(pi, planModeController);
 		pi.on("tool_call", async (event, ctx) => {
-			if (!enabled || !MUTATING_TOOLS.has(event.toolName)) return;
-			const planPath = resolvePlanFilePath(ctx);
-			const toolInput = (event.input ?? {}) as Record<string, unknown>;
-			const targetPath = typeof toolInput.path === "string" ? toolInput.path : "";
-			// Resolve exactly as the file tools do (`~`, `@`, unicode spaces), so an
-			// allowed target cannot land somewhere else than the guard checked.
-			if (targetPath && resolveToCwd(targetPath, ctx.cwd) === resolveToCwd(planPath, ctx.cwd)) {
+			// The same decision the permission pre-check consults, so the boundary
+			// has one spelling. Plan mode narrows permissions, it does not remove
+			// the tool, so this guard is the only enforcement.
+			const decision = planModeToolCallDecision({
+				manager: ctx.sessionManager,
+				cwd: ctx.cwd,
+				toolName: event.toolName,
+				input: event.input,
+			});
+			if (!decision) return;
+			if (decision.targetsPlanFile) {
 				// Allowed: the mutation targets the plan file itself. This runs
 				// before the write lands, so a missing file marks the plan's creation.
-				recordPlanUpdate(options.telemetry, planSource, !existsSync(planPath));
+				recordPlanUpdate(options.telemetry, planSource, !existsSync(decision.planFilePath));
 				return;
 			}
-			return {
-				block: true,
-				reason: [
-					`Plan mode is active, so this file mutation was blocked. Only the plan file may be written: ${planPath}`,
-					`Target: ${targetPath || "(no path provided)"}`,
-					"Plan mode is a permission restriction, not a missing tool: do not retry this edit or rephrase the path.",
-					"run_command keeps its normal permissions, but stay read-only while planning: do not use it to write or patch files.",
-					`Write the implementation proposal to the plan file with write_file, then call exit_plan_mode to submit it for review.`,
-				].join("\n"),
-			};
+			return decision.block;
 		});
 
 		// Plan mode has to be visible to the model, not only to the UI.

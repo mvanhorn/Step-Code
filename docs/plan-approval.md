@@ -10,6 +10,9 @@ Plan mode does not hide tools: it denies mutating calls outside the plan file
 through the `tool_call` policy, so the request's tool block stays byte-identical
 and the provider's prompt cache keeps its prefix. Only a profile that lacks a
 plan tool has it appended on entry, and that addition alone is reverted on exit.
+That denial is decided before any approval prompt, so a host never asks the user
+to approve a mutation plan mode forbids; a write to the plan file itself still
+goes through the normal permission policy.
 
 Successful headless and RPC exits return the existing model-facing text plus
 structured `details`, for example:

@@ -34,6 +34,9 @@ import { type StepTelemetryReporter, trackStepTelemetry } from "../step/telemetr
 import type { TraceHeaderPolicy } from "../step/telemetry-contract.ts";
 import { getThenRunCommand } from "../step/then-run.ts";
 import { applyStepTraceHeaders } from "../step/trace-headers.ts";
+import { registerUsageRecording } from "../step/usage/recording.ts";
+import type { UsageResources } from "../step/usage/types.ts";
+import { planModeToolCallDecision } from "./step-plan.ts";
 import {
 	fetchStepModelEfforts,
 	registerStepProvider,
@@ -46,6 +49,12 @@ import { registerStepStreamRecovery } from "./step-stream-recovery.ts";
 export interface StepExtensionOptions {
 	/** Local usage services and presentation supplied by the product host. */
 	usageHost?: import("../step/usage/commands.ts").StepUsageHost;
+	/**
+	 * Resource accessor for hosts that record provenance without the `/usage`
+	 * UI. Recording is part of the session lifecycle, so a host with no usage
+	 * panel still writes the request ids and timings a report joins on.
+	 */
+	usageRecording?: () => UsageResources;
 	/** Initial Step policy, normally populated from CLI/runtime options. */
 	permission?: StepPermissionControllerOptions;
 	/** Optional Step settings decorator used to restore and persist policy. */
@@ -132,6 +141,12 @@ export function createStepExtension(options: StepExtensionOptions = {}): Extensi
 		// The same plugins also contribute skills and commands, which the resource
 		// loader reads from agent/project directories rather than the plugin root.
 		createStepPluginResourcesExtension()(pi);
+		// Provenance recording belongs to the session lifecycle, not the `/usage`
+		// panel: a host without that UI (StepCode Web and Desktop) still has to
+		// record the request a feedback report is joined with. A host with a usage
+		// UI keeps supplying its own resources through the host object.
+		const usageHost = options.usageHost;
+		registerUsageRecording(pi, options.usageRecording ?? (usageHost ? () => usageHost.resources() : undefined));
 		registerStepPiCommandAdapters(
 			pi,
 			options.telemetry,
@@ -381,6 +396,18 @@ export function createStepExtension(options: StepExtensionOptions = {}): Extensi
 					reason: "then_run requires run_command, which is not available in this session; retry without then_run",
 				};
 			}
+			// Plan mode decides its own denials here, ahead of the approval prompt.
+			// This handler is registered before the plan extension's, so without
+			// this the `ask` preset would ask the user to approve an edit plan mode
+			// forbids and only then report the block. A write to the plan file
+			// itself falls through to the normal permission policy below.
+			const planDecision = planModeToolCallDecision({
+				manager: ctx.sessionManager,
+				cwd: ctx.cwd,
+				toolName: event.toolName,
+				input: event.input,
+			});
+			if (planDecision?.block) return planDecision.block;
 			return await permissions.handleToolCall(event, ctx);
 		});
 
