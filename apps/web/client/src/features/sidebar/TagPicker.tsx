@@ -86,12 +86,24 @@ export function TagPicker({ sessionId }: { readonly sessionId: string }) {
 			{fresh.length ? (
 				<>
 					<div className="tag-picker-caption">{t("createGroup")}</div>
-					{fresh.map((color) => (
-						<button key={color} type="button" data-new-tag={color} onClick={() => setCreating(color)}>
-							<span className="tag-diamond" style={cssVar("--tag-color", TAG_COLORS[color])} />
-							<span>{t("useColor")}</span>
-						</button>
-					))}
+					{/* Colour chips instead of wordy rows: one row of swatches, one click each. */}
+					<div className="tag-new-colors">
+						{fresh.map((color) => {
+							const label = t("createWithColor", { color: TAG_COLOR_NAMES[getState().locale][color] });
+							return (
+								<button
+									key={color}
+									type="button"
+									className="tag-swatch"
+									data-new-tag={color}
+									style={cssVar("--tag-color", TAG_COLORS[color])}
+									title={label}
+									aria-label={label}
+									onClick={() => setCreating(color)}
+								/>
+							);
+						})}
+					</div>
 				</>
 			) : null}
 			<div className="tag-picker-divider" />

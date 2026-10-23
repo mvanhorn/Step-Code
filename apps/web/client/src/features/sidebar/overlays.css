@@ -154,7 +154,10 @@
 	padding: 6px;
 	border: 1px solid var(--line);
 	border-radius: var(--radius-menu);
-	background: var(--surface);
+	/* Frosted glass: every menu floats over the list it pops from. */
+	background: color-mix(in srgb, var(--surface) 72%, transparent);
+	-webkit-backdrop-filter: blur(18px) saturate(1.6);
+	backdrop-filter: blur(18px) saturate(1.6);
 	box-shadow: 0 10px 30px var(--shadow);
 }
 .session-menu button {
@@ -175,7 +178,8 @@
 }
 .tag-picker {
 	z-index: 50;
-	min-width: 172px;
+	/* Wide enough for diamond + name input + confirm on one row. */
+	min-width: 200px;
 	border-radius: var(--radius-surface);
 	box-shadow: 0 12px 32px var(--shadow);
 }
@@ -207,13 +211,45 @@
 	background: var(--line);
 }
 .tag-create input {
-	width: 116px;
+	width: 96px;
 	height: var(--input-h);
 	padding: 0 7px;
 	border: 1px solid var(--line-strong);
 	border-radius: var(--radius-input);
 	outline: none;
 	background: var(--surface);
+}
+.tag-new-colors {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 13px;
+	padding: 6px 10px 7px 13px;
+}
+/* A colour chip, not a menu row: undo the generic `.tag-picker button` row styles. */
+.tag-picker .tag-swatch {
+	display: block;
+	width: 14px;
+	height: 14px;
+	min-height: 0;
+	padding: 0;
+	border-radius: 3px;
+	background: var(--tag-color);
+	transform: rotate(45deg);
+	transition:
+		transform 0.12s ease,
+		box-shadow 0.12s ease;
+}
+.tag-picker .tag-swatch:hover {
+	/* Keeps the colour over the generic `.tag-picker button:hover` grey. */
+	background: var(--tag-color);
+	transform: rotate(45deg) scale(1.2);
+	box-shadow:
+		0 0 0 2px var(--sidebar),
+		0 0 0 4px var(--tag-color);
+}
+.tag-picker .tag-swatch:focus-visible {
+	outline: 2px solid var(--ink-2);
+	outline-offset: 3px;
 }
 .tag-create input[aria-invalid="true"] {
 	border-color: var(--danger);
