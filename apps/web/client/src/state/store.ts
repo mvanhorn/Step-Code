@@ -88,11 +88,13 @@ export interface TreeState {
 	readonly resultsTruncated: boolean;
 }
 
-/** A workspace file open in the preview rail. */
+/** A file open in the preview rail. */
 export interface FilePreviewTab {
 	readonly kind: "file";
 	readonly cwd: string;
 	readonly path: string;
+	/** Present when the file lives outside the workspace; `path` is then absolute. */
+	readonly scope?: "local";
 	readonly file: WorkspaceFile | null;
 	readonly error: string;
 	readonly loading: boolean;
