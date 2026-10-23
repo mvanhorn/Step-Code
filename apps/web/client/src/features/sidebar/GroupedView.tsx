@@ -1,11 +1,12 @@
-import { type ReactNode, useState } from "react";
+import { type DragEvent, type ReactNode, useState } from "react";
 import { type TagColor, useT } from "../../i18n";
 import { cx } from "../../lib/format";
 import { shallowEqual, useAppStore } from "../../state/store";
 import type { SessionSummary } from "../../state/types";
 import { EmptyState, Icon, LEGACY_ICONS } from "../../ui";
+import { setSessionTag } from "./actions";
 import { SessionRow } from "./SessionRow";
-import { cssVar, TAG_COLOR_KEYS, TAG_COLORS } from "./tags";
+import { cssVar, SESSION_DRAG_TYPE, TAG_COLOR_KEYS, TAG_COLORS } from "./tags";
 
 interface GroupedSectionProps {
 	readonly name: string;
@@ -17,11 +18,31 @@ interface GroupedSectionProps {
 /** One coloured section of the grouped view (legacy `buildGroupedSection`, 992-1012). */
 function GroupedSection({ name, color, sessions, archived = false }: GroupedSectionProps) {
 	const [folded, setFolded] = useState(false);
+	const [dropTarget, setDropTarget] = useState(false);
 	const groupColor = archived ? "var(--ink-3)" : color ? TAG_COLORS[color] : "var(--line)";
+	// Dropping a row on a section retags it with that group; the ungrouped
+	// section's null colour clears the tag. The archive stays a folder, not a target.
+	const onDragOver = (event: DragEvent<HTMLElement>) => {
+		if (archived || !event.dataTransfer.types.includes(SESSION_DRAG_TYPE)) return;
+		event.preventDefault();
+		event.dataTransfer.dropEffect = "move";
+		setDropTarget(true);
+	};
+	const onDrop = (event: DragEvent<HTMLElement>) => {
+		const sessionId = event.dataTransfer.getData(SESSION_DRAG_TYPE);
+		setDropTarget(false);
+		if (archived || !sessionId) return;
+		event.preventDefault();
+		setSessionTag(sessionId, color);
+	};
 	return (
+		// biome-ignore lint/a11y/noStaticElementInteractions: an HTML5 drop zone for dragged session rows; keyboard users retag via the tag picker.
 		<section
-			className={cx("group-section", archived && "archived-group", folded && "folded")}
+			className={cx("group-section", archived && "archived-group", folded && "folded", dropTarget && "drop-target")}
 			style={cssVar("--group-color", groupColor)}
+			onDragOver={onDragOver}
+			onDragLeave={() => setDropTarget(false)}
+			onDrop={onDrop}
 		>
 			{/* biome-ignore lint/a11y/noStaticElementInteractions: legacy heading is a plain clickable div. */}
 			{/* biome-ignore lint/a11y/useKeyWithClickEvents: see above. */}

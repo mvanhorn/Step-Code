@@ -235,6 +235,14 @@
 .group-heading:hover {
 	background: var(--hover);
 }
+/* Drag-and-drop retagging: the grabbed row fades, the hovered section glows its group colour. */
+.session-row.dragging {
+	opacity: 0.35;
+}
+.group-section.drop-target .group-heading {
+	background: color-mix(in srgb, var(--group-color) 14%, transparent);
+	box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--group-color) 55%, transparent);
+}
 .group-section.folded .group-spine,
 .group-section.folded .group-sessions {
 	display: none;
