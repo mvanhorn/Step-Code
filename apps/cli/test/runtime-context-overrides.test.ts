@@ -43,9 +43,11 @@ async function firstRequest(config: string, flags: string[]) {
 		const child = spawn(process.execPath, args, { cwd, env: { PATH: process.env.PATH, HOME: home, USERPROFILE: home, STEP_CODING_AGENT_DIR: agentDir, STEP_NO_LOCAL_LLM: "1", AWS_EC2_METADATA_DISABLED: "true" }, stdio: ["ignore", "pipe", "pipe"] });
 		let output = "";
 		child.stdout.on("data", (chunk) => { output += chunk; }); child.stderr.on("data", (chunk) => { output += chunk; });
-		// A cold CLI start on a loaded CI runner is much slower than on a laptop;
-		// the SIGKILL guard is here to stop a hang, not to bound normal startup.
-		const timeout = setTimeout(() => child.kill("SIGKILL"), 90_000);
+		// A cold CLI start on a loaded CI runner is much slower than on a laptop, so
+		// the SIGKILL guard only bounds a hang; the test's own timeout (below) has
+		// to stay above it, or vitest reports a bare "timed out" instead of the
+		// child's output.
+		const timeout = setTimeout(() => child.kill("SIGKILL"), 60_000);
 		const code = await new Promise<number | null>((done, reject) => { child.once("error", reject); child.once("close", done); });
 		clearTimeout(timeout);
 		expect(code, output.slice(-12000)).toBe(0);
@@ -58,8 +60,14 @@ async function firstRequest(config: string, flags: string[]) {
 }
 
 describe.skipIf(process.platform === "win32")("CLI overrides after resource loading", () => {
-	it("keeps explicit native compression after the resource loader reloads settings", async () => {
-		const request = await firstRequest('[compaction]\ncontextProjection = "clm-v1"\n', ["--context-projection", "off"]);
-		expect(JSON.stringify(request.messages)).not.toContain("## Working context");
-	});
+	it(
+		"keeps explicit native compression after the resource loader reloads settings",
+		async () => {
+			const request = await firstRequest('[compaction]\ncontextProjection = "clm-v1"\n', ["--context-projection", "off"]);
+			expect(JSON.stringify(request.messages)).not.toContain("## Working context");
+		},
+		// Spawns the built CLI; the default 30s budget is a bare vitest timeout on a
+		// loaded runner, which hides the child's own output.
+		120_000,
+	);
 });
