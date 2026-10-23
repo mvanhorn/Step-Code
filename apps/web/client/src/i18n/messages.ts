@@ -514,7 +514,6 @@ const zhCN = {
 	performanceElapsed: "本轮耗时：{value}",
 	performanceSpeed: "平均输出速度：{value}",
 	performanceTokens: "会话累计输入 / 输出 Token：{value}",
-	performanceInOut: "入 {input} · 出 {output}",
 	performanceElapsedHint: "从本轮开始到完全结束，由浏览器本地观测；未观测的历史不补计时。",
 	performanceSpeedHint: "已完成模型响应的输出 Token / 响应耗时，含思考，不含工具执行和重试等待；浏览器本地观测。",
 	performanceTokensHint: "会话累计输入 / 输出 Token。输入包含缓存读取和写入，统计包含已压缩历史。",
@@ -1380,7 +1379,6 @@ const enUS: Record<MessageKey, string> = {
 	performanceElapsed: "Run elapsed: {value}",
 	performanceSpeed: "Average output speed: {value}",
 	performanceTokens: "Session input / output tokens: {value}",
-	performanceInOut: "in {input} · out {output}",
 	performanceElapsedHint: "Browser-observed time from run start to settlement. Unobserved history has no duration.",
 	performanceSpeedHint:
 		"Reported output tokens / completed model-response time, including thinking, excluding tools and retry backoff. Measured in this browser.",

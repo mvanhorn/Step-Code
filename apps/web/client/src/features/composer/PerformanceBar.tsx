@@ -54,52 +54,37 @@ export function PerformanceBar() {
 	const elapsed = run ? performanceDuration((run.endedAt ?? now) - run.startedAt) : unavailable;
 	const speed = responseThroughput(run);
 	const throughput = speed === undefined ? unavailable : `${speed.toFixed(1)} tok/s`;
-	/* Labelled, so the pair does not read as a fraction. */
 	const tokens = usage
-		? t("performanceInOut", { input: formatTokens(usage.input), output: formatTokens(usage.output) })
+		? `${formatTokens(usage.input)} / ${formatTokens(usage.output)}`
 		: `${unavailable} / ${unavailable}`;
 	const hit = usage?.cacheHit === undefined ? unavailable : `${Math.round(usage.cacheHit * 100)}%`;
-	/* A metric with no reading yet is left out rather than shown as a dash; the bar reads as unfinished otherwise. */
-	const hasElapsed = Boolean(run);
-	const hasSpeed = speed !== undefined;
-	const hasHit = usage?.cacheHit !== undefined;
 	const usageHint =
 		result?.id === sessionId && result?.error ? t("performanceUnavailable") : t("performanceTokensHint");
 	return (
 		<section className="performance-bar" aria-label={t("performanceTitle")} data-running={running}>
-			{hasElapsed ? (
-				<Tooltip content={t("performanceElapsedHint")}>
-					<span className="performance-metric" role="img" aria-label={t("performanceElapsed", { value: elapsed })}>
-						<Icon name="timer" size="xs" />
-						<span className="performance-elapsed">{elapsed}</span>
-					</span>
-				</Tooltip>
-			) : null}
-			{hasSpeed ? (
-				<Tooltip content={t("performanceSpeedHint")}>
-					<span
-						className="performance-metric"
-						role="img"
-						aria-label={t("performanceSpeed", { value: throughput })}
-					>
-						<Icon name="zap" size="xs" />
-						<span className="performance-speed">{throughput}</span>
-					</span>
-				</Tooltip>
-			) : null}
+			<Tooltip content={t("performanceElapsedHint")}>
+				<span className="performance-metric" role="img" aria-label={t("performanceElapsed", { value: elapsed })}>
+					<Icon name="timer" size="xs" />
+					<span className="performance-elapsed">{elapsed}</span>
+				</span>
+			</Tooltip>
+			<Tooltip content={t("performanceSpeedHint")}>
+				<span className="performance-metric" role="img" aria-label={t("performanceSpeed", { value: throughput })}>
+					<Icon name="zap" size="xs" />
+					<span className="performance-speed">{throughput}</span>
+				</span>
+			</Tooltip>
 			<Tooltip content={usageHint}>
 				<span className="performance-metric" role="img" aria-label={t("performanceTokens", { value: tokens })}>
 					<Icon name="database" size="xs" />
 					<span>{tokens}</span>
 				</span>
 			</Tooltip>
-			{hasHit ? (
-				<Tooltip content={t("performanceCacheHint")}>
-					<span className="performance-metric">
-						{t("performanceCacheHit")} <span>{hit}</span>
-					</span>
-				</Tooltip>
-			) : null}
+			<Tooltip content={t("performanceCacheHint")}>
+				<span className="performance-metric">
+					{t("performanceCacheHit")} <span>{hit}</span>
+				</span>
+			</Tooltip>
 		</section>
 	);
 }
