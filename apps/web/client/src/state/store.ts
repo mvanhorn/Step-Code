@@ -69,7 +69,7 @@ export function createStore<S extends object>(initial: S): Store<S> {
 
 /* ── App state (legacy app.js `state`, lines 1-53) ───────────────────────── */
 
-export type ThemeChoice = "system" | "light" | "dark";
+export type ThemeChoice = "system" | "light" | "dark" | "violet";
 export type ConversationView = "project" | "group";
 export type ModeId = "goal" | "plan" | "ultraloop";
 export type DirectoryPickerMode = "native" | "browse";
