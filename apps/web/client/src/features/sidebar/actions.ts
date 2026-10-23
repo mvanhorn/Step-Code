@@ -136,3 +136,10 @@ export function createGroupAndTag(sessionId: string, color: TagColor, name: stri
 	setState((state) => ({ groups: [...state.groups, { key: color, name }] }));
 	setSessionTag(sessionId, color);
 }
+
+/** Rename the group a tag colour stands for; rows and the filter chip follow the colour, not the name. */
+export function renameGroup(key: TagColor, name: string): void {
+	setState((state) => ({
+		groups: state.groups.map((group) => (group.key === key ? { ...group, name } : group)),
+	}));
+}

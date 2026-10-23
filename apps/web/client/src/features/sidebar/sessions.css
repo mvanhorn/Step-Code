@@ -135,24 +135,25 @@
 	width: 8px;
 	height: 8px;
 	border: 1.5px solid var(--tag-color, var(--line-strong));
+	/* Filled: at 8px a border-only diamond washes every hue together. */
+	background: var(--tag-color, transparent);
 	border-radius: var(--radius-hairline);
 	transform: rotate(45deg);
 }
-.filter-chip .tag-diamond,
-.group-heading .tag-diamond {
-	background: var(--tag-color, transparent);
-}
 .session-tag-button {
-	display: none;
+	display: grid;
 	place-items: center;
+	/* The slot is always reserved so the meta column never changes width on hover. */
+	visibility: hidden;
 	width: 22px;
 	height: var(--control-h-xs);
 	border-radius: var(--radius-chip);
 	color: var(--ink-3);
 }
 .session-row:hover .session-tag-button,
-.session-tag-button[aria-expanded="true"] {
-	display: grid;
+.session-tag-button[aria-expanded="true"],
+.session-tag-button:focus-visible {
+	visibility: visible;
 }
 .session-tag-button:hover {
 	background: var(--selected);
@@ -160,10 +161,13 @@
 }
 .session-meta {
 	display: flex;
+	flex: none;
 	align-items: center;
 	gap: 6px;
 	color: var(--ink-3);
 	font-size: 12px;
+	/* The diamond never drops to a second line: the title column shrinks instead. */
+	white-space: nowrap;
 }
 .session-badge {
 	display: inline-flex;
@@ -211,7 +215,10 @@
 	background: var(--success);
 }
 .session-menu-button {
-	display: none;
+	display: inline-grid;
+	place-items: center;
+	/* Same reserved slot as the tag button: a stable meta column. */
+	visibility: hidden;
 	width: 22px;
 	height: var(--control-h-xs);
 	border-radius: var(--radius-chip);
@@ -219,13 +226,9 @@
 }
 /* A button whose menu is open stays shown: the menu is anchored to it. */
 .session-row:hover .session-menu-button,
-.session-menu-button[aria-expanded="true"] {
-	display: inline-grid;
-	place-items: center;
-}
-.session-row:hover .session-time,
-.session-row:has([aria-expanded="true"]) .session-time {
-	display: none;
+.session-menu-button[aria-expanded="true"],
+.session-menu-button:focus-visible {
+	visibility: visible;
 }
 .session-time {
 	position: relative;
@@ -268,6 +271,14 @@
 }
 .group-heading:hover {
 	background: var(--hover);
+}
+/* Drag-and-drop retagging: the grabbed row fades, the hovered section glows its group colour. */
+.session-row.dragging {
+	opacity: 0.35;
+}
+.group-section.drop-target .group-heading {
+	background: color-mix(in srgb, var(--group-color) 14%, transparent);
+	box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--group-color) 55%, transparent);
 }
 .group-section.folded .group-spine,
 .group-section.folded .group-sessions {
