@@ -11,7 +11,7 @@ import {
 } from "../../state/right-panel";
 import { getState, type RightPanelId, setUi, useAppStore } from "../../state/store";
 import type { SessionInspector } from "../../state/types";
-import { IconButton, type IconName, Menu, MenuItem, Popover, ResizeHandle, Tooltip } from "../../ui";
+import { Icon, IconButton, type IconName, Menu, MenuItem, Popover, ResizeHandle, Tooltip } from "../../ui";
 import { BrowserPanel } from "../browser";
 import { ChildAgentView } from "../conversation";
 import { PreviewPanel } from "../files";
@@ -35,6 +35,9 @@ export function RightToolRail() {
 	const t = useT();
 	const active = useAppStore(activeRightPanel);
 	const terminalOpen = useAppStore((state) => state.ui.terminalOpen);
+	/* The floating summary card is hidden under a mid view (market, cron), so its button must not read as pressed there. */
+	const summaryCovered = useAppStore((state) => Boolean(state.ui.midView));
+	const pressed = (id: RightPanelId) => active === id && !(id === "summary" && summaryCovered);
 	const button = (panel: (typeof PANELS)[number]) => (
 		<Tooltip key={panel.id} content={t(panel.label)}>
 			<IconButton
@@ -42,7 +45,7 @@ export function RightToolRail() {
 				icon={panel.icon}
 				aria-label={t(panel.label)}
 				aria-controls="rightPanel"
-				aria-pressed={active === panel.id}
+				aria-pressed={pressed(panel.id)}
 				onClick={() => toggleRightPanel(panel.id)}
 			/>
 		</Tooltip>
@@ -217,7 +220,10 @@ export function RightPanel() {
 			<ChildAgentView embedded />
 			<BrowserPanel open={panel === "browser"} />
 			{panel === "subagent" && (!currentId || childParentId !== currentId) ? (
-				<p className="preview-message">{t("rightNoSubagent")}</p>
+				<div className="preview-message changes-empty">
+					<Icon name="bot" />
+					{t("rightNoSubagent")}
+				</div>
 			) : null}
 		</aside>
 	);

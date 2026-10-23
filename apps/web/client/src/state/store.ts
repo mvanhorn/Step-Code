@@ -201,6 +201,8 @@ export interface UiState {
 	readonly workspaceMenu: { readonly cwd: string } | null;
 	/** `#sessionMenu`, open below the more button of a session row. */
 	readonly sessionMenu: { readonly sessionId: string } | null;
+	/** `#streamMenu`, open below the more button of the conversation header strip. */
+	readonly streamMenu: boolean;
 	/** `#tagPicker`, open below the tag button of a session row. `sessionId` is the legacy `state.tagTarget`. */
 	readonly tagPicker: { readonly sessionId: string } | null;
 	/** `#authBanner` visible (a request returned 401). */
@@ -213,6 +215,8 @@ export interface UiState {
 	readonly promptFocusRequest: number;
 	/** Mid-pane view covering the conversation: `#cronView` or `#marketView` (`.market-view.open`). */
 	readonly midView: "cron" | "market" | null;
+	/** Session whose snapshot is loading after a pick: its row highlights and the stream shows progress at once. */
+	readonly openingSession: string | null;
 	/** Open menu of the changes view: `turn`, `more`, or `file:<shown path>`. */
 	readonly changesMenu: string | null;
 	/** The composer's slash menu: matching commands, or the MCP server list picked from it. */
@@ -440,12 +444,14 @@ export function createInitialState(): AppState {
 			settingsDialog: null,
 			workspaceMenu: null,
 			sessionMenu: null,
+			streamMenu: false,
 			tagPicker: null,
 			authExpired: false,
 			logoutConfirm: null,
 			loginRequired: false,
 			promptFocusRequest: 0,
 			midView: null,
+			openingSession: null,
 			changesMenu: null,
 			slashMenu: null,
 			fileCompletionOpen: false,

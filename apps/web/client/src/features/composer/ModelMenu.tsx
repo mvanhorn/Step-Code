@@ -87,7 +87,7 @@ export function ModelMenu({ open, onOpen, onClose }: ComposerMenuProps) {
 						<span className="model-control-name" title={labelParts.name}>
 							{labelParts.name}
 						</span>
-						{labelParts.effort}
+						{labelParts.effort ? <span className="model-control-effort">{labelParts.effort}</span> : null}
 					</>
 				) : (
 					"默认模型"

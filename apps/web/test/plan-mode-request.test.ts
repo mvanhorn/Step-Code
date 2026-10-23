@@ -147,9 +147,13 @@ test("/plan <task> reaches the model with plan mode on and stated", { timeout: 6
 		assert.ok(reminder.includes("call exit_plan_mode exactly once"), reminder);
 		assert.equal(texts.filter((text) => text.includes("<system-reminder>Plan mode")).length, 1);
 
-		// Only the plan file may be written.
+		// Only the plan file may be written. Plan mode narrows permissions rather than
+	// the tool list, so the refusal comes from the `tool_call` guard.
 		const blocked = fixture.requests[1]!.messages.find((message) => message.role === "tool");
-		assert.ok(textOf(blocked ?? { content: "" }).includes("Plan mode blocked this file mutation"));
+		assert.ok(
+			textOf(blocked ?? { content: "" }).includes("Only the plan file may be written"),
+			textOf(blocked ?? { content: "" }),
+		);
 		assert.equal(await readFile(planPath, "utf8"), "# Plan\n1. Write README.md\n");
 
 		// One exit submits; the result says not to call it again and the mode is off.

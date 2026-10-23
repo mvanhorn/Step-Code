@@ -1174,6 +1174,45 @@ export async function refreshSessions(): Promise<void> {
 	});
 }
 
+/** Keep the open session's snapshot in step with a row action done from a menu. */
+function patchCurrentSession(id: string, fields: Partial<SessionSummary>): void {
+	setState((state) => (state.current?.id === id ? { current: { ...state.current, ...fields } } : {}));
+}
+
+export type SessionAction = "rename" | "archive" | "delete";
+
+/**
+ * Rename / archive / delete one session (legacy `openSessionMenu` click
+ * handler, 1297-1328). Called from the sidebar's row menu and the
+ * conversation header's menu; the open session's snapshot follows along so
+ * the header title does not wait for the next SSE snapshot.
+ */
+export async function runSessionAction(action: SessionAction, session: SessionSummary): Promise<void> {
+	try {
+		if (action === "rename") {
+			const name = window.prompt(t("rename"), sessionTitle(session));
+			if (name?.trim()) {
+				await apiSend(`/api/v1/sessions/${session.id}/name`, "PATCH", { name: name.trim() });
+				patchCurrentSession(session.id, { name: name.trim() });
+			}
+		}
+		if (action === "archive") {
+			const archived = !session.archived;
+			await apiSend(`/api/v1/sessions/${session.id}/archive`, "PATCH", { archived });
+			patchCurrentSession(session.id, { archived });
+		}
+		if (action === "delete" && window.confirm(t("confirmDelete", { name: sessionTitle(session) }))) {
+			await apiSend(`/api/v1/sessions/${session.id}`, "DELETE");
+			forgetUnlistedSession(session.id);
+			const state = getState();
+			if (state.current?.id === session.id) startDraft(state.bootstrapCwd);
+		}
+		await refreshSessions();
+	} catch (error) {
+		showError(errorMessage(error));
+	}
+}
+
 /**
  * Re-read the host's status of the sessions this page does not follow. Their
  * rows otherwise keep whatever status they had when the page left them, so a
@@ -1242,14 +1281,18 @@ export async function refreshWorkspaces(): Promise<void> {
 /** Open a session and follow its stream (legacy `openSession`, 3122-3130). */
 export async function openSession(id: string): Promise<void> {
 	choseSession = true;
-	setUi({ midView: null, childView: null });
+	setUi({ midView: null, childView: null, openingSession: id });
 	setState({ pendingTurn: null });
 	try {
 		const snapshot = await api<SessionSnapshot>(`/api/v1/sessions/${id}`);
+		// A later pick owns the pane; this answer arriving late must not repaint it.
+		if (getState().ui.openingSession !== id) return;
 		renderSnapshot(snapshot);
 		connectStream(id);
 	} catch (error) {
-		showError(errorMessage(error));
+		if (getState().ui.openingSession === id) showError(errorMessage(error));
+	} finally {
+		if (getState().ui.openingSession === id) setUi({ openingSession: null });
 	}
 }
 
@@ -1283,8 +1326,9 @@ export function startDraft(cwd: string = getState().bootstrapCwd): void {
 			draftCwd,
 		};
 	});
-	// A new conversation replaces whatever covers the pane (cron / plugin market, a child agent).
-	setUi({ midView: null, childView: null });
+	// A new conversation replaces whatever covers the pane (cron / plugin market, a child agent),
+	// and a session still loading from an earlier pick.
+	setUi({ midView: null, childView: null, openingSession: null });
 	requestPromptFocus();
 	void loadDraftModels(draftCwd);
 }

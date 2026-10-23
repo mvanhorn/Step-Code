@@ -49,6 +49,7 @@ function handleEscape(): void {
 	else if (ui.tagPicker) setUi({ tagPicker: null });
 	else if (ui.workspaceMenu) closeWorkspaceMenu(true);
 	else if (ui.sessionMenu) setUi({ sessionMenu: null });
+	else if (ui.streamMenu) setUi({ streamMenu: false });
 	else if (ui.fileTreeOpen) setUi({ fileTreeOpen: false });
 	else if (ui.midView) setUi({ midView: null });
 	else if (ui.rightPanelExpanded) setUi({ rightPanelExpanded: false });
@@ -114,7 +115,8 @@ function handleKeydown(event: KeyboardEvent): void {
 		event.preventDefault();
 		openSearch();
 	}
-	if (event.key === "Escape") handleEscape();
+	// A handled Escape (an overlay closed itself, or a field consumed it) closes nothing else.
+	if (event.key === "Escape" && !event.defaultPrevented) handleEscape();
 }
 
 /** How often the rows of sessions running in the background are re-read. */
