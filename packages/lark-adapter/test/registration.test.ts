@@ -239,6 +239,33 @@ describe("Lark registration user identity", () => {
 		});
 	});
 
+	it("captures the union id another person's app needs to invite this person", async () => {
+		const mock = fetchMock();
+		mock.mockResolvedValueOnce(
+			new Response(
+				JSON.stringify({
+					client_id: "cli_new",
+					client_secret: "fixture",
+					user_info: { open_id: "ou_owner", union_id: "on_owner", tenant_brand: "feishu" },
+				}),
+			),
+		);
+		const registration = new LarkRegistration({ version: "test" });
+		const result = await registration.poll("device", new AbortController().signal);
+		expect(result).toMatchObject({ userInfo: { openId: "ou_owner", unionId: "on_owner" } });
+	});
+
+	it("asks the platform for the union id when registering", async () => {
+		const mock = fetchMock();
+		mock.mockResolvedValueOnce(
+			new Response(JSON.stringify({ device_code: "d", user_code: "u", expires_in: 300, interval: 5 })),
+		);
+		const registration = new LarkRegistration({ version: "test" });
+		await registration.begin(new AbortController().signal);
+		const body = String((mock.mock.calls[0]?.[1] as RequestInit | undefined)?.body ?? "");
+		expect(body).toContain("union_id");
+	});
+
 	it("reports no user info rather than inventing one", async () => {
 		const mock = fetchMock();
 		mock.mockResolvedValueOnce(

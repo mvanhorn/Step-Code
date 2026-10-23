@@ -83,26 +83,37 @@ export class LarkApi {
 	}
 
 	/**
-	 * Create a group with the caller already inside and every listed bot invited in the same call.
-	 * `botIds` are application ids (`cli_…`), not open ids. A natural person owns the group when
-	 * `ownerId` is given, which requires a user token.
-	 */
-	/**
-	 * Create a group with the caller already inside and every listed bot invited in the same call.
-	 * `botIds` are application ids (`cli_…`), not open ids. `ownerOpenId` names the person who owns
-	 * the group; the bot's own credentials may set it when that person is the app's owner.
+	 * Create a group with the caller already inside, every listed bot invited, and the given people
+	 * added — all in one call.
+	 *
+	 * `botIds` are application ids (`cli_…`), not open ids, and are tenant-wide. People are named by
+	 * `userIdType`: a person who belongs to *this* app can be passed as `open_id`, but anyone else
+	 * must be passed as `union_id`. Feishu rejects a foreign app's `open_id` with
+	 * `99992361 open_id cross app`, and `union_id` is the only id that another app can resolve.
+	 * The two lists are kept separate so a caller cannot silently send the wrong id space.
 	 */
 	async createChat(options: {
 		name: string;
+		/** People identified by an id in `userIdType`'s space. */
+		userIdType?: "open_id" | "union_id";
+		userIds?: readonly string[];
+		/** Kept for callers that only ever invite people in this app's own scope. */
 		userOpenIds?: readonly string[];
 		botIds?: readonly string[];
 		ownerOpenId?: string;
 		dedupeKey?: string;
 	}): Promise<string> {
+		const userIds = [...(options.userOpenIds ?? []), ...(options.userIds ?? [])];
+		const userIdType = options.userIdType ?? "open_id";
+		if (!userIds.length) {
+			// A group with no people in it is never what a caller meant, and it would look like a
+			// successful room while nobody is in it.
+			throw new Error("Lark chat creation failed (no people to invite)");
+		}
 		try {
 			const response = await this.client.im.chat.create({
 				params: {
-					user_id_type: "open_id",
+					user_id_type: userIdType,
 					...(options.dedupeKey ? { uuid: options.dedupeKey } : {}),
 				},
 				data: {
@@ -117,7 +128,7 @@ export class LarkApi {
 						message_has_permission_setting: "all_members",
 					},
 					...(options.ownerOpenId ? { owner_id: options.ownerOpenId } : {}),
-					...(options.userOpenIds?.length ? { user_id_list: [...options.userOpenIds] } : {}),
+					...(userIds.length ? { user_id_list: userIds } : {}),
 					...(options.botIds?.length ? { bot_id_list: [...options.botIds] } : {}),
 				},
 			});
@@ -134,6 +145,56 @@ export class LarkApi {
 					: "Lark chat creation failed",
 			);
 		}
+	}
+
+	/**
+	 * Add people or bots to an existing chat.
+	 *
+	 * The platform answers with partial failures instead of throwing: `invalid_id_list`,
+	 * `not_existed_id_list` and `pending_approval_id_list` name the ids that did *not* join. Those
+	 * must be surfaced — a caller that only checks for a thrown error would report success while
+	 * the person never appeared in the group.
+	 *
+	 * Requires `im:chat` or `im:chat.members:write_only`, and the calling app must already be in the
+	 * chat. When the group restricts adding to owner and admins, only the owner, an admin, or the
+	 * creating app holding `im:chat:operate_as_owner` may add members.
+	 */
+	async addChatMembers(
+		chatId: string,
+		ids: readonly string[],
+		idType: "open_id" | "union_id" = "open_id",
+	): Promise<{ added: readonly string[]; failed: readonly string[]; approvalPending: readonly string[] }> {
+		if (!ids.length) return { added: [], failed: [], approvalPending: [] };
+		let response: {
+			code?: number;
+			msg?: string;
+			data?: { invalid_id_list?: string[]; not_existed_id_list?: string[]; pending_approval_id_list?: string[] };
+		};
+		try {
+			response = await this.client.im.chatMembers.create({
+				path: { chat_id: chatId },
+				params: { member_id_type: idType },
+				data: { id_list: [...ids] },
+			});
+		} catch (error) {
+			const data = (error as { response?: { data?: { code?: number; msg?: string } } })?.response?.data;
+			throw new Error(
+				data?.code
+					? `Lark add-members failed (${data.code}: ${data.msg ?? "no message"})`
+					: "Lark add-members failed",
+			);
+		}
+		const rejected = new Set([
+			...(response.data?.invalid_id_list ?? []),
+			...(response.data?.not_existed_id_list ?? []),
+		]);
+		const approvalPending = response.data?.pending_approval_id_list ?? [];
+		const pending = new Set(approvalPending);
+		return {
+			added: ids.filter((id) => !rejected.has(id) && !pending.has(id)),
+			failed: ids.filter((id) => rejected.has(id)),
+			approvalPending,
+		};
 	}
 
 	/**

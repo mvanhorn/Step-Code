@@ -32,6 +32,11 @@ export interface RoomPeerIdentity {
 	openId: string;
 	/** The peer himself: the group invites both people and both bots. */
 	userOpenId: string;
+	/**
+	 * The peer's person, in the one id space another app can resolve. A room uses this to invite
+	 * them into a group this side creates; `userOpenId` alone would be rejected as cross-app.
+	 */
+	userUnionId?: string;
 	name?: string;
 }
 
@@ -144,6 +149,7 @@ export class RoomRendezvousClient {
 						app_id: identity.appId,
 						open_id: identity.openId,
 						user_open_id: identity.userOpenId,
+						...(identity.userUnionId ? { user_union_id: identity.userUnionId } : {}),
 						name: identity.name,
 					},
 				}),
@@ -184,12 +190,14 @@ export function decodeRoomPeerRecord(raw: unknown): RoomPeerRecord {
 	const code = text(raw.code);
 	if (!code) throw new Error("room record has no code");
 	const peerRaw = raw.peer;
+	const peerUserUnionId = isRecord(peerRaw) ? text(peerRaw.user_union_id) : undefined;
 	const peer =
 		isRecord(peerRaw) && text(peerRaw.app_id) && text(peerRaw.open_id) && text(peerRaw.user_open_id)
 			? {
 					appId: text(peerRaw.app_id) as string,
 					openId: text(peerRaw.open_id) as string,
 					userOpenId: text(peerRaw.user_open_id) as string,
+					...(peerUserUnionId ? { userUnionId: peerUserUnionId } : {}),
 					...(text(peerRaw.name) ? { name: text(peerRaw.name) as string } : {}),
 				}
 			: undefined;

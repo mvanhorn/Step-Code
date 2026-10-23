@@ -15,9 +15,14 @@ export interface LarkPairingCode {
 	pollIntervalSeconds: number;
 }
 
-/** The person who consented: their open id is what makes them, not their bot, the group owner. */
+/**
+ * The person who consented. `openId` makes them, not their bot, the group owner; `unionId` is the
+ * only id that another person's app can resolve, which is what a room needs to invite this person
+ * into a group created by the other side.
+ */
 export interface LarkUserInfo {
 	openId?: string;
+	unionId?: string;
 }
 
 export type LarkPairingResult =
@@ -126,7 +131,7 @@ export class LarkRegistration {
 				action: "begin",
 				archetype: "PersonalAgent",
 				auth_method: "client_secret",
-				request_user_info: "open_id tenant_brand",
+				request_user_info: "open_id union_id tenant_brand",
 			},
 			signal,
 		);
@@ -172,10 +177,10 @@ export class LarkRegistration {
 		);
 		signal.throwIfAborted();
 		const info = data.user_info;
-		const userOpenId =
-			info && typeof info === "object" && !Array.isArray(info)
-				? (info as Record<string, unknown>).open_id
-				: undefined;
+		const infoRecord =
+			info && typeof info === "object" && !Array.isArray(info) ? (info as Record<string, unknown>) : undefined;
+		const userOpenId = infoRecord?.open_id;
+		const userUnionId = infoRecord?.union_id;
 		if (!this.brandResolved && info && typeof info === "object" && !Array.isArray(info)) {
 			const raw = (info as Record<string, unknown>).tenant_brand;
 			if (typeof raw === "string") {
@@ -195,7 +200,16 @@ export class LarkRegistration {
 			return {
 				status: "authorized",
 				credentials: { appId: data.client_id, appSecret: data.client_secret, brand: this.brand },
-				...(typeof userOpenId === "string" && userOpenId ? { userInfo: { openId: userOpenId } } : {}),
+				// Omit the object entirely when the platform returned no identity, so a caller can tell
+				// "no user info" from "user info whose fields happen to be empty".
+				...((typeof userOpenId === "string" && userOpenId) || (typeof userUnionId === "string" && userUnionId)
+					? {
+							userInfo: {
+								...(typeof userOpenId === "string" && userOpenId ? { openId: userOpenId } : {}),
+								...(typeof userUnionId === "string" && userUnionId ? { unionId: userUnionId } : {}),
+							},
+						}
+					: {}),
 			};
 		}
 		if (!data.error || data.error === "authorization_pending") return { status: "pending" };

@@ -23,6 +23,11 @@ export interface RoomAgentRecord {
 	 * as load bearing as the secret.
 	 */
 	ownerOpenId: string;
+	/**
+	 * The same person in the tenant-wide id space. Optional because records written before it was
+	 * captured still work; without it this side cannot be invited by the other side's group creation.
+	 */
+	ownerUnionId?: string;
 }
 
 export type RoomAgentReadResult =
@@ -58,6 +63,7 @@ export function parseRoomAgentRecord(value: unknown): RoomAgentRecord | undefine
 		botOpenId: raw.botOpenId,
 		botName: raw.botName,
 		ownerOpenId: raw.ownerOpenId,
+		...(isNonEmptyString(raw.ownerUnionId) ? { ownerUnionId: raw.ownerUnionId } : {}),
 		brand,
 		createdAt: raw.createdAt,
 	};
