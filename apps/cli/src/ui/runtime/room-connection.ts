@@ -416,14 +416,34 @@ export function createRoomExtension(options: RoomExtensionOptions): ExtensionFac
 			}, POLL_INTERVAL_MS);
 		};
 
+		/**
+		 * Tear down a room that can never open, so a later `/room_send` cannot report success for a
+		 * message with nowhere to go. Called only by paths that have already decided the room is dead.
+		 */
+		const abandonWaitingRoom = async (current: ActiveRoom) => {
+			if (room !== current) return;
+			if (current.polling) clearInterval(current.polling);
+			current.polling = undefined;
+			room = undefined;
+			peerTurns = 0;
+			// The per-turn fields live on the discarded object, so they die with it. Clearing them here
+			// keeps this teardown independent of `handleInbound` resetting them on the next turn.
+			current.pendingAddressedBy = undefined;
+			current.pendingHandOff = undefined;
+			current.pendingSpokenInTool = undefined;
+			current.transport.close();
+			await current.transport.api.close().catch(() => undefined);
+		};
+
 		const pollForPeer = async (context: ExtensionCommandContext) => {
 			const current = room;
 			if (!current || current.chatId || !current.secret) return;
 			const result = await rendezvous.status(current.code, current.secret);
 			if (!result.ok) {
 				if (result.failure.kind === "not-found" || result.failure.kind === "throttled") {
-					if (current.polling) clearInterval(current.polling);
-					current.polling = undefined;
+					// The code is gone: nothing will ever create this group, and keeping the room open
+					// would leave the tool looking usable while it has nowhere to send.
+					await abandonWaitingRoom(current);
 					context.ui.notify(`room · ${describeFailure(result.failure)}，请重新 /room`, "warning");
 				}
 				return;
@@ -547,7 +567,11 @@ export function createRoomExtension(options: RoomExtensionOptions): ExtensionFac
 				});
 			} catch (error) {
 				const detail = error instanceof Error ? error.message : String(error);
-				context.ui.notify(`room · 建群失败：${detail}`, "warning");
+				// There is no group and no second chance at one: this code was already claimed, so the
+				// room cannot open. Close it rather than leaving a tool that reports success.
+				await abandonWaitingRoom(current);
+				await rendezvous.retire(current.code, current.secret).catch(() => undefined);
+				context.ui.notify(`room · 建群失败：${detail}，请重新 /room`, "warning");
 				return;
 			}
 			current.chatId = chatId;
@@ -775,10 +799,17 @@ export function createRoomExtension(options: RoomExtensionOptions): ExtensionFac
 			},
 			execute: async (args: { summary: string; handOff?: boolean }) => {
 				const current = room;
+				// `chatId` is what makes a message deliverable: `/room` assigns the room before the
+				// group exists, and `speak` cannot post without a chat. Reporting success in that
+				// window would tell the agent it spoke when nothing was sent and nothing can be recalled.
 				if (!current) {
-					// Never silently succeed: a caller that believes it spoke would misreport to its
-					// user, and an already-posted message cannot be retracted.
 					return { ok: false, error: "not in a room: run /room or /room join <code> first" };
+				}
+				if (!current.chatId) {
+					return {
+						ok: false,
+						error: "room is not open yet: waiting for the other side to join and create the group",
+					};
 				}
 				const summary = String(args.summary ?? "").slice(0, 2000);
 				// The tool is the agent's own path to the peer, so the budget is enforced here as well;
@@ -794,10 +825,11 @@ export function createRoomExtension(options: RoomExtensionOptions): ExtensionFac
 				current.pendingSpokenInTool = true;
 				await speak(summary, handOff ? current.peer?.openId : undefined);
 				if (args.handOff === true && !handOff) {
-					return {
-						ok: true,
-						note: `已发言但未转给对方：本侧已到 ${MAX_PEER_TURNS} 轮接棒上限，等人在群里 @ 再继续`,
-					};
+					// Name the condition that actually stopped the hand-off; the budget is only one.
+					const reason = mayHandOff
+						? "对方机器人还未知，暂时无法交给对方"
+						: `本侧已到 ${MAX_PEER_TURNS} 轮接棒上限`;
+					return { ok: true, note: `已发言但未转给对方：${reason}，等人在群里 @ 再继续` };
 				}
 				return { ok: true };
 			},

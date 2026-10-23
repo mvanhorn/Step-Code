@@ -32,6 +32,14 @@ vi.mock("@step-harness/lark-adapter", async (importOriginal) => {
 });
 
 const { createRoomExtension } = await import("../src/ui/runtime/room-connection.ts");
+
+interface ToolDefinition {
+	name: string;
+	label: string;
+	description: string;
+	parameters: unknown;
+	execute: (args: Record<string, unknown>) => Promise<unknown>;
+}
 type RoomInbound = import("../src/ui/runtime/room-connection.ts").RoomInbound;
 type RoomTransport = import("../src/ui/runtime/room-connection.ts").RoomTransport;
 
@@ -132,7 +140,9 @@ function harness(options: Parameters<typeof createRoomExtension>[0]) {
 	const commands = new Map<string, (args: string, ctx: ExtensionCommandContext) => Promise<void>>();
 	const handlers = new Map<string, (event: unknown) => void>();
 	const notifications: { message: string; level?: string }[] = [];
-	const tools = new Map<string, { execute: (args: Record<string, unknown>) => Promise<unknown> }>();
+	const tools = new Map<string, ToolDefinition>();
+	/** The serialized form of each registration, to prove the tool block content never changes. */
+	const toolDefinitionSnapshots: string[] = [];
 	/** Every registerTool call, so a re-registration is visible as the prefix rewrite it would be. */
 	const toolRegistrations: string[] = [];
 	/** Any attempt to change the active tool block; the room must never make one. */
@@ -149,13 +159,24 @@ function harness(options: Parameters<typeof createRoomExtension>[0]) {
 		) => {
 			commands.set(name, registration.handler);
 		},
-		registerTool: (tool: { name: string; execute: (args: Record<string, unknown>) => Promise<unknown> }) => {
+		registerTool: (tool: ToolDefinition) => {
 			toolRegistrations.push(tool.name);
+			// `execute` is a function and does not survive serialization; everything else is exactly
+			// what the provider puts in the request's `tools` block ahead of the cached prefix.
+			const { execute: _execute, ...serializable } = tool;
+			toolDefinitionSnapshots.push(JSON.stringify(serializable));
 			tools.set(tool.name, tool);
 		},
 		getActiveTools: () => [...tools.keys()],
+		// Every path that calls `runtime.refreshTools()` and can therefore move the cached prefix.
 		setActiveTools: (names: string[]) => {
 			toolBlockWrites.push(names);
+		},
+		setUnavailableTools: (names: string[]) => {
+			toolBlockWrites.push(names);
+		},
+		registerTools: (defs: Array<{ name: string }>) => {
+			toolBlockWrites.push(defs.map((def) => def.name));
 		},
 		on: (event: string, handler: (payload: unknown) => void) => {
 			handlers.set(event, handler);
@@ -163,7 +184,16 @@ function harness(options: Parameters<typeof createRoomExtension>[0]) {
 		sendUserMessage: () => {},
 	} as unknown as ExtensionAPI;
 	createRoomExtension(options)(extensionApi);
-	return { commands, handlers, notifications, tools, toolRegistrations, toolBlockWrites, context };
+	return {
+		commands,
+		handlers,
+		notifications,
+		tools,
+		toolRegistrations,
+		toolDefinitionSnapshots,
+		toolBlockWrites,
+		context,
+	};
 }
 
 /** A rendezvous stub that reports the peer as already claimed. */
@@ -268,6 +298,12 @@ describe("room tool availability", () => {
 		// for the whole conversation. This is the same split plan mode uses.
 		expect(h.toolRegistrations).toEqual(["room_send"]);
 		expect(h.toolBlockWrites).toEqual([]);
+		// One registration means one serialized definition: the block the provider caches is built
+		// from that object, so a second (even identical) registration would rebuild it.
+		expect(h.toolDefinitionSnapshots).toHaveLength(1);
+		// The description names the room state rather than promising the tool always works.
+		const definition = h.toolDefinitionSnapshots[0] ?? "";
+		expect(definition).toContain("Outside a room this tool does nothing");
 	});
 
 	it("refuses room_send outside a room instead of pretending to speak", async () => {
@@ -282,6 +318,79 @@ describe("room tool availability", () => {
 		// A silent success would let the agent report something it never sent.
 		expect(result.ok).toBe(false);
 		expect(result.error).toContain("/room");
+		expect(sent).toHaveLength(0);
+	});
+
+	it("refuses room_send while the group does not exist yet", async () => {
+		// `/room` assigns the room immediately but the group only appears once the other side joins;
+		// `speak` cannot post before that, so success here would be a false claim.
+		const sent: Sent[] = [];
+		const created: Record<string, unknown>[] = [];
+		const transport = makeTransport(sent, created);
+		const h = harness({
+			recordDirectory: directory,
+			transport: transport.build,
+			rendezvous: {
+				configured: true,
+				publish: async () => ({
+					ok: true as const,
+					value: { code: "48291730", claimed: false, createdAt: "", expiresAt: "" },
+				}),
+				// Nobody ever joins: the group is never created.
+				status: async () => ({
+					ok: true as const,
+					value: { code: "48291730", claimed: false, createdAt: "", expiresAt: "" },
+				}),
+				claim: async () => ({
+					ok: true as const,
+					value: { code: "48291730", claimed: false, createdAt: "", expiresAt: "" },
+				}),
+				retire: async () => ({ ok: true as const, value: { retired: true } }),
+			},
+		});
+		await h.commands.get("room")?.("", h.context);
+
+		const result = (await h.tools.get("room_send")?.execute({ summary: "early", handOff: true })) as {
+			ok: boolean;
+			error?: string;
+		};
+		expect(result.ok).toBe(false);
+		expect(result.error).toContain("not open yet");
+		expect(sent).toHaveLength(0);
+	});
+
+	it("refuses room_send after the room code expired without a group", async () => {
+		const sent: Sent[] = [];
+		const created: Record<string, unknown>[] = [];
+		const transport = makeTransport(sent, created);
+		const h = harness({
+			recordDirectory: directory,
+			transport: transport.build,
+			rendezvous: {
+				configured: true,
+				publish: async () => ({
+					ok: true as const,
+					value: { code: "48291730", claimed: false, createdAt: "", expiresAt: "" },
+				}),
+				// The code is gone: no group will ever be created for it.
+				status: async () => ({ ok: false as const, failure: { kind: "not-found" as const } }),
+				claim: async () => ({ ok: false as const, failure: { kind: "not-found" as const } }),
+				retire: async () => ({ ok: true as const, value: { retired: true } }),
+			},
+		});
+		await h.commands.get("room")?.("", h.context);
+
+		// Wait for one poll to observe the expired code and tear the room down.
+		await vi.waitFor(
+			() => expect(h.notifications.some((entry) => entry.message.includes("房间码不存在"))).toBe(true),
+			{ timeout: 5_000 },
+		);
+		const result = (await h.tools.get("room_send")?.execute({ summary: "late", handOff: true })) as {
+			ok: boolean;
+			error?: string;
+		};
+		expect(result.ok).toBe(false);
+		expect(result.error).toContain("not in a room");
 		expect(sent).toHaveLength(0);
 	});
 
