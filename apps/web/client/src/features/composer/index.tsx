@@ -32,9 +32,10 @@ import { FileMenu, type FileMenuHandle } from "./FileMenu";
 import { type FileQuery, fileCompletionText, sameFileQuery } from "./file-completion";
 import { GoalStrip } from "./GoalStrip";
 import { ModelMenu } from "./ModelMenu";
+import { MODES } from "./modes";
 import { PerformanceBar } from "./PerformanceBar";
 import { PlanStrip } from "./PlanStrip";
-import { MODES, PlusMenu } from "./PlusMenu";
+import { PlusMenu } from "./PlusMenu";
 import { PolicyMenu } from "./PolicyMenu";
 import { PromptInput } from "./PromptInput";
 import {
@@ -104,6 +105,9 @@ export function Composer({ workspaceControl, branchControl }: ComposerProps) {
 	// Single-select and single-shot: at most one mode rides the next message.
 	const modes = useAppStore((state) => state.modes);
 	const activeMode = (Object.keys(modes) as ModeId[]).find((id) => modes[id]);
+	// The staged mode's presentation: the card's accent, the chip's icon and the
+	// prompt's placeholder all read this entry (see modes.ts).
+	const activeModeMeta = activeMode ? MODES.find((mode) => mode.id === activeMode) : undefined;
 	const syncHasText = () => setHasText(Boolean(prompt.current && promptText(prompt.current).trim()));
 	const stopMode = status === "running" && !hasText;
 
@@ -370,15 +374,19 @@ export function Composer({ workspaceControl, branchControl }: ComposerProps) {
 			<GoalStrip />
 			<PlanStrip />
 			<QueueDock />
-			<div className="composer-card">
+			{/* The staged mode paints the card through `data-mode` (accent border, glow and sweep in composer.css). */}
+			<div className="composer-card" data-mode={activeMode ?? undefined}>
 				<AttachmentList />
 				{contextPackages.length || stagedPicks.length || activeMode ? (
 					<div className="attachment-list" id="contextChipList">
 						{/* A mode is a chip, not prompt text: sending the message consumes it. */}
-						{activeMode ? (
-							<span className="attachment-chip pick-chip pick-chip--mode" id="modeChip">
-								<Icon name={MODES.find((mode) => mode.id === activeMode)?.icon ?? "cube"} size="xs" />
-								<span>{t(MODES.find((mode) => mode.id === activeMode)?.labelKey ?? "modeGoal")}</span>
+						{activeMode && activeModeMeta ? (
+							<span
+								className={`attachment-chip pick-chip pick-chip--mode pick-chip--${activeMode}`}
+								id="modeChip"
+							>
+								<Icon name={activeModeMeta.icon} size="xs" className="mode-chip-icon" />
+								<span className="mode-chip-label">{t(activeModeMeta.labelKey)}</span>
 								<button
 									type="button"
 									className="attachment-remove"
@@ -444,7 +452,12 @@ export function Composer({ workspaceControl, branchControl }: ComposerProps) {
 					onSubmit={() => form.current?.requestSubmit()}
 					onSteer={steer}
 					placeholder={
-						active ? t(queuedCount ? "queuePlaceholderSteerAll" : "queuePlaceholderRunning") : undefined
+						// A running turn's queue hint outranks the mode's coaching text.
+						active
+							? t(queuedCount ? "queuePlaceholderSteerAll" : "queuePlaceholderRunning")
+							: activeModeMeta
+								? t(activeModeMeta.placeholderKey)
+								: undefined
 					}
 					onValueInput={onValueInput}
 					onCaretChange={syncFileQuery}

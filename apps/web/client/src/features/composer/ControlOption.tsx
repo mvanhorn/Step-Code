@@ -15,6 +15,8 @@ export interface ControlOptionProps<T extends string> {
 	readonly pinned?: boolean;
 	readonly onPin?: () => void;
 	readonly onSelect: (id: T) => void;
+	/** Extra classes next to `control-option`, e.g. a per-mode accent carrier. */
+	readonly className?: string;
 }
 
 /** One row in a composer popover: icon, title, description, optional trailing slot. */
@@ -28,6 +30,7 @@ export function ControlOption<T extends string>({
 	pinned = false,
 	onPin,
 	onSelect,
+	className,
 }: ControlOptionProps<T>) {
 	const t = useT();
 	// Legacy nested a <button> here. A button inside a button is invalid HTML
@@ -45,7 +48,7 @@ export function ControlOption<T extends string>({
 	return (
 		<button
 			type="button"
-			className="control-option"
+			className={className ? `control-option ${className}` : "control-option"}
 			role="option"
 			aria-selected={selected ? "true" : "false"}
 			onClick={() => onSelect(id)}

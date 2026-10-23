@@ -1068,6 +1068,157 @@
 	color: var(--ink-2);
 }
 
+/*
+ * ===== 模式主题（暂存模式的专属展示） =====
+ *
+ * 每种模式一个固定强调色，在 .composer 上定义一次，卡片、模式 chip、＋菜单
+ * 的模式行和 goal/plan 常驻条都从这里取：goal 绿（目标达成）、plan 靛（先谋后
+ * 动）、ultraloop 品红（多智能体循环）。固定色值与 pick-chip 同一做法，混合面
+ * 随亮暗主题自适应。
+ */
+.composer {
+	--mode-goal: #10b981;
+	--mode-plan: #6366f1;
+	--mode-ultraloop: #d946ef;
+}
+.composer-card[data-mode="goal"] {
+	--mode-accent: var(--mode-goal);
+}
+.composer-card[data-mode="plan"] {
+	--mode-accent: var(--mode-plan);
+}
+.composer-card[data-mode="ultraloop"] {
+	--mode-accent: var(--mode-ultraloop);
+}
+/*
+ * 模式暂存期间，输入卡片整卡染色：描边和投影带模式色，一眼可辨当前模式；
+ * 聚焦时比常态更亮一档（覆盖 .composer-card:focus-within 的中性描边）。
+ */
+.composer-card[data-mode] {
+	border-color: color-mix(in srgb, var(--mode-accent) 55%, var(--line-strong));
+	box-shadow:
+		0 0 0 1px color-mix(in srgb, var(--mode-accent) 22%, transparent),
+		0 7px 24px color-mix(in srgb, var(--mode-accent) 16%, rgb(0 0 0 / 7%));
+}
+.composer-card[data-mode]:focus-within {
+	border-color: color-mix(in srgb, var(--mode-accent) 70%, var(--focus-border));
+}
+/*
+ * 流光描边：一圈模式色高光沿卡片边框循环掠过（mask 只留 1px 边框环，不遮内
+ * 容、不挡点击）。prefers-reduced-motion 时被全局规则停用，只剩静态描边。
+ */
+.composer-card[data-mode]::before {
+	content: "";
+	position: absolute;
+	inset: -1px;
+	border-radius: inherit;
+	padding: 1px;
+	background: linear-gradient(
+		115deg,
+		transparent 0 45%,
+		color-mix(in srgb, var(--mode-accent) 90%, white 10%) 50%,
+		transparent 55% 100%
+	);
+	background-size: 300% 100%;
+	-webkit-mask:
+		linear-gradient(#fff 0 0) content-box,
+		linear-gradient(#fff 0 0);
+	-webkit-mask-composite: xor;
+	mask:
+		linear-gradient(#fff 0 0) content-box,
+		linear-gradient(#fff 0 0);
+	mask-composite: exclude;
+	animation: mode-border-sweep 3s linear infinite;
+	pointer-events: none;
+}
+@keyframes mode-border-sweep {
+	from {
+		background-position: 100% 0;
+	}
+	to {
+		background-position: 0% 0;
+	}
+}
+/*
+ * 模式 chip：比技能/插件 chip 更重一档的染色（边框更深、底色更实、标签带模
+ * 式色），并按模式给图标或标签一个专属动效——goal 的靶心呼吸、plan 的标签
+ * 流光、ultraloop 的轨道旋转。
+ */
+.pick-chip--mode {
+	--pick-accent: var(--mode-accent, #8b5cf6);
+	border-color: color-mix(in srgb, var(--pick-accent) 55%, var(--line));
+	background: color-mix(in srgb, var(--pick-accent) 14%, var(--surface));
+}
+.pick-chip--mode > span {
+	color: color-mix(in srgb, var(--pick-accent) 55%, var(--ink));
+	font-weight: 500;
+}
+.mode-chip-icon {
+	display: inline-flex;
+}
+.pick-chip--goal .mode-chip-icon {
+	animation: mode-icon-breathe 2.4s ease-in-out infinite;
+}
+.pick-chip--ultraloop .mode-chip-icon {
+	animation: mode-icon-spin 3.6s linear infinite;
+}
+.pick-chip--plan .mode-chip-label {
+	background: linear-gradient(
+		100deg,
+		var(--ink-2) 0 42%,
+		color-mix(in srgb, var(--pick-accent) 80%, var(--ink)) 50%,
+		var(--ink-2) 58% 100%
+	);
+	background-size: 300% 100%;
+	-webkit-background-clip: text;
+	background-clip: text;
+	-webkit-text-fill-color: transparent;
+	animation: mode-label-sweep 2.4s linear infinite;
+}
+@keyframes mode-icon-breathe {
+	0%,
+	100% {
+		opacity: 0.8;
+		transform: scale(1);
+	}
+	50% {
+		opacity: 1;
+		transform: scale(1.12);
+	}
+}
+@keyframes mode-icon-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+@keyframes mode-label-sweep {
+	from {
+		background-position: 100% 0;
+	}
+	to {
+		background-position: 0% 0;
+	}
+}
+/*
+ * ＋ 菜单的模式行：图标常显模式色（选没选都看得见主题），选中的标题也染
+ * 上，和模式 chip、卡片特效互相呼应。
+ */
+.control-option--goal {
+	--mode-accent: var(--mode-goal);
+}
+.control-option--plan {
+	--mode-accent: var(--mode-plan);
+}
+.control-option--ultraloop {
+	--mode-accent: var(--mode-ultraloop);
+}
+.control-option--mode .control-option-icon {
+	color: var(--mode-accent);
+}
+.control-option--mode[aria-selected="true"] .control-option-title {
+	color: var(--mode-accent);
+}
+
 /* ===== ＋ 菜单的更多行与二级面板（PlusMenu / PlusSubPanels） ===== */
 /*
  * `.control-popover` clips (overflow-y:auto computes overflow-x to auto), which
@@ -1265,7 +1416,8 @@
 }
 .goal-strip-lead {
 	flex: none;
-	color: var(--ink-3);
+	/* The goal's own mode colour, so the running goal keeps the theme its chip started. */
+	color: var(--mode-goal);
 }
 .goal-strip-body {
 	display: flex;
@@ -1355,7 +1507,8 @@
   display: inline-flex;
   flex: none;
   align-items: center;
-  color: var(--ink-3);
+  /* Plan's own mode colour, matching the staged-mode chip and card glow. */
+  color: var(--mode-plan);
 }
 .plan-strip-label {
   flex: none;
