@@ -22,6 +22,29 @@ const GIT_MAX_BUFFER = 4 * 1024 * 1024;
 /** `git status` on a huge tree can be slow; this is a count for a label, not a full diff. */
 const STATUS_TIMEOUT_MS = 15_000;
 
+/**
+ * Env vars an outer git process sets to redirect every inner git to itself: a
+ * hook (husky pre-commit exports `GIT_DIR` and `GIT_INDEX_FILE`) or an editor
+ * wrapper would otherwise make these runs target that outer repository instead
+ * of `cwd` — under the pre-commit hook the test suite's throwaway repos literally
+ * committed into this one. Stripping them pins every run to its `cwd`.
+ */
+const GIT_REDIRECT_ENV_KEYS = [
+	"GIT_DIR",
+	"GIT_WORK_TREE",
+	"GIT_INDEX_FILE",
+	"GIT_OBJECT_DIRECTORY",
+	"GIT_ALTERNATE_OBJECT_DIRECTORIES",
+	"GIT_COMMON_DIR",
+] as const;
+
+/** A copy of the environment with git's repository-redirect vars removed. */
+export function gitRunEnv(): NodeJS.ProcessEnv {
+	const env = { ...process.env };
+	for (const key of GIT_REDIRECT_ENV_KEYS) delete env[key];
+	return env;
+}
+
 /** Why a branch operation was refused, mirroring the codes the client renders. */
 export type GitBranchIssueCode =
 	| "not-a-repository"
@@ -91,7 +114,7 @@ function runGit(cwd: string, args: readonly string[], timeout = GIT_TIMEOUT_MS):
 		execFile(
 			GIT,
 			["--no-optional-locks", ...args],
-			{ cwd, encoding: "utf8", timeout, maxBuffer: GIT_MAX_BUFFER },
+			{ cwd, encoding: "utf8", timeout, maxBuffer: GIT_MAX_BUFFER, env: gitRunEnv() },
 			(error, stdout, stderr) => {
 				const status =
 					error && typeof (error as { code?: unknown }).code === "number"
