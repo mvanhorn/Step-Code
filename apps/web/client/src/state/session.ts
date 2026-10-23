@@ -1181,6 +1181,34 @@ function patchCurrentSession(id: string, fields: Partial<SessionSummary>): void 
 
 export type SessionAction = "rename" | "archive" | "delete";
 
+/** Close `#renameSessionDialog`; ignored while its request runs, so the result still lands. */
+export function closeRenameSession(): void {
+	if (getState().ui.renameSession?.pending) return;
+	setUi({ renameSession: null });
+}
+
+/**
+ * Submit `#renameSessionDialog`. The dialog closes once the host accepted the name; a failure keeps it
+ * open with the typed name so the user can retry, and reports the error in the toast.
+ */
+export async function renameSession(name: string): Promise<void> {
+	const target = getState().ui.renameSession;
+	const trimmed = name.trim();
+	if (!target || target.pending || !trimmed) return;
+	setUi({ renameSession: { ...target, pending: true } });
+	try {
+		await apiSend(`/api/v1/sessions/${target.sessionId}/name`, "PATCH", { name: trimmed });
+		patchCurrentSession(target.sessionId, { name: trimmed });
+		setUi((ui) => (ui.renameSession?.sessionId === target.sessionId ? { renameSession: null } : {}));
+		await refreshSessions();
+	} catch (error) {
+		setUi((ui) =>
+			ui.renameSession?.sessionId === target.sessionId ? { renameSession: { ...target, pending: false } } : {},
+		);
+		showError(errorMessage(error));
+	}
+}
+
 /**
  * Rename / archive / delete one session (legacy `openSessionMenu` click
  * handler, 1297-1328). Called from the sidebar's row menu and the
@@ -1190,11 +1218,9 @@ export type SessionAction = "rename" | "archive" | "delete";
 export async function runSessionAction(action: SessionAction, session: SessionSummary): Promise<void> {
 	try {
 		if (action === "rename") {
-			const name = window.prompt(t("rename"), sessionTitle(session));
-			if (name?.trim()) {
-				await apiSend(`/api/v1/sessions/${session.id}/name`, "PATCH", { name: name.trim() });
-				patchCurrentSession(session.id, { name: name.trim() });
-			}
+			// The dialog submits through renameSession; nothing changed yet, so there is nothing to refresh.
+			setUi({ renameSession: { sessionId: session.id, name: sessionTitle(session), pending: false } });
+			return;
 		}
 		if (action === "archive") {
 			const archived = !session.archived;

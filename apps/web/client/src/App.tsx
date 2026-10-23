@@ -8,7 +8,7 @@ import { LoginGate } from "./features/login";
 import { CronView, MarketView } from "./features/market";
 import { SettingsView } from "./features/settings";
 import { AuthBanner, ErrorToast, LogoutDialog, ShellEffects, SidebarShowButton, UserArea } from "./features/shell";
-import { SearchModal, SidebarNav, SidebarResizer } from "./features/sidebar";
+import { RenameSessionDialog, SearchModal, SidebarNav, SidebarResizer } from "./features/sidebar";
 import { TerminalDock } from "./features/terminal";
 import { RemoveWorkspaceModal, WorkspaceBrowserModal, WorkspaceControl } from "./features/workspace";
 import { I18nProvider } from "./i18n";
@@ -35,7 +35,8 @@ import { IconSprite } from "./ui";
  *     aside#rightPanel   floating Summary, or context/files/changes/child inspector / browser
  *     nav.right-tool-rail
  *   #settingsView      settings: full-window settings page (menu + page) over the workspace
- *   #feedbackModal, #searchModal, #workspaceBrowserModal, #removeWorkspaceModal, #selectionDialog,
+ *   #feedbackModal, #searchModal, #workspaceBrowserModal, #removeWorkspaceModal, #renameSessionDialog (sidebar),
+ *   #selectionDialog,
  *   #imagePreview (composer: enlarged image attachment), #logoutDialog (shell)
  *   #loginGate         login: sign-in (or bring your own key), above everything while no model can run
  *   #workspaceMenu, #sessionMenu, #tagPicker: rendered by their sidebar trigger, in a portal on body, only while open
@@ -119,6 +120,7 @@ export function App() {
 			<SearchModal />
 			<WorkspaceBrowserModal />
 			<RemoveWorkspaceModal />
+			<RenameSessionDialog />
 			<SelectionDialog />
 			<TextInputDialog />
 			<ImagePreview />

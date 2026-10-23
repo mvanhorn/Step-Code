@@ -6,7 +6,13 @@
 
 import { useEffect } from "react";
 import { activeRightPanel, closeRightPanel } from "../../state/right-panel";
-import { activeCwd, backgroundSessionBusy, interruptCurrent, refreshSessionStatuses } from "../../state/session";
+import {
+	activeCwd,
+	backgroundSessionBusy,
+	closeRenameSession,
+	interruptCurrent,
+	refreshSessionStatuses,
+} from "../../state/session";
 import { type AppState, getState, setUi, useAppStore } from "../../state/store";
 import { answerSelection, answerTextInput, pendingSelection, pendingTextInput } from "../composer/actions";
 import { openTree, setPreviewOpen } from "../files/actions";
@@ -33,6 +39,7 @@ function handleEscape(): void {
 	if (selection) void answerSelection(selection, undefined);
 	else if (textInput) void answerTextInput(textInput, undefined);
 	else if (ui.logoutConfirm) closeLogoutConfirm();
+	else if (ui.renameSession) closeRenameSession();
 	else if (ui.imagePreview) setUi({ imagePreview: null });
 	else if (ui.accountMenuOpen) setUi({ accountMenuOpen: false });
 	else if (ui.workspaceRemoval) closeWorkspaceRemoval();

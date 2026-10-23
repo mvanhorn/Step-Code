@@ -209,6 +209,11 @@ export interface UiState {
 	readonly tagPicker: { readonly sessionId: string } | null;
 	/** `#authBanner` visible (a request returned 401). */
 	readonly authExpired: boolean;
+	/**
+	 * `#renameSessionDialog`: naming one session. `name` seeds the field; `pending` while the rename request runs.
+	 * An in-page dialog, because the desktop host (Electron) does not implement `window.prompt`.
+	 */
+	readonly renameSession: { readonly sessionId: string; readonly name: string; readonly pending: boolean } | null;
 	/** `#logoutDialog`: confirming Log out; `pending` while `POST /api/v1/logout` runs. */
 	readonly logoutConfirm: { readonly pending: boolean } | null;
 	/** `#loginGate` visible: no model can run yet (no Step credential, no custom model), and the app waits behind it. */
@@ -449,6 +454,7 @@ export function createInitialState(): AppState {
 			streamMenu: false,
 			tagPicker: null,
 			authExpired: false,
+			renameSession: null,
 			logoutConfirm: null,
 			loginRequired: false,
 			promptFocusRequest: 0,

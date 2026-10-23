@@ -247,3 +247,60 @@
 	outline: none;
 	background: var(--surface);
 }
+
+/* #renameSessionDialog (RenameSessionDialog.tsx): same shape as the workspace removal dialog. */
+.rename-session-dialog {
+	width: min(420px, 100%);
+	padding: 18px 16px 14px;
+}
+.rename-session-dialog header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 16px;
+}
+.rename-session-dialog h2 {
+	font-size: 20px;
+	font-weight: 600;
+	line-height: 1.3;
+}
+.rename-session-input {
+	width: 100%;
+	height: var(--control-h-md);
+	margin-top: 14px;
+	padding: 0 var(--control-pad-x);
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-input);
+	outline: 0;
+	background: var(--canvas);
+	color: var(--ink);
+	font: inherit;
+	font-size: 14px;
+}
+.rename-session-input:focus {
+	border-color: var(--focus-border);
+}
+.rename-session-dialog footer {
+	display: flex;
+	justify-content: flex-end;
+	gap: 10px;
+	margin-top: 16px;
+}
+.rename-session-dialog footer > button {
+	min-height: var(--control-h-md);
+	padding: 0 16px;
+	border-radius: var(--radius-panel);
+	font-size: 14px;
+}
+#renameSessionCancel {
+	color: var(--ink-3);
+}
+#renameSessionConfirm {
+	background: var(--ink);
+	color: var(--canvas);
+	font-weight: 500;
+}
+#renameSessionConfirm:disabled {
+	opacity: 0.55;
+	cursor: default;
+}
