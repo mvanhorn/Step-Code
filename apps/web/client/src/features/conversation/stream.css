@@ -223,9 +223,11 @@
 .message-body--invoked {
 	display: block;
 }
+/* The Markdown body is block-level, so the badge floats to stay on the first
+ * text line, in front of the words — the input box's chip position. */
 .message-body--invoked > .message-skill {
-	margin: 0 7px 0 0;
-	vertical-align: baseline;
+	float: left;
+	margin: 1px 7px 1px 0;
 }
 .message .message-md {
 	min-width: 0;
