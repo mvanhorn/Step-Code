@@ -26,7 +26,7 @@ import { IconSprite } from "./ui";
  *     aside.sidebar      sidebar nav | files tree | shell user area (account, remote control, settings gear)
  *     #sidebarResizer    sidebar
  *     main.main          shell show button | files show button | market cron/market views
- *                        | conversation #sessionHeader (title, project, status)
+ *                        | conversation #sessionHeader (title, project, status, more menu)
  *                        | conversation stream
  *                        | conversation stream-nav (locator rail over the stream's right edge)
  *                        | .composer-zone > composer form (workspace pill above the card)

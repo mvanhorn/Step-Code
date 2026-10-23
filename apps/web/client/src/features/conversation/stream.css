@@ -21,7 +21,7 @@
 	/* A long first message must not squeeze the project and branch chips: the title gives way first. */
 	flex: 0 1 auto;
 	min-width: 0;
-	max-width: min(520px, 55%);
+	max-width: min(28em, 55%);
 	margin: 0 6px 0 0;
 	overflow: hidden;
 	color: var(--ink);
