@@ -249,6 +249,36 @@ describe("opening a room", () => {
 		expect(renderedText(opening)).toContain(`<at user_id="${PEER.openId}"></at>`);
 	});
 
+	it("lets the joining side add its own person, whose open id is in its own scope", async () => {
+		const sent: Sent[] = [];
+		const created: Record<string, unknown>[] = [];
+		const transport = makeTransport(sent, created);
+		const h = harness({
+			recordDirectory: directory,
+			transport: transport.build,
+			rendezvous: {
+				configured: true,
+				publish: async () => ({
+					ok: true as const,
+					value: { code: "48291730", claimed: false, createdAt: "", expiresAt: "" },
+				}),
+				status: async () => ({ ok: true as const, value: { code: "48291730", claimed: false, createdAt: "", expiresAt: "" } }),
+				claim: async () => ({
+					ok: true as const,
+					value: { code: "48291730", claimed: true, createdAt: "", expiresAt: "" },
+				}),
+				retire: async () => ({ ok: true as const, value: { retired: true } }),
+			},
+		});
+		await h.commands.get("room")?.("join 48291730", h.context);
+
+		// Being added to the group is the join side's only signal that the room is open.
+		transport.state.onBotAdded?.("oc_room");
+		await vi.waitFor(() => expect(transport.added).toHaveLength(1), { timeout: 5_000 });
+		// The device flow cannot supply a tenant-wide id, so this must be the app's own open id.
+		expect(transport.added[0]).toEqual({ ids: [SAVED.ownerOpenId], idType: "open_id" });
+	});
+
 	it("falls back to the starter's own open_id when neither side published a union id", async () => {
 		await writeFile(join(directory, "room-agent.json"), JSON.stringify({ ...SAVED, ownerUnionId: undefined }));
 		const sent: Sent[] = [];

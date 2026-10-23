@@ -131,7 +131,11 @@ export class LarkRegistration {
 				action: "begin",
 				archetype: "PersonalAgent",
 				auth_method: "client_secret",
-				request_user_info: "open_id union_id tenant_brand",
+				// Only these two are accepted: the endpoint answers `20103 invalid_request` ("request
+				// user info is unsupported") for `union_id`, `email`, `mobile`, or any combination
+				// containing them. A room that needs the person's union id must obtain it another way —
+				// the device flow cannot hand it out, so it is never requested here.
+				request_user_info: "open_id tenant_brand",
 			},
 			signal,
 		);

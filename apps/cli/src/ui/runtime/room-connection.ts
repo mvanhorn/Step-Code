@@ -404,9 +404,12 @@ export function createRoomExtension(options: RoomExtensionOptions): ExtensionFac
 				ui: context.ui,
 			};
 			if (!record.ownerUnionId) {
+				// Not a failure and not fixable by re-authorizing: the device flow cannot hand out a
+				// tenant-wide id. This side joins the group itself once the other side creates it, so
+				// the room still ends up with both people in it.
 				context.ui.notify(
-					"room · 本机凭证缺少 union_id（旧版授权产生），对方无法自动把你拉进群；重新授权 /room 可补上",
-					"warning",
+					"room · 建群时只用本应用内的身份，进入房间后你会把自己加进群（需要 im:chat.members:write_only）",
+					"info",
 				);
 			}
 			context.ui.notify(`room · @${self.name} · 房间码 ${code} · 2 分钟内有效，念给对方`, "info");
@@ -513,10 +516,9 @@ export function createRoomExtension(options: RoomExtensionOptions): ExtensionFac
 		) => {
 			const peerUnionId = current.peer?.userUnionId;
 			if (!peerUnionId) {
-				context.ui.notify(
-					"room · 对方没有上报 union_id，无法自动邀请对方本人进群；请让对方用新版 step 重新 /room join",
-					"warning",
-				);
+				// Expected: the device flow never provides one. The peer's bot adds its own person as
+				// soon as it is in the group, which needs no id this side could resolve.
+				context.ui.notify("room · 对方会在进群后自己加入，无需手动操作", "info");
 				return;
 			}
 			// The group was created with this union id already listed, so two people in a readable
@@ -650,6 +652,32 @@ export function createRoomExtension(options: RoomExtensionOptions): ExtensionFac
 			// leaves the person watching "waiting for the other side", which reads as a hang.
 			if (first) {
 				context.ui.notify(`room · 已进群，可以开始对话（@${current.botName} 或直接说话）`, "info");
+				// The group was created by the other side, which cannot name this person: only an
+				// id from *this* app's scope resolves here, and the device flow cannot hand out the
+				// tenant-wide one. This bot is in the group already, so it adds its own person itself.
+				void joinOwnPerson(current, context);
+			}
+		};
+
+		/**
+		 * Joining side: put this person into the group, using this app's own id space.
+		 *
+		 * `ownerOpenId` is only meaningful to the app that issued it, which is exactly the app whose
+		 * token is calling — so no cross-app id is involved. Requires `im:chat` or
+		 * `im:chat.members:write_only`; without it the person is told to add themselves by hand
+		 * rather than left wondering why the room looks half-joined.
+		 */
+		const joinOwnPerson = async (current: ActiveRoom, context: ExtensionContext) => {
+			try {
+				const result = await current.transport.api.addMembers(current.chatId, [current.ownerOpenId], "open_id");
+				if (result.failed.length) {
+					context.ui.notify("room · 未能把自己加进群（id 无效），请在飞书里手动加入", "warning");
+				} else if (result.approvalPending.length) {
+					context.ui.notify("room · 你加入群需要管理员审批", "info");
+				}
+			} catch (error) {
+				const detail = error instanceof Error ? error.message : String(error);
+				context.ui.notify(`room · 未能自动把自己加进群（${detail}），请在飞书里手动加入`, "warning");
 			}
 		};
 

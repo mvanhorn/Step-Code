@@ -255,7 +255,9 @@ describe("Lark registration user identity", () => {
 		expect(result).toMatchObject({ userInfo: { openId: "ou_owner", unionId: "on_owner" } });
 	});
 
-	it("asks the platform for the union id when registering", async () => {
+	it("requests only the user info the endpoint accepts", async () => {
+		// The device flow rejects `union_id`, `email`, `mobile` and any combination containing them
+		// with `20103 invalid_request`; asking for one makes every authorization fail.
 		const mock = fetchMock();
 		mock.mockResolvedValueOnce(
 			new Response(JSON.stringify({ device_code: "d", user_code: "u", expires_in: 300, interval: 5 })),
@@ -263,7 +265,8 @@ describe("Lark registration user identity", () => {
 		const registration = new LarkRegistration({ version: "test" });
 		await registration.begin(new AbortController().signal);
 		const body = String((mock.mock.calls[0]?.[1] as RequestInit | undefined)?.body ?? "");
-		expect(body).toContain("union_id");
+		const requested = new URLSearchParams(body).get("request_user_info") ?? "";
+		expect(requested.split(" ").sort()).toEqual(["open_id", "tenant_brand"]);
 	});
 
 	it("reports no user info rather than inventing one", async () => {
