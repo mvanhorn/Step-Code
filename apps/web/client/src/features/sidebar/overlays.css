@@ -213,9 +213,11 @@
 }
 .tag-picker {
 	z-index: 50;
-	/* Wide enough for the name row and for all eight colour chips on one line
-	   (8 × 14px chips + 7 × 13px gaps + the row's and menu's padding). */
-	min-width: 240px;
+	/* Wide enough for the name row and all eight colour chips on one line
+	   (8 × 13px chips + 7 × 9px gaps + the row's and menu's padding), yet
+	   narrow enough to stay anchored right under its trigger inside a 260px
+	   sidebar: the anchor-positioned panel would shrink past that. */
+	min-width: 208px;
 	border-radius: var(--radius-surface);
 	box-shadow: var(--elev-3);
 }
@@ -292,14 +294,14 @@
 .tag-new-colors {
 	display: flex;
 	flex-wrap: wrap;
-	gap: 12px;
-	padding: 6px 10px 7px 13px;
+	gap: 9px;
+	padding: 6px 9px 7px 12px;
 }
 /* A colour chip, not a menu row: undo the generic `.tag-picker button` row styles. */
 .tag-picker .tag-swatch {
 	display: block;
-	width: 14px;
-	height: 14px;
+	width: 13px;
+	height: 13px;
 	min-height: 0;
 	padding: 0;
 	border-radius: 3px;
