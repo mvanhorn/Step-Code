@@ -272,6 +272,37 @@
 .group-heading:hover {
 	background: var(--hover);
 }
+/* Rename pencil in the heading: hover-only, right-aligned (the picker's copy lives in overlays.css). */
+.group-heading .group-rename-button {
+	display: none;
+	place-items: center;
+	width: 20px;
+	height: 20px;
+	padding: 0;
+	margin-left: auto;
+	border-radius: var(--radius-chip);
+	color: var(--ink-3);
+}
+.group-heading:hover .group-rename-button,
+.group-heading .group-rename-button:focus-visible {
+	display: grid;
+}
+.group-heading .group-rename-button:hover {
+	background: var(--hover);
+	color: var(--ink);
+}
+/* While renaming, the row takes the heading's place: same height, spine stays put. */
+.group-section > .tag-create {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 9px;
+	min-height: 38px;
+	padding: 2px 9px;
+}
+.group-section > .tag-create input {
+	width: 160px;
+}
 /* Drag-and-drop retagging: the grabbed row fades, the hovered section glows its group colour. */
 .session-row.dragging {
 	opacity: 0.35;
