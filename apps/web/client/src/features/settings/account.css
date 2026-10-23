@@ -108,20 +108,36 @@
 	width: 20px;
 	height: 20px;
 }
+/*
+ * A radio mark: an empty hairline ring at rest, a filled ink disc with a check
+ * when chosen. The ring is quiet so four cards do not read as four black dots.
+ */
 .settings-account-channel-check {
 	display: grid;
 	flex: none;
 	place-items: center;
-	width: 20px;
-	height: 20px;
+	box-sizing: border-box;
+	width: 18px;
+	height: 18px;
 	margin-left: auto;
+	border: 1.5px solid var(--line-strong);
 	border-radius: 50%;
-	background: var(--action);
+	background: transparent;
 	color: var(--action-ink);
+	transition:
+		background-color var(--fast),
+		border-color var(--fast);
+}
+.settings-account-channel:hover:not(:disabled) .settings-account-channel-check {
+	border-color: var(--ink-3);
+}
+.settings-account-channel.active .settings-account-channel-check {
+	border-color: var(--action);
+	background: var(--action);
 }
 .settings-account-channel-check .icon {
-	width: 12px;
-	height: 12px;
+	width: 11px;
+	height: 11px;
 }
 .settings-account-channel strong {
 	font-size: 14px;
