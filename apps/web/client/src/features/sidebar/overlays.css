@@ -200,6 +200,35 @@
 .tag-picker button:hover {
 	background: var(--hover);
 }
+/* One existing group row: the choose button plus its hover-only rename pencil. */
+.group-option {
+	position: relative;
+}
+.tag-picker .group-option > button {
+	/* Leaves room for the pencil so long names do not slide under it. */
+	padding-right: 30px;
+}
+.tag-picker .group-rename-button {
+	position: absolute;
+	top: 50%;
+	right: 5px;
+	display: none;
+	place-items: center;
+	width: 20px;
+	height: 20px;
+	min-height: 0;
+	padding: 0;
+	border-radius: var(--radius-chip);
+	color: var(--ink-3);
+}
+.group-option:hover .group-rename-button,
+.group-rename-button:focus-visible {
+	display: grid;
+}
+.tag-picker .group-rename-button:hover {
+	background: var(--hover);
+	color: var(--ink);
+}
 .tag-picker-caption {
 	padding: 7px 9px 3px;
 	color: var(--ink-3);

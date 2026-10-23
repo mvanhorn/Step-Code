@@ -2,7 +2,9 @@ import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { TAG_COLOR_NAMES, type TagColor, useT } from "../../i18n";
 import { useImeGuard } from "../../lib/ime";
 import { getState, shallowEqual, useAppStore } from "../../state/store";
-import { closeTagPicker, createGroupAndTag, setSessionTag } from "./actions";
+import type { TagGroup } from "../../state/types";
+import { Icon } from "../../ui";
+import { closeTagPicker, createGroupAndTag, renameGroup, setSessionTag } from "./actions";
 import { cssVar, TAG_COLOR_KEYS, TAG_COLORS } from "./tags";
 
 /** The "name the new group" row (legacy `showTagNameInput`, 1062-1080). */
@@ -59,6 +61,69 @@ function TagNameInput({ sessionId, color }: { readonly sessionId: string; readon
 }
 
 /**
+ * The rename row of an existing group: same shape as the create row, starting
+ * from the current name. An empty or unchanged name just closes the row.
+ */
+function GroupRenameInput({ group, onDone }: { readonly group: TagGroup; readonly onDone: () => void }) {
+	const t = useT();
+	const input = useRef<HTMLInputElement>(null);
+	const ime = useImeGuard();
+	const [error, setError] = useState(false);
+	useEffect(() => {
+		input.current?.focus();
+		input.current?.select();
+	}, []);
+	const accept = () => {
+		const name = input.current?.value.trim();
+		if (!name || name === group.name) {
+			onDone();
+			return;
+		}
+		const duplicate = getState().groups.some(
+			(candidate) => candidate.key !== group.key && candidate.name.toLowerCase() === name.toLowerCase(),
+		);
+		if (duplicate) {
+			setError(true);
+			input.current?.focus();
+			input.current?.select();
+			return;
+		}
+		renameGroup(group.key, name);
+		onDone();
+	};
+	const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+		// Keeps the document shortcuts (and the Escape chain) out of the name field.
+		event.stopPropagation();
+		if (event.key === "Enter" && !ime.isComposing(event)) accept();
+		if (event.key === "Escape") onDone();
+	};
+	return (
+		<div className="tag-create">
+			<span className="tag-diamond" style={cssVar("--tag-color", TAG_COLORS[group.key])} />
+			<input
+				ref={input}
+				id="groupNameInput"
+				maxLength={12}
+				defaultValue={group.name}
+				aria-label={t("renameGroup")}
+				aria-invalid={error || undefined}
+				{...ime.handlers}
+				onInput={() => setError(false)}
+				onKeyDown={onKeyDown}
+			/>
+			<button type="button" id="groupNameConfirm" onClick={accept}>
+				{t("confirm")}
+			</button>
+			{error ? (
+				<div className="tag-create-error" role="alert">
+					{t("groupNameDuplicate")}
+				</div>
+			) : null}
+		</div>
+	);
+}
+
+/**
  * Content of `#tagPicker`: choose, create or clear a session's group (legacy
  * `openTagPicker`, 1014-1060). Mounted on open, so every open starts from the group list.
  */
@@ -66,6 +131,7 @@ export function TagPicker({ sessionId }: { readonly sessionId: string }) {
 	const t = useT();
 	const data = useAppStore((state) => ({ groups: state.groups, tags: state.tags }), shallowEqual);
 	const [creating, setCreating] = useState<TagColor | null>(null);
+	const [renaming, setRenaming] = useState<TagColor | null>(null);
 	if (creating) return <TagNameInput sessionId={sessionId} color={creating} />;
 
 	const used = new Set(data.groups.map((group) => group.key));
@@ -77,12 +143,28 @@ export function TagPicker({ sessionId }: { readonly sessionId: string }) {
 	};
 	return (
 		<>
-			{data.groups.map((group) => (
-				<button key={group.key} type="button" data-tag={group.key} onClick={() => choose(group.key)}>
-					<span className="tag-diamond" style={cssVar("--tag-color", TAG_COLORS[group.key])} />
-					<span>{group.name}</span>
-				</button>
-			))}
+			{data.groups.map((group) =>
+				renaming === group.key ? (
+					<GroupRenameInput key={group.key} group={group} onDone={() => setRenaming(null)} />
+				) : (
+					// A div wrapper: the row is a button, and the rename pencil cannot nest in one.
+					<div className="group-option" key={group.key}>
+						<button type="button" data-tag={group.key} onClick={() => choose(group.key)}>
+							<span className="tag-diamond" style={cssVar("--tag-color", TAG_COLORS[group.key])} />
+							<span>{group.name}</span>
+						</button>
+						<button
+							type="button"
+							className="group-rename-button"
+							title={t("renameGroup")}
+							aria-label={t("renameGroup")}
+							onClick={() => setRenaming(group.key)}
+						>
+							<Icon name="pencil" size="xs" />
+						</button>
+					</div>
+				),
+			)}
 			{fresh.length ? (
 				<>
 					<div className="tag-picker-caption">{t("createGroup")}</div>
