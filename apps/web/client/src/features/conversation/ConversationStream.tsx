@@ -3,6 +3,7 @@ import { useLocale, useT } from "../../i18n";
 import { collectTurnChanges } from "../../lib/turn-changes";
 import { setUi, useAppStore } from "../../state/store";
 import type { SteeringMessage, TimelineItem } from "../../state/types";
+import { CommandRow } from "./CommandRow";
 import { CompactionRow, CompactionRunningRow } from "./CompactionRow";
 import { MessageActions, MessageItem } from "./MessageItem";
 import { NoticeRow } from "./NoticeRow";
@@ -187,6 +188,8 @@ export function ConversationStream() {
 										<ThinkingDisclosure item={row.item} active={running} />
 									) : row.item.kind === "retry" ? (
 										<RetryRow item={row.item} />
+									) : row.item.kind === "command" ? (
+										<CommandRow item={row.item} />
 									) : row.item.kind === "compaction" ? (
 										<CompactionRow item={row.item} />
 									) : (

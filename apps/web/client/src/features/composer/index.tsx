@@ -57,6 +57,9 @@ import { QueueDock } from "./QueueDock";
 import { type SlashItem, SlashMenu, type SlashMenuHandle, slashQuery } from "./SlashMenu";
 
 export { ImagePreview } from "./ImagePreview";
+// The conversation's command-echo rows reuse the composer's command icon map
+// and mode mapping, so a command looks the same in the flow as at the prompt.
+export { commandLeadIcon, modeFromCommand } from "./modes";
 export { SelectionDialog } from "./SelectionDialog";
 export { TextInputDialog } from "./TextInputDialog";
 

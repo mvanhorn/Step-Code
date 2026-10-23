@@ -1081,16 +1081,11 @@
 /*
  * ===== 模式主题（暂存模式的专属展示） =====
  *
- * 每种模式一个固定强调色，在 .composer 上定义一次，卡片、模式 chip、＋菜单
- * 的模式行和 goal/plan 常驻条都从这里取：goal 绿（目标达成）、plan 靛（先谋后
- * 动）、ultraloop 品红（多智能体循环）。固定色值与 pick-chip 同一做法，混合面
- * 随亮暗主题自适应。
+ * 每种模式一个固定强调色（token 定义在 styles/global.css 的 --mode-*，与
+ * 对话流的命令回显行共用）：goal 绿（目标达成）、plan 靛（先谋后动）、
+ * ultraloop 品红（多智能体循环）。卡片、模式 chip、＋菜单的模式行和
+ * goal/plan 常驻条都从这里取色。
  */
-.composer {
-	--mode-goal: #10b981;
-	--mode-plan: #6366f1;
-	--mode-ultraloop: #d946ef;
-}
 .composer-card[data-mode="goal"] {
 	--mode-accent: var(--mode-goal);
 }
@@ -1177,7 +1172,7 @@
 	--lead-accent: var(--mode-accent, var(--ink-3));
 }
 .prompt-command {
-	--lead-accent: #8b5cf6;
+	--lead-accent: var(--command-accent);
 }
 .prompt-mode-icon,
 .prompt-command-icon {

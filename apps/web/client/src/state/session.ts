@@ -400,6 +400,18 @@ export function timelineFromEntries(entries: readonly SessionEntry[] = [], retry
 			});
 			continue;
 		}
+		// The host's echo of a kernel slash command: the transcript's only record of the typed line.
+		if (entry.type === "custom" && entry.customType === "stepcode-web.command-echo") {
+			const command = typeof entry.command === "string" ? entry.command : "";
+			if (command)
+				items.push({
+					itemId: `command-${entry.id}`,
+					kind: "command",
+					command,
+					...(typeof entry.timestamp === "string" ? { timestamp: entry.timestamp } : {}),
+				});
+			continue;
+		}
 		if (entry.type !== "message") continue;
 		const message = entry.message;
 		if (!message || message.role === "toolResult") continue;

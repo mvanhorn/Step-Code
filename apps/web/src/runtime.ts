@@ -498,6 +498,43 @@ function isUserEntry(entry: SessionEntry): boolean {
 	return (entry.message as { role?: unknown }).role === "user";
 }
 
+/**
+ * The kernel consumes a slash command without journaling the text the user sent
+ * (`AgentSession.prompt` executes extension commands directly), so the flow
+ * shows a command's effects — a goal card, a compaction row — but never the
+ * command line itself. The host echoes it as a custom entry: presentation
+ * only, never model context (the same rule as the thinking timings).
+ */
+export const COMMAND_ECHO_TYPE = "stepcode-web.command-echo";
+
+/**
+ * Kernel extension commands reachable from the composer. `/mcp`, `/btw` and
+ * `/feedback` are client-side surfaces and never arrive at `send`; the
+ * `ultracode:` keyword form is an ordinary message and journals on its own.
+ */
+const ECHOED_COMMANDS: ReadonlySet<string> = new Set([
+	"goal",
+	"plan",
+	"init",
+	"compact",
+	"permissions",
+	"ultraloop",
+	"ultracode",
+	"todos",
+	"cron",
+	"workflows",
+	"plugin",
+	"llama",
+]);
+
+/** The command line to echo for `text`, or null when it is not a kernel command. */
+export function commandEchoText(text: string): string | null {
+	const name = /^\/([A-Za-z0-9][\w.:-]*)(?:\s|$)/u.exec(text)?.[1];
+	if (!name) return null;
+	if (!name.startsWith("skill:") && !ECHOED_COMMANDS.has(name)) return null;
+	return text.trim();
+}
+
 /** Same provider and model id, which is all a resolved model needs to match. */
 function modelsMatch(left: { provider: string; id: string }, right: { provider: string; id: string }): boolean {
 	return left.provider === right.provider && left.id === right.id;
@@ -508,6 +545,8 @@ export function projectEntry(entry: SessionEntry): Record<string, unknown> {
 	const usage = entry.type === "message" && entry.message.role === "assistant" ? entry.message.usage : undefined;
 	const notification =
 		entry.type === "custom_message" ? projectSubagentNotification(entry.customType, entry.details) : undefined;
+	// The command echo's text rides the custom entry's data.
+	const echo = commandEchoOf(entry);
 	return {
 		id: entry.id,
 		type: entry.type,
@@ -516,6 +555,7 @@ export function projectEntry(entry: SessionEntry): Record<string, unknown> {
 		...(usage ? { usage } : {}),
 		...(entry.type === "custom_message" ? { content: entry.content, customType: entry.customType } : {}),
 		...(notification ? { details: notification } : {}),
+		...(echo === undefined ? {} : { customType: COMMAND_ECHO_TYPE, command: echo }),
 		// A compaction row shows what it replaced: the summary, the prompt volume
 		// before it, and the entry that stays canonical after it.
 		...(entry.type === "compaction"
@@ -527,6 +567,13 @@ export function projectEntry(entry: SessionEntry): Record<string, unknown> {
 			: {}),
 		...(entry.type === "branch_summary" ? { summary: entry.summary } : {}),
 	};
+}
+
+/** The echoed command line of a command-echo custom entry, or undefined for every other entry. */
+function commandEchoOf(entry: SessionEntry): string | undefined {
+	if (entry.type !== "custom" || entry.customType !== COMMAND_ECHO_TYPE) return undefined;
+	const text = (entry.data as { text?: unknown } | undefined)?.text;
+	return typeof text === "string" && text ? text : undefined;
 }
 
 /** Timing is host presentation metadata, not a field added to provider messages. */
@@ -1098,6 +1145,7 @@ export class WebSession {
 	async send(text: string, attachments: readonly WebAttachment[] = [], followUp = false): Promise<void> {
 		if (this.isReverting()) throw new Error("Wait for the revert to finish");
 		this.unread = false;
+		this.echoCommand(text);
 		this.maybeGenerateSessionTitle(text);
 		const images = imagesOf(attachments);
 		await this.session.prompt(withTextAttachments(text, attachments), {
@@ -1105,6 +1153,16 @@ export class WebSession {
 			...(images.length ? { images } : {}),
 			...(followUp ? { streamingBehavior: "followUp" as const } : {}),
 		});
+	}
+
+	/**
+	 * Journal the command line of a kernel slash command before the kernel
+	 * consumes it (see `COMMAND_ECHO_TYPE`). Queued sends replay through
+	 * `send`, so they echo when they actually run.
+	 */
+	private echoCommand(text: string): void {
+		const command = commandEchoText(text);
+		if (command) this.session.sessionManager.appendCustomEntry(COMMAND_ECHO_TYPE, { text: command });
 	}
 
 	/**

@@ -16,6 +16,7 @@ import {
 	countUserMessages,
 	createSessionIfNeeded,
 	forgetSelection,
+	refreshCurrent,
 	renderSnapshot,
 	showError,
 } from "../../state/session";
@@ -443,14 +444,17 @@ export async function sendMessage(text: string, files: readonly PromptFile[] = [
 	// A queued or steered message waits for the turn, so only a new turn gets
 	// the immediate message and thinking indicator.
 	const images = attachments.filter((attachment) => attachment.kind === "image");
-	const pendingTurn = active
-		? null
-		: {
-				text,
-				files,
-				images: images.map((image) => `data:${image.mimeType};base64,${image.data}`),
-				userCount: countUserMessages(timelineItems),
-			};
+	// A slash command never becomes a user message — the host echoes it as a
+	// command row instead — so the optimistic bubble would only flash.
+	const pendingTurn =
+		active || text.startsWith("/")
+			? null
+			: {
+					text,
+					files,
+					images: images.map((image) => `data:${image.mimeType};base64,${image.data}`),
+					userCount: countUserMessages(timelineItems),
+				};
 	setState({ attachments: [], pendingTurn });
 	// A steered message is shown in the conversation now, though the kernel reads it only after the current tool call.
 	const steering = active && steer && state.current ? (state.current.steeringMessages ?? []) : null;
@@ -469,6 +473,10 @@ export async function sendMessage(text: string, files: readonly PromptFile[] = [
 			body,
 		});
 		if ("queued" in result) applyQueueState(session.id, result);
+		// A slash command journals no user message: the host echoes it as a
+		// command row through the snapshot, so pull the snapshot once the
+		// command has run (commands that drive no turn push no other event).
+		if (text.startsWith("/")) void refreshCurrent();
 		return true;
 	} catch (error) {
 		setState({ attachments, pendingTurn: null });

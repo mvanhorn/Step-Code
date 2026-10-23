@@ -1325,6 +1325,46 @@
 }
 
 /*
+ * A kernel slash command the user sent, echoed by the host: the command's own
+ * icon and colour (a session mode's accent, the neutral command purple
+ * otherwise), the command line itself in mono — the same look as the
+ * composer's lead chip for that command.
+ */
+.command-row {
+	--row-accent: var(--command-accent);
+	display: inline-flex;
+	align-items: center;
+	gap: 7px;
+	max-width: 100%;
+	margin: 2px 0 10px;
+	padding: 3px 10px;
+	border: 1px solid color-mix(in srgb, var(--row-accent) 35%, transparent);
+	border-radius: var(--radius-chip);
+	background: color-mix(in srgb, var(--row-accent) 8%, transparent);
+	color: var(--row-accent);
+}
+.command-row[data-mode="goal"] {
+	--row-accent: var(--mode-goal);
+}
+.command-row[data-mode="plan"] {
+	--row-accent: var(--mode-plan);
+}
+.command-row[data-mode="ultraloop"] {
+	--row-accent: var(--mode-ultraloop);
+}
+.command-row-icon {
+	display: inline-flex;
+	flex: none;
+}
+.command-row-text {
+	min-width: 0;
+	overflow-wrap: anywhere;
+	font-family: var(--mono);
+	font-size: 12.5px;
+	white-space: pre-wrap;
+}
+
+/*
  * A context compaction: metadata line plus an optional summary panel. Collapsed
  * by default because the summary is the model's working context, not a reply.
  */
