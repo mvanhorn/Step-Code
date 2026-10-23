@@ -3,6 +3,7 @@ import { useLocale, useT } from "../../i18n";
 import { collectTurnChanges } from "../../lib/turn-changes";
 import { setUi, useAppStore } from "../../state/store";
 import type { SteeringMessage, TimelineItem } from "../../state/types";
+import { ClarificationPanel } from "./ClarificationPanel";
 import { CommandRow } from "./CommandRow";
 import { CompactionRow, CompactionRunningRow } from "./CompactionRow";
 import { MessageActions, MessageItem } from "./MessageItem";
@@ -252,6 +253,9 @@ export function ConversationStream() {
 				) : (
 					<EmptyConversation />
 				)}
+				{/* The pending questionnaire is conversation, not composer chrome: it
+				 * renders as the stream's latest element, where the question was asked. */}
+				<ClarificationPanel />
 			</div>
 		</div>
 	);

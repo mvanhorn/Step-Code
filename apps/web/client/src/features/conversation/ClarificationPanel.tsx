@@ -6,7 +6,7 @@ import { useImeGuard } from "../../lib/ime";
 import { useAppStore } from "../../state/store";
 import type { ClarificationReply, ClarificationRequest } from "../../state/types";
 import { Icon, IconButton } from "../../ui";
-import { replyToClarification } from "./actions";
+import { replyToClarification } from "../composer/actions";
 
 export function ClarificationPanel() {
 	const request = useAppStore((state) => state.current?.pendingClarifications?.[0]);

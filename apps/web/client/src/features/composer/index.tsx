@@ -29,10 +29,8 @@ import {
 	turnActive,
 	updateQueued,
 } from "./actions";
-import { ClarificationPanel } from "./ClarificationPanel";
 import { FileMenu, type FileMenuHandle } from "./FileMenu";
 import { type FileQuery, fileCompletionText, sameFileQuery } from "./file-completion";
-import { GoalStrip } from "./GoalStrip";
 import { ModelMenu } from "./ModelMenu";
 import { MODES } from "./modes";
 import { PerformanceBar } from "./PerformanceBar";
@@ -58,8 +56,8 @@ import { type SlashItem, SlashMenu, type SlashMenuHandle, slashQuery } from "./S
 
 export { ImagePreview } from "./ImagePreview";
 // The conversation's command-echo rows reuse the composer's command icon map
-// and mode mapping, so a command looks the same in the flow as at the prompt.
-export { commandLeadIcon, modeFromCommand } from "./modes";
+// and mode metadata, so a command looks the same in the flow as at the prompt.
+export { commandLeadIcon, MODES, modeFromCommand } from "./modes";
 export { SelectionDialog } from "./SelectionDialog";
 export { TextInputDialog } from "./TextInputDialog";
 
@@ -405,12 +403,10 @@ export function Composer({ workspaceControl, branchControl }: ComposerProps) {
 		<form className="composer" id="composer" ref={form} onSubmit={(event) => onFormSubmit(event)}>
 			<SlashMenu handle={slash} query={query} promptRef={prompt} onPick={pickSlash} />
 			<FileMenu handle={files} cwd={cwd} query={pathQuery} promptRef={prompt} onPick={pickFile} />
-			<ClarificationPanel />
 			<div className="composer-pickers" id="composerPickers">
 				{workspaceControl}
 				{branchControl}
 			</div>
-			<GoalStrip />
 			<PlanStrip />
 			<QueueDock />
 			{/* The staged mode paints the card through `data-mode` (accent border, glow and sweep in composer.css). */}
