@@ -85,8 +85,8 @@
    * a step darker than the card surface (`--canvas`) in both themes.
    */
   --workbench: #f0f0f1;
-  --workbench-inset: 10px;
-  --workbench-gap: 6px;
+  --workbench-inset: 8px;
+  --workbench-gap: 4px;
   --card-shadow: 0 1px 2px rgb(0 0 0 / 4%), 0 4px 12px rgb(0 0 0 / 4%);
   --scrollbar-size: 8px;
   --scrollbar-thumb: #ceced1;
