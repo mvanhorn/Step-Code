@@ -7,6 +7,7 @@
  */
 
 import "./stream.css";
+import "./stream-header.css";
 import "./stream-nav.css";
 import "./feedback.css";
 import "./message-actions.css";
@@ -17,5 +18,6 @@ export { ChildAgentView } from "./ChildAgentView";
 export { ConversationStream } from "./ConversationStream";
 export { FeedbackModal } from "./FeedbackModal";
 export { openFeedback } from "./feedback";
+export { StreamHeader } from "./StreamHeader";
 export { StreamNav } from "./StreamNav";
 export { SubagentStatusIcon } from "./SubagentStatusIcon";

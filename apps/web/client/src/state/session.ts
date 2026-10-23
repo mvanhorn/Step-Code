@@ -194,6 +194,15 @@ export function taskStatus(state: AppState, session: SessionSummary): SessionSta
 	return state.statusById.get(session.id) ?? ((session.messageCount ?? 0) > 0 ? "completed" : "idle");
 }
 
+/**
+ * Whether the conversation column has anything to show: gates the header
+ * strip above the stream. A pending first message counts, so the header
+ * appears the moment a draft is sent.
+ */
+export function hasSessionContent(state: AppState): boolean {
+	return state.current !== null && (state.timelineItems.length > 0 || state.pendingTurn !== null);
+}
+
 /** Every folder the UI knows as a workspace, sorted by name (legacy `knownWorkspaces`, 1082-1095). */
 export function knownWorkspaces(state: AppState): string[] {
 	const values = new Set<string>();
@@ -1145,6 +1154,45 @@ export async function refreshSessions(): Promise<void> {
 		);
 		return { sessions: [...kept, ...data.sessions], ...foldLiveStatuses(state, live, listed) };
 	});
+}
+
+/** Keep the open session's snapshot in step with a row action done from a menu. */
+function patchCurrentSession(id: string, fields: Partial<SessionSummary>): void {
+	setState((state) => (state.current?.id === id ? { current: { ...state.current, ...fields } } : {}));
+}
+
+export type SessionAction = "rename" | "archive" | "delete";
+
+/**
+ * Rename / archive / delete one session (legacy `openSessionMenu` click
+ * handler, 1297-1328). Called from the sidebar's row menu and the
+ * conversation header's menu; the open session's snapshot follows along so
+ * the header title does not wait for the next SSE snapshot.
+ */
+export async function runSessionAction(action: SessionAction, session: SessionSummary): Promise<void> {
+	try {
+		if (action === "rename") {
+			const name = window.prompt(t("rename"), sessionTitle(session));
+			if (name?.trim()) {
+				await apiSend(`/api/v1/sessions/${session.id}/name`, "PATCH", { name: name.trim() });
+				patchCurrentSession(session.id, { name: name.trim() });
+			}
+		}
+		if (action === "archive") {
+			const archived = !session.archived;
+			await apiSend(`/api/v1/sessions/${session.id}/archive`, "PATCH", { archived });
+			patchCurrentSession(session.id, { archived });
+		}
+		if (action === "delete" && window.confirm(t("confirmDelete", { name: sessionTitle(session) }))) {
+			await apiSend(`/api/v1/sessions/${session.id}`, "DELETE");
+			forgetUnlistedSession(session.id);
+			const state = getState();
+			if (state.current?.id === session.id) startDraft(state.bootstrapCwd);
+		}
+		await refreshSessions();
+	} catch (error) {
+		showError(errorMessage(error));
+	}
 }
 
 /**

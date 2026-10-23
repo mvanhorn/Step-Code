@@ -1,6 +1,6 @@
 import { type CSSProperties, useRef } from "react";
 import { Composer, ImagePreview, SelectionDialog, TextInputDialog } from "./features/composer";
-import { ConversationStream, FeedbackModal, StreamNav } from "./features/conversation";
+import { ConversationStream, FeedbackModal, StreamHeader, StreamNav } from "./features/conversation";
 import { FileTreePanel } from "./features/files";
 import { RightPanel, RightToolRail } from "./features/inspector";
 import { LoginGate } from "./features/login";
@@ -13,6 +13,7 @@ import { RemoveWorkspaceModal, WorkspaceBrowserModal, WorkspaceControl } from ".
 import { I18nProvider } from "./i18n";
 import { cx } from "./lib/format";
 import { activeRightPanel } from "./state/right-panel";
+import { hasSessionContent } from "./state/session";
 import { shallowEqual, useAppStore } from "./state/store";
 import { IconSprite } from "./ui";
 
@@ -24,7 +25,8 @@ import { IconSprite } from "./ui";
  *   div.app[.sidebar-hidden][.right-panel-open][.resizing]  (--sidebar-width, --preview-width)
  *     aside.sidebar      sidebar nav | files tree | shell user area (account, remote control, settings gear)
  *     #sidebarResizer    sidebar
- *     main.main          shell show button | files show button | market cron/market views
+ *     main.main          shell show button | session header strip (only while the session has content)
+ *                        | market cron/market views
  *                        | conversation stream
  *                        | conversation stream-nav (locator rail over the stream's right edge)
  *                        | .composer-zone > composer form (workspace pill above the card)
@@ -55,6 +57,7 @@ export function App() {
 	const style: Record<string, string> = {};
 	if (layout.sidebarWidth !== null) style["--sidebar-width"] = `${layout.sidebarWidth}px`;
 	if (layout.previewWidth !== null) style["--preview-width"] = `${layout.previewWidth}px`;
+	const streamHeader = useAppStore(hasSessionContent);
 	return (
 		<I18nProvider>
 			<IconSprite />
@@ -68,6 +71,7 @@ export function App() {
 					layout.summaryOpen && "summary-open",
 					layout.rightExpanded && "right-panel-expanded",
 					layout.resizing && "resizing",
+					streamHeader && "stream-header-open",
 				)}
 				style={style as CSSProperties}
 			>
@@ -79,6 +83,7 @@ export function App() {
 				<SidebarResizer />
 				<main className="main">
 					<SidebarShowButton />
+					{streamHeader ? <StreamHeader /> : null}
 					<CronView />
 					<MarketView />
 					<ConversationStream />

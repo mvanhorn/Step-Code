@@ -191,6 +191,8 @@ export interface UiState {
 	readonly workspaceMenu: { readonly cwd: string } | null;
 	/** `#sessionMenu`, open below the more button of a session row. */
 	readonly sessionMenu: { readonly sessionId: string } | null;
+	/** `#streamMenu`, open below the more button of the conversation header strip. */
+	readonly streamMenu: boolean;
 	/** `#tagPicker`, open below the tag button of a session row. `sessionId` is the legacy `state.tagTarget`. */
 	readonly tagPicker: { readonly sessionId: string } | null;
 	/** `#authBanner` visible (a request returned 401). */
@@ -428,6 +430,7 @@ export function createInitialState(): AppState {
 			settingsDialog: null,
 			workspaceMenu: null,
 			sessionMenu: null,
+			streamMenu: false,
 			tagPicker: null,
 			authExpired: false,
 			logoutConfirm: null,

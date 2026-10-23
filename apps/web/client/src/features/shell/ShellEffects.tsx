@@ -47,6 +47,7 @@ function handleEscape(): void {
 	else if (ui.tagPicker) setUi({ tagPicker: null });
 	else if (ui.workspaceMenu) closeWorkspaceMenu(true);
 	else if (ui.sessionMenu) setUi({ sessionMenu: null });
+	else if (ui.streamMenu) setUi({ streamMenu: false });
 	else if (ui.fileTreeOpen) setUi({ fileTreeOpen: false });
 	else if (ui.midView) setUi({ midView: null });
 	else if (ui.rightPanelExpanded) setUi({ rightPanelExpanded: false });

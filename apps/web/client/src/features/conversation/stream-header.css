@@ -1,0 +1,47 @@
+/*
+ * Session header strip above the conversation (StreamHeader.tsx). App.tsx
+ * mounts it only while the session has content (`.app.stream-header-open`).
+ */
+.stream-header {
+	position: relative;
+	/* Above `.main::before`, so on the desktop host the strip itself carries the
+	 * window drag (its buttons opt out via the global no-drag rule) instead of
+	 * the titlebar inset. */
+	z-index: 15;
+	display: flex;
+	flex: none;
+	padding-top: var(--titlebar-inset);
+	-webkit-app-region: drag;
+	border-bottom: 1px solid var(--line);
+}
+.stream-header-row {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	width: 100%;
+	min-height: 44px;
+	padding: 0 var(--gutter);
+}
+/*
+ * Left-aligned at the column's gutter like a task toolbar, not on the
+ * messages' centred 760px measure. A display cap keeps long titles from
+ * stretching across the whole column; the full text rides the `title`
+ * attribute of the span, and the more button sits right after the title.
+ */
+.stream-header-title {
+	flex: 0 1 auto;
+	max-width: 28em;
+	min-width: 0;
+	overflow: hidden;
+	color: var(--ink);
+	font-size: 14px;
+	font-weight: 600;
+	letter-spacing: -0.01em;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+/* `IconButton` keeps its own look; the strip only firms up the open state. */
+.stream-header-menu-button[aria-expanded="true"] {
+	background: var(--surface-soft);
+	color: var(--ink);
+}

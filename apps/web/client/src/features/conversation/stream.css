@@ -5,6 +5,10 @@
 	overflow-y: auto;
 	padding: 34px var(--gutter) 18px;
 }
+/* The session header strip (StreamHeader) takes over the top spacing. */
+.app.stream-header-open .stream {
+	padding-top: 12px;
+}
 .stream-inner {
 	display: flex;
 	flex-direction: column;
