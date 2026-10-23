@@ -71,7 +71,7 @@
   --accent-ring: rgb(91 71 224 / 16%);
   /*
    * Filled controls (primary buttons, send, switches) are ink in both themes, so
-   * the accent stays a quiet signal (links, focus, check marks, progress) and is
+   * the accent stays a quiet signal (focus rings, check marks, the context meter) and is
    * never a button fill.
    */
   --action: var(--ink);
