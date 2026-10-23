@@ -1,9 +1,112 @@
 /* Conversation stream: legacy styles.css 685-704, 706-707 (.message-body itself is shared, styles/global.css). */
+/* The conversation's fixed title bar (SessionHeader.tsx). */
+.session-header {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 8px;
+	height: var(--session-header-h);
+	/* 12px end: the status ends on the summary card's right edge below it. */
+	padding: 0 12px 0 var(--gutter);
+	border-bottom: 1px solid var(--line);
+	background: var(--canvas);
+	position: relative;
+	z-index: 3;
+}
+/* The floating show-sidebar button sits over the bar's start. */
+.app.sidebar-hidden .session-header {
+	padding-left: 60px;
+}
+.session-header-title {
+	/* A long first message must not squeeze the project and branch chips: the title gives way first. */
+	flex: 0 1 auto;
+	min-width: 0;
+	max-width: min(520px, 55%);
+	margin: 0 6px 0 0;
+	overflow: hidden;
+	color: var(--ink);
+	font-size: 14px;
+	font-weight: 600;
+	line-height: 20px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.session-header-chip {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	gap: 5px;
+	max-width: 240px;
+	height: 22px;
+	padding: 0 8px;
+	border-radius: var(--radius-chip);
+	background: var(--surface-soft);
+	color: var(--ink-2);
+	font-size: 12px;
+	font-weight: 500;
+}
+.session-header-chip .icon {
+	flex: none;
+	color: var(--ink-3);
+}
+.session-header-status {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	gap: 6px;
+	/* Never closer than 16px to the chips, however narrow the bar gets. */
+	margin-left: auto;
+	padding-left: 16px;
+	color: var(--ink-3);
+	font-size: 12px;
+}
+/* A docked panel narrows the bar: the title keeps its room, and the project chip (also in the sidebar) goes. */
+.session-header {
+	container-type: inline-size;
+}
+@container (max-width: 760px) {
+	.session-header-chip {
+		display: none;
+	}
+}
+.session-header-status i {
+	width: 6px;
+	height: 6px;
+	border: 1px solid currentColor;
+	border-radius: 50%;
+}
+.session-header-status[data-status="running"] {
+	color: var(--ink-2);
+}
+.session-header-status[data-status="running"] i {
+	border-color: var(--ink);
+	background: var(--ink);
+	animation: pulse 1.4s ease-in-out infinite;
+}
+.session-header-status[data-status="waiting"] {
+	color: var(--ink);
+}
+.session-header-status[data-status="waiting"] i {
+	background: currentColor;
+}
+.session-header-status[data-status="failed"] {
+	color: var(--danger);
+}
+.session-header-status[data-status="failed"] i {
+	background: currentColor;
+}
 .stream {
 	flex: 1;
 	min-height: 0;
 	overflow-y: auto;
-	padding: 34px var(--gutter) 18px;
+	/* Text fades out at both ends (16px under the title bar, 24px above the composer) instead of being cut.
+	   The 28px top padding keeps the first line clear of the fade at rest. */
+	mask-image: linear-gradient(to bottom, transparent, #000 16px, #000 calc(100% - 24px), transparent);
+	/* Reserve the scrollbar on both sides so the column centres on the same axis as the composer. */
+	scrollbar-gutter: stable both-edges;
+	/* The two reserved gutters already inset the text by a scrollbar's width each, so the padding
+	   gives that back: in a narrow column the text still spans exactly the composer's width. */
+	padding: 28px calc(var(--gutter) - var(--scrollbar-size)) 24px;
 }
 .stream-inner {
 	display: flex;
@@ -14,34 +117,96 @@
 	min-height: 100%;
 	margin: 0 auto;
 }
+/*
+ * The new-session moment. The question sits just above the composer, centred on
+ * the column, so the empty pane has one balanced focal point instead of a block
+ * hugging its left edge. One sequence on mount: the tile settles, the amber
+ * chevron draws in, then the words arrive.
+ */
+/*
+ * A new session centres the mark and the composer together in the pane. Both
+ * the stream and the composer zone size to their content and split the spare
+ * height evenly, so the question ends where the composer starts and the pair
+ * sits on the pane's middle. Once the session has content (or while a history
+ * session is loading into it), the composer returns to the bottom.
+ */
+.main:has(.empty-state):not(:has(.stream[data-opening])) > .stream {
+	flex: 1 1 auto;
+}
+.main:has(.empty-state):not(:has(.stream[data-opening])) > .composer-zone {
+	flex: 1 1 auto;
+}
+@property --mark-draw {
+	syntax: "<number>";
+	inherits: true;
+	initial-value: 1;
+}
+/* The mark leads the question on one line, centred on the column, just above the composer. */
 .empty-state {
-	display: grid;
-	place-items: center;
-	align-content: center;
+	display: flex;
+	align-items: flex-end;
+	justify-content: center;
+	gap: 14px;
 	flex: 1;
-	min-height: 320px;
-	color: var(--ink-3);
+	padding: 0 2px 16px;
+	color: var(--ink-2);
 	text-align: center;
 }
-.empty-wordmark {
-	display: flex;
-	align-items: baseline;
-	gap: 5px;
+.empty-mark {
+	display: grid;
+	place-items: center;
+	width: 44px;
+	height: 44px;
+	border-radius: 12px;
+	background: var(--brand-tile);
+}
+.empty-mark > .icon {
+	width: 28px;
+	height: 28px;
+}
+.empty-title {
+	/* Centre the line box on the 44px mark beside it. */
+	align-self: flex-end;
+	margin-bottom: 2px;
+	max-width: 20ch;
 	color: var(--ink);
-	letter-spacing: -0.06em;
+	font-size: clamp(26px, 3.2vw, 34px);
+	font-weight: 600;
+	letter-spacing: -0.022em;
+	line-height: 1.16;
+	text-wrap: balance;
 }
-.empty-wordmark span {
-	font-size: 34px;
-	font-weight: 300;
+@media (prefers-reduced-motion: no-preference) {
+	.empty-mark {
+		animation: empty-mark-settle 520ms var(--ease-out) both;
+	}
+	.empty-mark > .icon {
+		animation: empty-mark-draw 640ms var(--ease-out) 260ms both;
+	}
+	.empty-title {
+		animation: empty-rise 560ms var(--ease-out) both;
+		animation-delay: 40ms;
+	}
 }
-.empty-wordmark strong {
-	font-size: 38px;
-	font-weight: 800;
+@keyframes empty-mark-settle {
+	from {
+		opacity: 0;
+		transform: translateY(6px) scale(0.94);
+	}
 }
-.empty-state p {
-	margin-top: 9px;
-	font-size: 13px;
-	letter-spacing: 0.01em;
+@keyframes empty-mark-draw {
+	from {
+		--mark-draw: 0;
+	}
+	to {
+		--mark-draw: 1;
+	}
+}
+@keyframes empty-rise {
+	from {
+		opacity: 0;
+		transform: translateY(6px);
+	}
 }
 
 .message {
@@ -62,25 +227,17 @@
  * the wrench (skills) is light blue, the puzzle (plugins) light purple.
  */
 .message-skill {
-	--message-kind-accent: var(--ink-2);
 	display: inline-flex;
 	align-items: center;
 	gap: 5px;
 	max-width: 100%;
 	margin-bottom: 6px;
 	padding: 3px 9px;
-	border: 1px solid color-mix(in srgb, var(--message-kind-accent) 35%, var(--line));
 	border-radius: var(--radius-pill);
-	background: color-mix(in srgb, var(--message-kind-accent) 10%, var(--surface));
-	color: var(--message-kind-accent);
+	background: var(--surface-soft);
+	color: var(--ink-2);
 	font-size: 12px;
 	font-weight: 500;
-}
-.message-skill--skill {
-	--message-kind-accent: #3b82f6;
-}
-.message-skill--plugin {
-	--message-kind-accent: #8b5cf6;
 }
 /* A user message's images, above its text, right-aligned like the bubble. */
 .message-images {
@@ -103,14 +260,15 @@
 	cursor: zoom-in;
 }
 .message-image:focus-visible {
-	outline: 2px solid var(--accent);
+	outline: 2px solid var(--focus-border);
 	outline-offset: 1px;
 }
 .message-image img {
 	display: block;
 	width: 100%;
 	height: 100%;
-	object-fit: cover;
+	/* Screenshots are mostly text: show the whole frame rather than a cropped middle strip. */
+	object-fit: contain;
 }
 /* A file pasted or dropped into the prompt, inline where the user put it (same look as the composer's `.prompt-file`). */
 .message-file {
@@ -120,7 +278,7 @@
 	max-width: 260px;
 	margin: 0 2px;
 	vertical-align: baseline;
-	color: var(--accent);
+	color: var(--ink-2);
 	white-space: nowrap;
 }
 .message-file > span {
@@ -130,10 +288,11 @@
 	overflow: hidden;
 	text-overflow: ellipsis;
 }
-/* Stream text is a size smaller than shared Markdown and a touch heavier. */
+/* Stream prose: shared Markdown metrics at a regular weight, for long reading. */
 .message .message-body {
-	font-size: 14px;
-	font-weight: 500;
+	font-size: 15px;
+	font-weight: 400;
+	line-height: 1.75;
 }
 .message.assistant {
 	align-items: flex-start;
@@ -141,7 +300,7 @@
 .message-label {
 	margin-bottom: 4px;
 	color: var(--ink-3);
-	font-size: 11px;
+	font-size: 12px;
 }
 /*
  * A message's model and clock time, as bare text with no label: under a sent
@@ -195,9 +354,11 @@
 .message.user .message-body {
 	width: fit-content;
 	max-width: min(100%, 68ch);
-	padding: 10px 14px;
-	border-radius: var(--radius-bubble) var(--radius-bubble) var(--radius-inline-code) var(--radius-bubble);
-	background: var(--surface-soft);
+	padding: 10px 16px;
+	border-radius: var(--radius-bubble);
+	background: var(--bubble);
+	color: var(--ink);
+	line-height: 1.65;
 }
 .message.assistant .message-body {
 	width: 100%;
@@ -205,8 +366,8 @@
 
 /* Same text metrics as .message .message-body so the reply replaces it without a jump. */
 .thinking-indicator {
-	font-size: 14px;
-	font-weight: 500;
+	font-size: 15px;
+	font-weight: 400;
 	line-height: 1.75;
 }
 
@@ -227,6 +388,10 @@
 .thinking-summary > .tool-verb {
 	flex: none;
 }
+/* The 14px mark centred in the 16px slot a tool glyph uses, so icons and verbs share one column. */
+.thinking-summary > .icon:first-child {
+	margin-inline: 1px;
+}
 .thinking-summary:hover {
 	color: var(--ink);
 }
@@ -241,7 +406,7 @@
 .thinking-elapsed {
 	flex: none;
 	color: var(--ink-3);
-	font-size: 11px;
+	font-size: 12px;
 	font-variant-numeric: tabular-nums;
 	white-space: nowrap;
 }
@@ -318,7 +483,7 @@
 	padding: 2px 6px;
 	border-radius: var(--radius-chip);
 	color: var(--ink-3);
-	font-size: 11px;
+	font-size: 12px;
 }
 .message-action:hover {
 	color: var(--ink);
@@ -342,8 +507,10 @@
 .tool-disclosure-body > .tool-cx {
 	margin-top: 6px;
 }
-/* Consecutive calls read as one block, as in the terminal: 28px per row. */
-.tool-call + .tool-call {
+/* Consecutive steps read as one block, as in the terminal: thinking rows keep the same 30px rhythm as calls. */
+.tool-call + .tool-call,
+.tool-group-body > * + .thinking,
+.tool-group-body > .thinking + .tool-call {
 	margin-top: -4px;
 }
 .tool-row {
@@ -408,8 +575,14 @@
 .tool-glyph > .icon {
 	grid-area: 1 / 1;
 }
+/*
+ * The disclosure takes the kind icon's place on hover instead of holding its own
+ * slot, so the verb and its subject sit one gap apart rather than a blank 26px.
+ */
 .tool-twisty {
-	position: relative;
+	position: absolute;
+	top: calc(50% - 7px);
+	left: 1px;
 	flex: none;
 	transform: rotate(-90deg);
 	transition: transform 240ms cubic-bezier(.215, .61, .355, 1);
@@ -430,18 +603,21 @@
 	transition: transform 320ms cubic-bezier(.22, 1, .36, 1), color 320ms ease;
 	pointer-events: none;
 }
-.tool-row.pending .tool-verb {
-	transform: skewX(-8deg);
+/* Running is told by the shimmer on the label; the glyph steps up to ink, it does not change hue. */
+.tool-row.pending .tool-glyph {
+	color: var(--ink);
 }
-.tool-row.failed .tool-verb,
+/* One red mark per failed call: the glyph. The verb stays neutral and the "失败" tag says it in words. */
 .tool-row.failed .tool-glyph {
 	color: var(--danger);
 }
+/* The red glyph says "failed"; the verb stays at the steps' weight instead of out-shouting the reply. */
+.tool-row.failed .tool-verb {
+	color: var(--ink-2);
+}
+/* The hover-only twisty already leaves a gap before the subject; a dot on top of it is noise. */
 .tool-dot {
-	position: relative;
-	flex: none;
-	color: var(--ink-3);
-	pointer-events: none;
+	display: none;
 }
 /* The base label stays readable; only this decorative copy sweeps over it. */
 .tool-pending {
@@ -482,9 +658,6 @@
 	.tool-call .tool-cx-input > summary > .icon {
 		transition: none;
 	}
-	.tool-row.pending .tool-verb {
-		transform: none;
-	}
 	.tool-row.pending .tool-pending {
 		opacity: 0;
 	}
@@ -498,10 +671,10 @@
 	flex: none;
 	padding: 0 5px;
 	border-radius: var(--radius-chip);
-	background: color-mix(in srgb, var(--danger) 12%, transparent);
-	color: var(--danger);
-	font-size: 11px;
-	line-height: 16px;
+	background: var(--surface-soft);
+	color: var(--ink-2);
+	font-size: 12px;
+	line-height: 18px;
 }
 .tool-subject {
 	position: relative;
@@ -537,7 +710,7 @@
 	position: relative;
 	flex: none;
 	font-family: var(--mono);
-	font-size: 11px;
+	font-size: 12px;
 }
 
 /* The expanded card. */
@@ -546,17 +719,48 @@
 	min-width: 0;
 	margin: 0 0 4px 22px;
 	border: 1px solid var(--line);
-	border-radius: var(--radius-input);
+	border-radius: var(--radius-panel);
 	background: var(--code-surface);
 }
 .tool-cx-input {
 	border-bottom: 1px solid var(--line);
 }
+/*
+ * Expanded, a command is printed once: in full on the card head. The row keeps
+ * only its verb (and a failure tag), instead of a truncated copy right above.
+ */
+.tool-call[data-kind="bash"].open .tool-detail:not(:has(.tool-failed)) {
+	display: none;
+}
+.tool-call[data-kind="bash"].open .tool-detail .tool-subject {
+	display: none;
+}
+.tool-call[data-kind="bash"] .tool-cx-summary {
+	padding-block: 6px;
+	overflow: visible;
+	text-overflow: clip;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+/* A wrapped command keeps its actions on the first line. */
+.tool-call[data-kind="bash"] .tool-cx-head {
+	align-items: flex-start;
+}
+.tool-call[data-kind="bash"] .tool-cx-head > :not(.tool-cx-summary) {
+	margin-top: 5px;
+}
+.tool-call[data-kind="bash"] .tool-cx-head > .tool-cx-state {
+	margin-top: 13px;
+}
+.tool-call[data-kind="bash"] .tool-cx-summary::before {
+	color: var(--ink-3);
+	content: "$ ";
+}
 .tool-cx-input > summary {
 	display: flex;
 	align-items: center;
 	gap: 6px;
-	min-height: 30px;
+	min-height: 28px;
 	padding: 4px 10px;
 	list-style: none;
 	color: var(--ink-2);
@@ -568,6 +772,7 @@
 	margin-left: auto;
 	overflow-wrap: anywhere;
 	color: var(--ink-3);
+	font-family: var(--mono);
 }
 .tool-cx-input > summary > .icon {
 	flex: none;
@@ -576,10 +781,18 @@
 .tool-cx-input[open] > summary > .icon {
 	transform: rotate(90deg);
 }
+/* Right under the command, the output needs no label; after a diff it does. */
+.tool-cx-head + .tool-cx-section {
+	display: none;
+}
 .tool-cx-section {
 	padding: 6px 12px 0;
 	color: var(--ink-2);
-	font-size: 11px;
+	font-size: 12px;
+}
+/* Success is the default and says nothing; only a pending or failed call keeps its footer. */
+.tool-cx-status.completed {
+	display: none;
 }
 .tool-cx-status {
 	display: flex;
@@ -589,7 +802,7 @@
 	padding: 6px 12px;
 	border-top: 1px solid var(--line);
 	color: var(--ink-2);
-	font-size: 11px;
+	font-size: 12px;
 }
 .tool-cx-status.failed {
 	color: var(--danger);
@@ -599,7 +812,8 @@
 	align-items: center;
 	gap: 8px;
 	min-height: 32px;
-	padding: 0 8px 0 10px;
+	/* 12px start: the command lines up with the output's 12px inset below it. */
+	padding: 0 8px 0 12px;
 	border-bottom: 1px solid var(--line);
 }
 .tool-cx-summary {
@@ -619,7 +833,7 @@
 	background: var(--ink-3);
 }
 .tool-cx-state.completed {
-	background: var(--success);
+	display: none;
 }
 .tool-cx-state.failed {
 	background: var(--danger);
@@ -656,7 +870,8 @@
 	padding: 8px 12px;
 	overflow: auto;
 	color: var(--ink);
-	font: 12px / 1.6 var(--mono);
+	/* The card head's size, so a command and its output share one face and one left edge. */
+	font: 12px / 20px var(--mono);
 	white-space: pre;
 	tab-size: 4;
 }
@@ -704,7 +919,7 @@
 	border-radius: var(--radius-chip);
 	background: transparent;
 	color: var(--ink-3);
-	font: 11px / 18px var(--sans);
+	font: 12px / 18px var(--sans);
 	text-align: left;
 	cursor: pointer;
 }
@@ -754,11 +969,12 @@
 	min-width: 0;
 	margin: 4px 0;
 }
+/* The steps' 30px row, so the summary and its steps keep one rhythm down the column. */
 .tool-group-trigger {
 	width: 100%;
-	min-height: 34px;
+	min-height: 30px;
 	flex-wrap: nowrap;
-	padding: 3px 0;
+	padding: 1px 0;
 	border: 0;
 	background: transparent;
 	color: var(--ink-2);
@@ -767,8 +983,12 @@
 .tool-group-trigger:hover {
 	color: var(--ink);
 }
+/* The group title leads its steps: 500 here, the steps' verbs at 400 below. */
 .tool-group-trigger > .tool-verb {
 	color: inherit;
+	font-weight: 500;
+}
+.tool-group-body .tool-verb {
 	font-weight: 400;
 }
 .tool-group-chevron {
@@ -789,11 +1009,17 @@
 .tool-row:is(:hover, :focus-visible, :has(:focus-visible)) .tool-group-chevron {
 	opacity: 1;
 }
+.tool-row:is(:hover, :focus-visible, :has(:focus-visible)) .tool-heading:has(.tool-twisty) > .tool-glyph {
+	opacity: 0;
+}
 @media (hover: none) {
 	.thinking-chevron,
 	.tool-twisty,
 	.tool-group-chevron {
 		opacity: 1;
+	}
+	.tool-heading:has(.tool-twisty) > .tool-glyph {
+		opacity: 0;
 	}
 }
 .process-group-preview {
@@ -821,6 +1047,7 @@
 	visibility: visible;
 }
 .tool-group-body {
+	position: relative;
 	display: flex;
 	flex-direction: column;
 	gap: 4px;
@@ -828,6 +1055,19 @@
 	min-height: 0;
 	overflow: hidden;
 	padding-left: 18px;
+}
+/* A hairline under the group's check mark ties the indented steps to their summary. */
+.tool-group-body::before {
+	position: absolute;
+	top: 2px;
+	bottom: 2px;
+	left: 7px;
+	width: 1px;
+	background: var(--line);
+	content: "";
+}
+.process-tool-group[data-single="true"] > .tool-group-disclosure > .tool-group-body::before {
+	display: none;
 }
 .process-tool-group[data-single="true"] > .tool-group-disclosure {
 	transition: none;
@@ -850,11 +1090,50 @@
 		transition: none;
 	}
 }
+/*
+ * A picked session is loading: the previous conversation recedes and a thin bar runs along the
+ * pane's top edge, so the click is acknowledged before the snapshot arrives.
+ */
+.stream[data-opening] > .stream-inner {
+	opacity: 0.4;
+	transition: opacity 160ms ease 120ms;
+}
+.stream[data-opening]::before {
+	position: sticky;
+	top: 0;
+	z-index: 5;
+	display: block;
+	height: 2px;
+	margin-bottom: -2px;
+	background: linear-gradient(var(--ink-3), var(--ink-3)) 0 0 / 30% 100% no-repeat;
+	animation: stream-opening 1.1s ease-in-out infinite;
+	content: "";
+}
+@keyframes stream-opening {
+	from {
+		background-position: -40% 0;
+	}
+	to {
+		background-position: 140% 0;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.stream[data-opening]::before {
+		animation: none;
+		background: var(--ink-3);
+		opacity: 0.5;
+	}
+}
+/* Waiting on the user: the one card in the stream that carries the attention colour on its edge. */
 .approval {
-	padding: 16px;
-	border: 1px solid color-mix(in srgb, var(--line) 65%, var(--surface));
-	border-radius: var(--radius-card);
+	position: relative;
+	padding: 16px 18px;
+	border: 1px solid color-mix(in srgb, var(--attention) 32%, var(--line));
+	border-radius: var(--radius-overlay);
 	background: var(--surface);
+	box-shadow:
+		inset 3px 0 0 var(--attention),
+		var(--elev-2);
 	color: color-mix(in srgb, var(--ink) 95%, var(--surface));
 }
 .approval-heading {
@@ -928,14 +1207,17 @@
 	margin-top: 16px;
 }
 .approval-actions button {
-	min-height: 28px;
-	padding: 3px 10px;
-	border: 1px solid color-mix(in srgb, var(--line) 65%, var(--surface));
-	border-radius: var(--radius-pill);
+	min-height: 30px;
+	padding: 4px 13px;
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-control);
 	background: var(--surface);
 	font-size: 13px;
 	font-weight: 600;
 	line-height: 20px;
+	transition:
+		background-color var(--fast),
+		border-color var(--fast);
 }
 .approval-actions button:hover {
 	background: var(--surface-soft);
@@ -945,12 +1227,13 @@
 	opacity: 0.55;
 }
 .approval-actions .approve {
-	border-color: var(--ink);
-	background: var(--ink);
-	color: var(--surface);
+	border-color: var(--action);
+	background: var(--action);
+	color: var(--action-ink);
 }
 .approval-actions .approve:hover {
-	background: var(--ink-2);
+	border-color: var(--action-hover);
+	background: var(--action-hover);
 }
 @media (max-width: 480px) {
 	.approval { padding: 14px 12px; }
@@ -959,7 +1242,7 @@
 /* Files a finished turn changed (TurnChangesCard.tsx). */
 .turn-changes {
 	overflow: hidden;
-	margin: 4px 0 2px;
+	margin: 6px 0 2px;
 	border: 1px solid var(--line);
 	border-radius: var(--radius-overlay);
 	background: var(--surface);
@@ -1007,15 +1290,18 @@
 	display: flex;
 	flex: none;
 	align-items: center;
-	gap: 12px;
+	gap: 8px;
 }
+/* Undo and review are one pair of secondary buttons: same outline, height and 8px radius. */
 .turn-changes-undo {
 	display: inline-flex;
 	align-items: center;
 	gap: 5px;
 	height: 28px;
-	padding: 0 4px;
-	border-radius: var(--radius-chip);
+	padding: 0 9px;
+	border: 1px solid var(--line);
+	border-radius: var(--radius-control);
+	background: var(--surface);
 	color: var(--ink);
 	font-size: 13px;
 	font-weight: 500;
@@ -1031,7 +1317,7 @@
 	height: 28px;
 	padding: 0 9px;
 	border: 1px solid var(--line);
-	border-radius: var(--radius-surface);
+	border-radius: var(--radius-control);
 	background: var(--surface);
 	color: var(--ink);
 	font-size: 13px;
@@ -1111,9 +1397,9 @@
 	border-radius: var(--radius-input);
 	background: var(--surface);
 	color: var(--ink-2);
-	box-shadow: 0 6px 18px var(--shadow);
+	box-shadow: var(--elev-2);
 	content: attr(data-tooltip);
-	font-size: 11px;
+	font-size: 12px;
 	font-weight: 400;
 	overflow-wrap: anywhere;
 	pointer-events: none;
@@ -1135,12 +1421,14 @@
 }
 
 /* A failed model request (MessageItem `MessageError`). */
+/* A failure is stated, not shouted: a hairline, a tinted edge, and the detail in mono. */
 .message-error {
-	gap: 4px;
-	padding: 10px 14px;
-	border: 1px solid color-mix(in srgb, var(--danger) 30%, var(--line));
+	gap: 6px;
+	padding: 11px 14px;
+	border: 1px solid color-mix(in srgb, var(--danger) 22%, var(--line));
 	border-radius: var(--radius-surface);
 	background: var(--danger-surface);
+	box-shadow: inset 3px 0 0 color-mix(in srgb, var(--danger) 55%, transparent);
 	font-size: 13px;
 	line-height: 1.6;
 }
@@ -1155,14 +1443,20 @@
 	padding: 0 6px;
 	border-radius: var(--radius-chip);
 	background: color-mix(in srgb, var(--danger) 14%, transparent);
-	font: 11px / 18px var(--mono);
+	color: var(--danger);
+	font: 12px / 18px var(--mono);
 }
 .message-error-text {
+	max-height: 132px;
+	overflow: auto;
 	color: var(--ink-2);
+	font-size: 13px;
+	line-height: 1.65;
 	overflow-wrap: anywhere;
 }
 .message-error-text a {
-	color: var(--accent);
+	color: inherit;
+	text-decoration: underline;
 }
 
 /* Failed model requests the kernel retried (RetryRow.tsx); the row reuses the tool row's layout. */

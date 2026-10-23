@@ -1608,6 +1608,30 @@ paths:
                     items: { $ref: "#/components/schemas/DiscoveredModel" }
         "400": { description: Unusable address or a protocol with no readable listing }
         "502": { description: "The endpoint refused, was unreachable, or did not answer with a model listing" }
+  /api/v1/settings/models/test:
+    post:
+      description: >-
+        Send a one-token ping to one model of the declaration currently in the form, saved or not. The body
+        carries the draft (provider id, address, protocol, optional key, model id); a blank key falls back to
+        the stored credential for the provider id. Answers over the provider stack a session would use.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [providerId, baseUrl, api, modelId]
+              properties:
+                providerId: { type: string }
+                baseUrl: { type: string }
+                api: { type: string }
+                apiKey: { type: string, description: "Used for this request only" }
+                modelId: { type: string }
+      responses:
+        "200": { description: The model answered the ping }
+        "400": { description: Missing fields or the model id is not usable }
+        "502": { description: "The provider rejected the request or reported an error" }
+        "504": { description: No answer within the test timeout }
   /api/v1/settings/models/{id}:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
