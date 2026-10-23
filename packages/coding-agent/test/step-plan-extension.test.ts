@@ -392,6 +392,27 @@ test("plan mode still denies non-plan mutations without a permission controller 
 	).resolves.toMatchObject({ block: true, reason: expect.stringContaining("Only the plan file may be written") });
 });
 
+test("plan mode denies a mutation even when the branch carries no plan entry", async () => {
+	// The guard reads the branch so it can run before the plan extension has
+	// replayed `session_start`. That must not turn a failed persist — or an
+	// embedder whose `appendEntry` stores nothing — into an open door.
+	const cwd = makeWorkspace();
+	const harness = createHarness({ cwd });
+	createStepPlanExtension()(harness.api);
+	const context = harness.ctx();
+	// Nothing reaches the branch: plan mode exists only in the live session.
+	harness.api.appendEntry = () => {};
+	await harness.commands.get("plan")!.handler("add a readme", context);
+	expect(harness.appended.filter((entry) => entry.customType === "step-plan")).toHaveLength(0);
+
+	await expect(
+		harness.emit(
+			{ type: "tool_call", toolName: "write_file", toolCallId: "lost-entry", input: { path: "src/app.ts" } },
+			context,
+		),
+	).resolves.toMatchObject({ block: true, reason: expect.stringContaining("Only the plan file may be written") });
+});
+
 // ---------------------------------------------------------------------------
 // planSource
 // ---------------------------------------------------------------------------

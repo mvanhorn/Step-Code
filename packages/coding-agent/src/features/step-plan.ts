@@ -159,8 +159,9 @@ export interface PlanModeToolCallDecision {
  * State is read from the branch rather than an in-memory flag, because the Step
  * permission extension is registered before the plan extension: by the time its
  * handler runs, the plan extension may not have replayed `session_start` yet,
- * and a restored session must still be guarded. `enter`/`exit` persist
- * synchronously, so the branch is never behind the live mode.
+ * and a restored session must still be guarded. The live state is consulted as
+ * well, so a persist that failed — or an embedder that stores no entries — still
+ * blocks instead of failing open.
  */
 export function planModeToolCallDecision(options: {
 	manager: PlanModeSessionView;
@@ -170,10 +171,16 @@ export function planModeToolCallDecision(options: {
 }): PlanModeToolCallDecision | undefined {
 	if (!MUTATING_TOOLS.has(options.toolName)) return undefined;
 	const planState = getStepPlanState(options.manager.getBranch());
-	if (!planState?.enabled) return undefined;
+	// The branch is the durable record, but it is not the only one that can say
+	// plan mode is on: a persist that failed after `enter()` set the flag, or an
+	// embedder whose `appendEntry` keeps nothing, would leave the branch behind
+	// while the session really is planning. A permission guard must not fail
+	// open on that, so the live state counts too.
+	const live = publishedPlanModes.get(options.manager) === true;
+	if (!planState?.enabled && !live) return undefined;
 	// Resolve exactly as resolvePlanFilePath does: the persisted path, else the
 	// per-session default for this cwd.
-	const planFilePath = planState.planFilePath ?? getPlanFilePath(options.manager.getSessionId(), options.cwd);
+	const planFilePath = planState?.planFilePath ?? getPlanFilePath(options.manager.getSessionId(), options.cwd);
 	const toolInput = (options.input ?? {}) as Record<string, unknown>;
 	const targetPath = typeof toolInput.path === "string" ? toolInput.path : "";
 	// Resolve exactly as the file tools do (`~`, `@`, unicode spaces), so an

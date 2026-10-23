@@ -666,6 +666,7 @@ export { describeFeedbackBundle, type FeedbackBundleResult } from "./step/feedba
 export {
 	type FeedbackSubmitInput,
 	type FeedbackSubmitResult,
+	formatFeedbackBundleFailureDetails,
 	formatFeedbackBundleSkipMessage,
 	formatFeedbackPendingDetails,
 	runFeedbackCommand,
