@@ -82,6 +82,21 @@
 .message-skill--plugin {
 	--message-kind-accent: #8b5cf6;
 }
+/* The session modes and plain commands echo as user messages: the badge carries
+ * each mode's accent (the composer lead chip colours) or the neutral command
+ * purple, so a command keeps its identity inside an ordinary message bubble. */
+.message-skill--goal {
+	--message-kind-accent: var(--mode-goal);
+}
+.message-skill--plan {
+	--message-kind-accent: var(--mode-plan);
+}
+.message-skill--ultraloop {
+	--message-kind-accent: var(--mode-ultraloop);
+}
+.message-skill--command {
+	--message-kind-accent: var(--command-accent);
+}
 /* A user message's images, above its text, right-aligned like the bubble. */
 .message-images {
 	display: flex;
@@ -1322,50 +1337,6 @@
 }
 @media (max-width: 480px) {
 	.plan-review { padding: 14px 12px; }
-}
-
-/*
- * A kernel slash command the user sent, echoed by the host. It renders like
- * the composer's lead chip for that command — same shape, same mode colour,
- * same neutral command purple — followed by the arguments as ordinary text:
- * the flow's record of a prompt looks like the prompt did in the input.
- * (Keep the chip visually in step with `.prompt-mode` / `.prompt-command` in
- * composer.css.)
- */
-.command-row {
-	--lead-accent: var(--command-accent);
-	display: flex;
-	align-items: center;
-	gap: 8px;
-	min-width: 0;
-	margin: 2px 0 10px;
-}
-.command-row[data-mode="goal"] {
-	--lead-accent: var(--mode-goal);
-}
-.command-row[data-mode="plan"] {
-	--lead-accent: var(--mode-plan);
-}
-.command-row[data-mode="ultraloop"] {
-	--lead-accent: var(--mode-ultraloop);
-}
-.command-row-chip {
-	display: inline-flex;
-	align-items: center;
-	gap: 4px;
-	flex: none;
-	padding: 1px 7px;
-	border: 1px solid color-mix(in srgb, var(--lead-accent) 35%, transparent);
-	border-radius: var(--radius-chip);
-	background: color-mix(in srgb, var(--lead-accent) 10%, transparent);
-	color: var(--lead-accent);
-	font-weight: 500;
-	white-space: nowrap;
-}
-.command-row-text {
-	min-width: 0;
-	overflow-wrap: anywhere;
-	color: var(--ink);
 }
 
 /*
