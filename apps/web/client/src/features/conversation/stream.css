@@ -45,17 +45,9 @@
 	font-size: 12px;
 	font-weight: 500;
 }
-.session-header-chip.mono {
-	font-family: var(--mono);
-}
 .session-header-chip .icon {
 	flex: none;
 	color: var(--ink-3);
-}
-.session-header-chip-text {
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
 }
 .session-header-status {
 	display: inline-flex;
@@ -68,21 +60,13 @@
 	color: var(--ink-3);
 	font-size: 12px;
 }
-/*
- * A docked panel narrows the bar: the title keeps its room first, the branch
- * chip shortens, and the project chip (also in the sidebar) goes.
- */
+/* A docked panel narrows the bar: the title keeps its room, and the project chip (also in the sidebar) goes. */
 .session-header {
 	container-type: inline-size;
 }
 @container (max-width: 760px) {
-	.session-header-chip:not(.mono) {
+	.session-header-chip {
 		display: none;
-	}
-	.session-header-chip.mono {
-		flex: 0 1 auto;
-		min-width: 0;
-		max-width: 180px;
 	}
 }
 .session-header-status i {
@@ -139,6 +123,19 @@
  * hugging its left edge. One sequence on mount: the tile settles, the amber
  * chevron draws in, then the words arrive.
  */
+/*
+ * A new session centres the mark and the composer together in the pane. Both
+ * the stream and the composer zone size to their content and split the spare
+ * height evenly, so the question ends where the composer starts and the pair
+ * sits on the pane's middle. Once the session has content (or while a history
+ * session is loading into it), the composer returns to the bottom.
+ */
+.main:has(.empty-state):not(:has(.stream[data-opening])) > .stream {
+	flex: 1 1 auto;
+}
+.main:has(.empty-state):not(:has(.stream[data-opening])) > .composer-zone {
+	flex: 1 1 auto;
+}
 @property --mark-draw {
 	syntax: "<number>";
 	inherits: true;
@@ -151,7 +148,6 @@
 	justify-content: center;
 	gap: 14px;
 	flex: 1;
-	min-height: 320px;
 	padding: 0 2px 16px;
 	color: var(--ink-2);
 	text-align: center;

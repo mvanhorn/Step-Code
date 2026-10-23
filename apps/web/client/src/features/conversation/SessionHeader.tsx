@@ -5,9 +5,8 @@ import { shallowEqual, useAppStore } from "../../state/store";
 import { Icon } from "../../ui";
 
 /**
- * `#sessionHeader`: the conversation's fixed title bar — what this session is, where it runs
- * (project folder, Git branch) and whether it is working. A draft shows its folder only; the
- * branch arrives with the session snapshot (host `src/git-branch.ts`).
+ * `#sessionHeader`: the conversation's fixed title bar — what this session is, which project
+ * folder it runs in and whether it is working. The branch is the composer's branch picker's job.
  */
 export function SessionHeader() {
 	const t = useT();
@@ -19,7 +18,6 @@ export function SessionHeader() {
 				? sessionTitle({ ...state.sessions.find((session) => session.id === state.current?.id), ...state.current })
 				: t("newConversation"),
 			cwd: state.current?.cwd || state.draftCwd || state.bootstrapCwd,
-			branch: state.current?.gitBranch ?? "",
 			status: state.current?.status ?? "",
 		}),
 		shallowEqual,
@@ -34,12 +32,6 @@ export function SessionHeader() {
 				<span className="session-header-chip" title={view.cwd}>
 					<Icon name="folder" size="xs" />
 					{project}
-				</span>
-			) : null}
-			{view.branch ? (
-				<span className="session-header-chip mono" title={view.branch}>
-					<Icon name="fork" size="xs" />
-					<span className="session-header-chip-text">{view.branch}</span>
 				</span>
 			) : null}
 			{view.status ? (
