@@ -108,8 +108,8 @@ export function SessionRow({ session, grouped = false, filteredOut = false }: Se
 						<button
 							className="session-tag-button"
 							type="button"
-							title={t("groups")}
-							aria-label={t("groups")}
+							title={t("tagSession")}
+							aria-label={t("tagSession")}
 							aria-haspopup="menu"
 							aria-expanded={row.tagPickerOpen}
 							aria-controls="tagPicker"
