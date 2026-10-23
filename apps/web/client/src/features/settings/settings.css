@@ -1023,19 +1023,31 @@
 	color: var(--ink-3);
 	font-size: 12px;
 }
+/* The same radio mark as the account sign-in cards (account.css). */
 .theme-choice-check {
 	display: inline-grid;
 	flex: none;
 	place-items: center;
-	width: 20px;
-	height: 20px;
+	box-sizing: border-box;
+	width: 18px;
+	height: 18px;
 	border: 1.5px solid var(--line-strong);
 	border-radius: 50%;
+	transition:
+		background-color var(--fast),
+		border-color var(--fast);
+}
+.theme-choice:hover .theme-choice-check {
+	border-color: var(--ink-3);
 }
 .theme-choice.active .theme-choice-check {
 	border-color: var(--action);
 	background: var(--action);
 	color: var(--action-ink);
+}
+.theme-choice-check .icon {
+	width: 11px;
+	height: 11px;
 }
 
 /* ── Desktop host and narrow windows ───────────────────────────────── */

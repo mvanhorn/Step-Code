@@ -134,28 +134,27 @@
 	margin: 0 auto;
 }
 /*
- * The new-session moment. The question sits at the foot of the column, on the
- * composer's left edge, so it reads as the first line of the prompt below it
- * rather than as a splash screen. One sequence on mount: the tile settles, the
- * amber chevron draws in, then the words arrive.
+ * The new-session moment. The question sits just above the composer, centred on
+ * the column, so the empty pane has one balanced focal point instead of a block
+ * hugging its left edge. One sequence on mount: the tile settles, the amber
+ * chevron draws in, then the words arrive.
  */
 @property --mark-draw {
 	syntax: "<number>";
 	inherits: true;
 	initial-value: 1;
 }
-/* The mark sits on the title's line as its lead-in; the hint runs under both. */
+/* One centred stack: the mark, the question, then the hint. */
 .empty-state {
-	display: grid;
-	grid-template-columns: auto minmax(0, 1fr);
+	display: flex;
+	flex-direction: column;
 	align-items: center;
-	align-content: end;
-	column-gap: 14px;
+	justify-content: flex-end;
 	flex: 1;
 	min-height: 320px;
-	padding: 0 2px 28px;
+	padding: 0 2px 40px;
 	color: var(--ink-2);
-	text-align: left;
+	text-align: center;
 }
 .empty-mark {
 	display: grid;
@@ -169,8 +168,8 @@
 	width: 28px;
 	height: 28px;
 }
-.empty-hint {
-	grid-column: 1 / -1;
+.empty-mark {
+	margin-bottom: 18px;
 }
 .empty-title {
 	max-width: 20ch;

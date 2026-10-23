@@ -78,9 +78,11 @@ export function SettingsView() {
 		const workspace = document.querySelector<HTMLElement>(".app");
 		const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 		workspace?.setAttribute("inert", "");
-		view.current
-			?.querySelector<HTMLElement>(".settings-nav-item.active, #settingsBack")
-			?.focus({ preventScroll: true });
+		// The open page's menu entry first: focus lands where the reader already is, not on "back".
+		const entry =
+			view.current?.querySelector<HTMLElement>(".settings-nav-item.active") ??
+			view.current?.querySelector<HTMLElement>("#settingsBack");
+		entry?.focus({ preventScroll: true });
 		return () => {
 			workspace?.removeAttribute("inert");
 			const target = opener?.isConnected ? opener : document.getElementById("settingsButton");
