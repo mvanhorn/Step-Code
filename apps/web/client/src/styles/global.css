@@ -77,6 +77,15 @@
   --radius-dialog: 18px;
   --radius-pill: 999px;
   /* ── Chrome ──────────────────────────────────────────────────────── */
+  /*
+   * Workbench: the window tone behind the sidebar and the floating column
+   * cards. The main and right columns sit on it as rounded cards, so it stays
+   * a step darker than the card surface (`--canvas`) in both themes.
+   */
+  --workbench: #f0f0f1;
+  --workbench-inset: 10px;
+  --workbench-gap: 6px;
+  --card-shadow: 0 1px 2px rgb(0 0 0 / 4%), 0 4px 12px rgb(0 0 0 / 4%);
   --scrollbar-size: 8px;
   --scrollbar-thumb: #ceced1;
   --selection: #dedee0;
@@ -98,6 +107,8 @@
 html[data-theme="dark"] {
   color-scheme: dark;
   --canvas: #181819;
+  --workbench: #111113;
+  --card-shadow: 0 1px 3px rgb(0 0 0 / 45%), 0 6px 18px rgb(0 0 0 / 35%);
   --sidebar: #202022;
   --surface: #272729;
   --surface-soft: #303033;
@@ -231,6 +242,7 @@ select {
   grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   width: 100vw;
   height: 100vh;
+  background: var(--workbench);
   transition: grid-template-columns 0.18s ease;
 }
 .app.sidebar-hidden {
@@ -283,7 +295,11 @@ select {
   font: 700 14px / 1 var(--mono);
 }
 
-/* legacy 675-684: main column (App.tsx renders main.main) */
+/*
+ * legacy 675-684: main column (App.tsx renders main.main).
+ * The column sits on the workbench as a rounded card, so its children clip at
+ * the corners; fixed-position surfaces (the toast) are unaffected.
+ */
 .main {
   position: relative;
   grid-column: 2;
@@ -292,7 +308,12 @@ select {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  margin: var(--workbench-inset) var(--workbench-gap) var(--workbench-inset) var(--workbench-inset);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-surface);
   background: var(--canvas);
+  box-shadow: var(--card-shadow);
 }
 
 /*
@@ -600,6 +621,22 @@ select {
   right: 12px;
   left: 0;
   height: var(--titlebar-inset);
+  -webkit-app-region: drag;
+}
+/*
+ * The workbench inset pulls the cards off the window edge, so the strip above
+ * them is chrome, not card: drag the window from that band too. Nothing
+ * interactive renders in the top inset band (the cards' own strips take over
+ * below it).
+ */
+[data-host="desktop"][data-platform="darwin"] .app::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 30;
+  height: var(--workbench-inset);
   -webkit-app-region: drag;
 }
 [data-host="desktop"][data-platform="darwin"] .main :is(button, a, input, textarea, select, [role="button"]) {

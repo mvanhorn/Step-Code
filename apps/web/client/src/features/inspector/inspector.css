@@ -6,10 +6,15 @@
 .app.has-right-rail.sidebar-hidden { grid-template-columns: 0 minmax(0, 1fr) 0 var(--rail-width); }
 .app.has-right-rail.right-panel-open { grid-template-columns: var(--sidebar-width) minmax(0, 1fr) var(--right-width) var(--rail-width); }
 .app.has-right-rail.sidebar-hidden.right-panel-open { grid-template-columns: 0 minmax(0, 1fr) var(--right-width) var(--rail-width); }
-.right-tool-rail { grid-column: 4; grid-row: 1; display: flex; flex-direction: column; align-items: center; gap: 7px; padding: 17px 5px; border-left: 1px solid var(--line); background: var(--canvas); z-index: 22; }
+/* The rail is window chrome beside the cards: transparent over the workbench, no divider. */
+.right-tool-rail { grid-column: 4; grid-row: 1; display: flex; flex-direction: column; align-items: center; gap: 7px; padding: 17px 5px; background: transparent; z-index: 22; }
 .right-tool-rail .icon-button { width: 32px; height: 32px; border-radius: 5px; color: var(--ink-2); }
-.right-tool-rail .icon-button[aria-pressed="true"] { background: var(--selected); color: var(--ink); }
-.right-panel { position: relative; grid-column: 3; grid-row: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; border-left: 1px solid var(--line); background: var(--canvas); z-index: 21; }
+/* On the workbench the pressed chip reads as a small raised tile, like the cards themselves. */
+.right-tool-rail .icon-button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgb(0 0 0 / 10%), inset 0 0 0 1px var(--line); }
+/* The inspector sits on the workbench as a rounded card, mirroring .main. */
+.right-panel { position: relative; grid-column: 3; grid-row: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; margin: var(--workbench-inset) var(--workbench-inset) var(--workbench-inset) var(--workbench-gap); overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius-surface); background: var(--canvas); box-shadow: var(--card-shadow); z-index: 21; }
+/* The shared handle pokes 5px past its edge; the card clips at the border, so grab from inside it. */
+.right-panel > .preview-resizer { left: 0; }
 .right-panel-header { display: flex; flex: none; align-items: center; gap: 2px; min-height: 55px; padding: 8px 10px 8px 16px; border-bottom: 1px solid var(--line); }
 .right-panel-header h2 { min-width: 0; flex: 1; font-size: 13px; font-weight: 550; overflow-wrap: anywhere; }
 .right-panel-header .icon-button { width: 28px; height: 28px; flex: none; }
@@ -149,12 +154,12 @@
 @media (max-width: 1200px) {
 	.app.has-right-rail.right-panel-open { grid-template-columns: var(--sidebar-width) minmax(0, 1fr) 0 var(--rail-width); }
 	.app.has-right-rail.sidebar-hidden.right-panel-open { grid-template-columns: 0 minmax(0, 1fr) 0 var(--rail-width); }
-	.right-panel { position: absolute; top: 0; right: var(--rail-width); bottom: 0; width: min(var(--right-width), calc(100vw - var(--rail-width))); box-shadow: -8px 0 20px var(--shadow); }
+	.right-panel { position: absolute; top: 0; right: var(--rail-width); bottom: 0; width: min(var(--right-width), calc(100vw - var(--rail-width) - var(--workbench-gap) - var(--workbench-inset))); box-shadow: -8px 0 20px var(--shadow); }
 }
 @media (max-width: 640px) {
 	.app.has-right-rail { --rail-width: 40px; }
 	.right-tool-rail { padding-inline: 3px; }
-	.right-panel { width: calc(100vw - var(--rail-width)); }
+	.right-panel { width: calc(100vw - var(--rail-width) - var(--workbench-gap) - var(--workbench-inset)); }
 	.right-panel-header { padding-inline: 12px 6px; }
 }
 @media (prefers-reduced-motion: no-preference) {
