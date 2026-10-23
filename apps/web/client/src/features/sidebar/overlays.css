@@ -219,6 +219,11 @@
 	outline: none;
 	background: var(--surface);
 }
+/* The confirm button shares the input's row: undo the menu-row `width: 100%`. */
+.tag-create button {
+	flex: none;
+	width: auto;
+}
 .tag-new-colors {
 	display: flex;
 	flex-wrap: wrap;
