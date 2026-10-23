@@ -14,7 +14,9 @@
 //   stage/app      -> <app>/resources/app.asar    desktop main + preload, icon; no dependencies
 //   stage/server   -> <app>/resources/server      @step-harness/web and its production dependency
 //                                                  closure in a flat node_modules, plus the
-//                                                  stepcode-release.json build identity
+//                                                  stepcode-release.json build identity,
+//                                                  written beside the resolved server entry
+//                                                  (node_modules/@step-harness/web/dist)
 //
 // The server stays outside the asar archive: it runs with its own directory as
 // cwd and spawns helper processes (node-pty, subagents) from real files. The
@@ -27,6 +29,7 @@
 // Apple Silicon can run it; Windows executables are not signed.
 
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import builder from "electron-builder";
@@ -50,6 +53,8 @@ const version = productVersion();
 const MAX_COMMIT_LENGTH = 40;
 const MAX_ENDPOINT_LENGTH = 2048;
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u;
+/** Must match `RELEASE_ENVELOPE_FILE` in apps/desktop/src/release-envelope.ts. */
+const RELEASE_ENVELOPE_FILE = "stepcode-release.json";
 
 /**
  * The installer carries the product version users see from `step --version`
@@ -95,10 +100,24 @@ function releaseEnvelope(installSource) {
 	};
 }
 
+/**
+ * The directory the desktop resolves as the server entry's own.
+ *
+ * `resolveWebServerEntry` does `createRequire(<server>/package.json).resolve(
+ * "@step-harness/web/server")` and the shell reads the envelope from
+ * `dirname(entry)`. Resolving it here the same way keeps the writer and the
+ * reader from drifting: an envelope one level up from the entry would simply
+ * never be found. `apps/desktop/test/release-envelope.test.ts` pins the layout.
+ */
+function stagedServerEntryDirectory() {
+	return dirname(createRequire(join(serverStage, "package.json")).resolve("@step-harness/web/server"));
+}
+
 function writeReleaseEnvelope(installSource) {
 	const envelope = releaseEnvelope(installSource);
-	writeFileSync(join(serverStage, "stepcode-release.json"), `${JSON.stringify(envelope, null, "\t")}\n`);
-	console.log(`[package] release envelope ${version} (${installSource}) staged for the server`);
+	const directory = stagedServerEntryDirectory();
+	writeFileSync(join(directory, RELEASE_ENVELOPE_FILE), `${JSON.stringify(envelope, null, "\t")}\n`);
+	console.log(`[package] release envelope ${version} (${installSource}) staged beside the server entry`);
 }
 
 function firstEnvironmentValue(...names) {

@@ -74,7 +74,9 @@ The packages the server imports (`@step-harness/coding-agent` and below) must be
 | `STEPCODE_DESKTOP_USER_DATA_DIR` | Isolated Electron profile (window state, logs, single-instance lock). |
 | `STEPCODE_DESKTOP_SMOKE` | `1`: load the app hidden, print `STEPCODE_DESKTOP_SMOKE {json}` (bridge, auth, `/healthz`), exit 0/1. |
 
-Packaging reads the release identity from these; an unpackaged run ignores them.
+Packaging reads the release identity and the feedback endpoints from these. An unpackaged run has no envelope, so it
+keeps whatever identity the login shell exported — which is how a source checkout reports something other than the
+`0.1.0` fallback.
 
 | Variable | Effect |
 | --- | --- |
@@ -125,15 +127,16 @@ Run `pnpm build` at the repo root first, then from the repo root:
 `STEPCODE_BUILD_VERSION` when set (a release tag such as `v0.2.0` is accepted), otherwise the root `package.json`
 version. It is also what the app reports (`app.getVersion()`, `window.stepcodeDesktop.version`).
 
-Each target also gets a `stepcode-release.json` in the staged server tree, which `src/release-envelope.ts` reads when
-the shell spawns the server. It records `version`, `channel: "release"`, `buildTime` (packaging time), `installSource`
+Each target also gets a `stepcode-release.json` beside the resolved server entry
+(`<resources>/server/node_modules/@step-harness/web/dist`), which `src/release-envelope.ts` reads when the shell spawns
+the server. It records `version`, `channel: "release"`, `buildTime` (packaging time), `installSource`
 (`dmg` for the mac targets, `nsis` for Windows) and, when set at package time, `commit` and the two feedback endpoints.
 Optional values are normalized and dropped when invalid (non-http(s), credentials in the URL, control characters,
 over-long strings), so a bad value never reaches a report. The file exists only inside the installer; nothing here
 commits an endpoint. Its values replace inherited `STEPCODE_BUILD_*`/`STEPCODE_FEEDBACK_*` identity (and
 `STEPCODE_VERSION_OVERRIDE`), so a shell exported for a source build cannot change what a packaged app reports.
-Without the file (source checkout, `pnpm dev`) the server keeps the dev/fallback identity and the host stays
-unconfigured for feedback.
+Without the file (source checkout, `pnpm dev`) the server keeps the inherited environment: the dev/fallback identity
+unless the shell exports `STEPCODE_BUILD_*`/`STEPCODE_FEEDBACK_*`.
 
 `scripts/package.mjs` stages two trees under `release/stage/` and hands them to electron-builder (appId
 `com.stepfun.stepcode`):

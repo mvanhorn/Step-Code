@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test, type TestContext } from "node:test";
+import { resolveWebServerEntry } from "../src/server-host.ts";
 import {
 	parseReleaseEnvelope,
 	readReleaseEnvelope,
@@ -160,4 +162,35 @@ test("a JSON string and a release tag are normalized like the kernel", () => {
 	const parsed = parseReleaseEnvelope(JSON.stringify(envelope).replace('"0.2.0"', '"v0.2.0"'));
 	assert.equal(parsed?.version, "0.2.0");
 	assert.equal(parseReleaseEnvelope("[]"), undefined);
+});
+
+/**
+ * The envelope's location is a contract between two files that never import
+ * each other: `scripts/package.mjs` writes it, the shell reads
+ * `dirname(resolveWebServerEntry(...))`. When they disagreed, a packaged app
+ * silently reported fallback identity and refused feedback — the exact symptom
+ * the envelope exists to remove — so the layout is pinned here.
+ */
+test("the packaged server entry resolves beside the envelope", async (t) => {
+	const serverRoot = await fixture(t);
+	const serverDist = join(serverRoot, "node_modules", "@step-harness", "web", "dist");
+	await mkdir(serverDist, { recursive: true });
+	await writeFile(join(serverRoot, "package.json"), JSON.stringify({ private: true, type: "module" }));
+	await writeFile(
+		join(serverRoot, "node_modules", "@step-harness", "web", "package.json"),
+		JSON.stringify({ name: "@step-harness/web", version: "0.0.0", type: "module", exports: { "./server": "./dist/server.js" } }),
+	);
+	await writeFile(join(serverDist, "server.js"), "export {};\n");
+	// Written the way `writeReleaseEnvelope` does: beside the resolved entry.
+	const require = createRequire(join(serverRoot, "package.json"));
+	const entry = require.resolve("@step-harness/web/server");
+	await writeFile(join(dirname(entry), RELEASE_ENVELOPE_FILE), JSON.stringify(envelope));
+
+	const resolved = resolveWebServerEntry({}, serverRoot);
+	assert.equal(resolved, entry, "the shell and the test disagree about the server entry");
+	const read = readReleaseEnvelope(dirname(resolved));
+	assert.ok(read, "the shell cannot find the envelope beside the server entry it resolved");
+	const environment = withReleaseIdentity({}, read);
+	assert.equal(environment.STEPCODE_BUILD_VERSION, "0.2.0");
+	assert.equal(environment.STEPCODE_INSTALL_SOURCE, "dmg");
 });
