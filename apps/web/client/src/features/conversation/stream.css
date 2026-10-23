@@ -97,6 +97,15 @@
 .message-skill--command {
 	--message-kind-accent: var(--command-accent);
 }
+/*
+ * A command echo's badge sits inside the user bubble, inline before the text
+ * (the same prefix position the composer's lead chip had), not above it: drop
+ * the standalone badge's bottom margin and let the text flow after it.
+ */
+.message-body > .message-skill {
+	margin: 0 7px 0 0;
+	vertical-align: baseline;
+}
 /* A user message's images, above its text, right-aligned like the bubble. */
 .message-images {
 	display: flex;

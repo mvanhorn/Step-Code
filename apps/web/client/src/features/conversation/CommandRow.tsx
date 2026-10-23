@@ -31,8 +31,12 @@ export function CommandRow({ item }: { readonly item: CommandTimelineItem }) {
 	if (!args) return badge;
 	return (
 		<article className="message user">
-			{badge}
-			<div className="message-body">{args}</div>
+			{/* The badge rides inside the bubble, inline before the text — the same
+			 * prefix position the lead chip had in the input. */}
+			<div className="message-body">
+				{badge}
+				{args}
+			</div>
 			{item.timestamp ? (
 				<span className="message-meta">
 					<time className="message-meta-time" dateTime={item.timestamp}>
