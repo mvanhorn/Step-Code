@@ -42,6 +42,7 @@ import {
 	importLocalStepgoModels,
 	listModelProviders,
 	saveModelProvider,
+	testProviderModel,
 } from "./model-providers.ts";
 import {
 	classifyAttachment,
@@ -546,6 +547,11 @@ async function settingsRoute(
 			// protocol and key from the body rather than from a saved provider.
 			if (name === "discover" && !action && method === "POST") {
 				return json(response, 200, { models: await discoverProviderModels(await body(request)) });
+			}
+			// A connection test answers for the same draft in the form.
+			if (name === "test" && !action && method === "POST") {
+				await testProviderModel(await body(request));
+				return json(response, 200, { ok: true });
 			}
 			if (name && !action && method === "PUT") {
 				// A blank key field keeps the stored key; only an explicit flag removes it.

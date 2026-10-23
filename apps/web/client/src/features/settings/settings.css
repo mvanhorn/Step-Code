@@ -1158,7 +1158,7 @@
 }
 .settings-model-row {
 	display: grid;
-	grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 0.9fr) auto auto;
+	grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 0.9fr) auto auto auto;
 	align-items: start;
 	gap: 10px;
 	padding: 12px;
@@ -1202,6 +1202,24 @@
 }
 .settings-model-row > .settings-icon-action {
 	margin-top: 18px;
+}
+/* The connection-test mark: the zap/spinner/answer slot beside the delete
+ * action, aligned with the inputs the same way. */
+.settings-model-test {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 30px;
+	height: 30px;
+	margin-top: 18px;
+	border-radius: var(--radius-control);
+	color: var(--ink-2);
+}
+.settings-model-test.ok {
+	color: var(--success);
+}
+.settings-model-test.fail {
+	color: var(--attention);
 }
 
 /* The candidate picker 获取可用模型 opens. It is the shared `ui/Modal`; only the
