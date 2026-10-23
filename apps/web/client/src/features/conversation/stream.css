@@ -144,12 +144,12 @@
 	inherits: true;
 	initial-value: 1;
 }
-/* One centred stack, the mark over the question, sitting just above the composer. */
+/* The mark leads the question on one line, centred on the column, just above the composer. */
 .empty-state {
 	display: flex;
-	flex-direction: column;
-	align-items: center;
-	justify-content: flex-end;
+	align-items: flex-end;
+	justify-content: center;
+	gap: 14px;
 	flex: 1;
 	min-height: 320px;
 	padding: 0 2px 16px;
@@ -168,10 +168,10 @@
 	width: 28px;
 	height: 28px;
 }
-.empty-mark {
-	margin-bottom: 18px;
-}
 .empty-title {
+	/* Centre the line box on the 44px mark beside it. */
+	align-self: flex-end;
+	margin-bottom: 2px;
 	max-width: 20ch;
 	color: var(--ink);
 	font-size: clamp(26px, 3.2vw, 34px);
