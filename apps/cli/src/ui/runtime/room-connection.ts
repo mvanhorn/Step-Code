@@ -743,12 +743,20 @@ export function createRoomExtension(options: RoomExtensionOptions): ExtensionFac
 		 * The only sanctioned way for this session to move data out of its machine: a short
 		 * conclusion, optionally addressed to the peer bot. A repository's contents cannot leave
 		 * through the room because they never leave the machine.
+		 *
+		 * The tool is registered once, at load, and stays in the tool block whether or not a room is
+		 * open. Registering it on `/room` and removing it on `/room leave` would rewrite the tool
+		 * block, and providers serialize `tools` ahead of the system prompt and messages: every
+		 * enter and exit would invalidate the cached prefix for the whole conversation. Availability
+		 * is therefore enforced here — a call outside a room is refused — which is the same split
+		 * plan mode uses between its guard and its tool list.
 		 */
 		pi.registerTool({
 			name: ROOM_TOOL,
 			label: "Room message",
 			description: [
 				"Send a short conclusion to the room while you are in a StepCode room.",
+				"Outside a room this tool does nothing: a room starts with /room and is joined with /room join <code>.",
 				"Pass handOff: true only when the other agent still needs to act on what you wrote.",
 				"If the matter is settled — you agree, nothing is left for them to do — omit handOff:",
 				"the message is posted without addressing them and the exchange ends there.",
@@ -767,7 +775,11 @@ export function createRoomExtension(options: RoomExtensionOptions): ExtensionFac
 			},
 			execute: async (args: { summary: string; handOff?: boolean }) => {
 				const current = room;
-				if (!current) return { ok: false, error: "not in a room" };
+				if (!current) {
+					// Never silently succeed: a caller that believes it spoke would misreport to its
+					// user, and an already-posted message cannot be retracted.
+					return { ok: false, error: "not in a room: run /room or /room join <code> first" };
+				}
 				const summary = String(args.summary ?? "").slice(0, 2000);
 				// The tool is the agent's own path to the peer, so the budget is enforced here as well;
 				// otherwise every turn could call `room_send` and the cap would never apply.

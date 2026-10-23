@@ -133,6 +133,10 @@ function harness(options: Parameters<typeof createRoomExtension>[0]) {
 	const handlers = new Map<string, (event: unknown) => void>();
 	const notifications: { message: string; level?: string }[] = [];
 	const tools = new Map<string, { execute: (args: Record<string, unknown>) => Promise<unknown> }>();
+	/** Every registerTool call, so a re-registration is visible as the prefix rewrite it would be. */
+	const toolRegistrations: string[] = [];
+	/** Any attempt to change the active tool block; the room must never make one. */
+	const toolBlockWrites: string[][] = [];
 	const context = {
 		mode: "tui",
 		ui: { notify: (message: string, level?: string) => notifications.push({ message, level }) },
@@ -146,7 +150,12 @@ function harness(options: Parameters<typeof createRoomExtension>[0]) {
 			commands.set(name, registration.handler);
 		},
 		registerTool: (tool: { name: string; execute: (args: Record<string, unknown>) => Promise<unknown> }) => {
+			toolRegistrations.push(tool.name);
 			tools.set(tool.name, tool);
+		},
+		getActiveTools: () => [...tools.keys()],
+		setActiveTools: (names: string[]) => {
+			toolBlockWrites.push(names);
 		},
 		on: (event: string, handler: (payload: unknown) => void) => {
 			handlers.set(event, handler);
@@ -154,7 +163,7 @@ function harness(options: Parameters<typeof createRoomExtension>[0]) {
 		sendUserMessage: () => {},
 	} as unknown as ExtensionAPI;
 	createRoomExtension(options)(extensionApi);
-	return { commands, handlers, notifications, tools, context };
+	return { commands, handlers, notifications, tools, toolRegistrations, toolBlockWrites, context };
 }
 
 /** A rendezvous stub that reports the peer as already claimed. */
@@ -236,6 +245,59 @@ describe("opening a room", () => {
 		await vi.waitFor(() => expect(created.length).toBeGreaterThan(0), { timeout: 5_000 });
 		// The peer's union id alone is enough to put them in the group; dropping it would be wrong.
 		expect(created[0]).toMatchObject({ userIdType: "union_id", userIds: [PEER.userUnionId] });
+	});
+});
+
+describe("room tool availability", () => {
+	it("registers room_send exactly once, at load, and never rewrites the tool block", async () => {
+		const sent: Sent[] = [];
+		const created: Record<string, unknown>[] = [];
+		const transport = makeTransport(sent, created);
+		const h = harness({ recordDirectory: directory, transport: transport.build, rendezvous: claimedRendezvous() });
+
+		// Registration happens when the extension loads, not when a room opens.
+		expect(h.toolRegistrations).toEqual(["room_send"]);
+
+		await h.commands.get("room")?.("", h.context);
+		await vi.waitFor(() => expect(created.length).toBeGreaterThan(0), { timeout: 5_000 });
+		await h.commands.get("room")?.("leave", h.context);
+		await h.commands.get("room")?.("", h.context).catch(() => undefined);
+
+		// Entering and leaving are a runtime guard, not a capability change: the provider serializes
+		// `tools` ahead of the system prompt and messages, so any rewrite would drop the cached prefix
+		// for the whole conversation. This is the same split plan mode uses.
+		expect(h.toolRegistrations).toEqual(["room_send"]);
+		expect(h.toolBlockWrites).toEqual([]);
+	});
+
+	it("refuses room_send outside a room instead of pretending to speak", async () => {
+		const sent: Sent[] = [];
+		const created: Record<string, unknown>[] = [];
+		const h = harness({ recordDirectory: directory, transport: makeTransport(sent, created).build });
+
+		const result = (await h.tools.get("room_send")?.execute({ summary: "hello", handOff: true })) as {
+			ok: boolean;
+			error?: string;
+		};
+		// A silent success would let the agent report something it never sent.
+		expect(result.ok).toBe(false);
+		expect(result.error).toContain("/room");
+		expect(sent).toHaveLength(0);
+	});
+
+	it("refuses room_send again after the room is left", async () => {
+		const { sent, tools, commands, context } = await startRoom();
+		await commands.get("room")?.("leave", context);
+		sent.length = 0;
+
+		const result = (await tools.get("room_send")?.execute({ summary: "after leaving", handOff: true })) as {
+			ok: boolean;
+			error?: string;
+		};
+		expect(result.ok).toBe(false);
+		expect(result.error).toContain("/room");
+		// Nothing reached the group that the session has already left.
+		expect(sent).toHaveLength(0);
 	});
 });
 
