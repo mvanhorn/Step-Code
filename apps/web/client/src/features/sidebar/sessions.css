@@ -183,9 +183,10 @@
 	background: var(--attention-surface);
 	color: var(--attention-ink);
 }
+/* Running is told in neutral ink: a quiet badge and a pulsing dot, no brand colour. */
 .session-badge.running {
-	background: var(--accent-soft);
-	color: var(--accent);
+	background: var(--badge-surface);
+	color: var(--ink);
 }
 .session-dot {
 	position: absolute;
@@ -197,7 +198,7 @@
 	background: transparent;
 }
 .session-row.running .session-dot {
-	background: var(--accent);
+	background: var(--ink);
 	animation: pulse 1.4s ease-in-out infinite;
 }
 .session-row.waiting .session-dot {
