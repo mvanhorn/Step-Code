@@ -4,7 +4,7 @@
 	display: flex;
 	flex: none;
 	flex-direction: column;
-	height: var(--terminal-dock-height, 300px);
+	height: var(--terminal-dock-height, 240px);
 	min-height: 140px;
 	min-width: 0;
 	border-top: 1px solid var(--line);
@@ -28,7 +28,7 @@
 	outline: none;
 }
 .terminal-header { display: flex; flex: none; align-items: center; gap: 8px; min-height: 40px; padding: 6px 8px 4px 12px; }
-.terminal-heading { flex: none; font-size: 13px; font-weight: 550; }
+.terminal-heading { flex: none; font-size: 13px; font-weight: 500; }
 .terminal-shell { flex: none; color: var(--ink-3); font-size: 12px; }
 .terminal-tabs { display: flex; flex: 1; align-items: center; gap: 4px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .terminal-tabs::-webkit-scrollbar { display: none; }
@@ -55,7 +55,7 @@
 	.terminal-view .xterm .xterm-scrollable-element > .invisible.fade { transition: none; }
 }
 .terminal-empty { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 12px; position: absolute; inset: 0; color: var(--ink-2); font-size: 12px; }
-.terminal-error, .terminal-notice, .terminal-status { flex: none; margin: 0 8px 4px 12px; padding: 5px 10px; border-radius: var(--radius-row); font-size: 11px; line-height: 1.5; max-height: 96px; overflow-y: auto; overflow-wrap: anywhere; }
+.terminal-error, .terminal-notice, .terminal-status { flex: none; margin: 0 8px 4px 12px; padding: 5px 10px; border-radius: var(--radius-row); font-size: 12px; line-height: 1.5; max-height: 96px; overflow-y: auto; overflow-wrap: anywhere; }
 .terminal-error { display: flex; gap: 8px; align-items: center; color: var(--danger); background: var(--danger-surface); }
 .terminal-error > span { flex: 1; min-width: 0; }
 .terminal-error .icon-button { flex: none; width: 24px; height: 24px; }

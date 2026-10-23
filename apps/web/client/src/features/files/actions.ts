@@ -8,8 +8,8 @@
  */
 
 import { t } from "../../i18n";
-import { api, errorMessage, workspaceApi } from "../../lib/api";
-import { workspaceFileReference } from "../../lib/file-references";
+import { api, errorMessage, localFileApi, workspaceApi } from "../../lib/api";
+import { resolveFileReference } from "../../lib/file-references";
 import { ancestorPaths } from "../../lib/format";
 import { readStoredInt, STORAGE_KEYS, writeStorage } from "../../lib/storage";
 import { collectTurnChanges } from "../../lib/turn-changes";
@@ -210,14 +210,14 @@ export function activateTreeEntry(path: string, kind: string): void {
 
 /* ── Preview ─────────────────────────────────────────────────────────────── */
 
-function sameTab(tab: PreviewTab, cwd: string, path: string): tab is FilePreviewTab {
-	return tab.kind === "file" && tab.cwd === cwd && tab.path === path;
+function sameTab(tab: PreviewTab, cwd: string, path: string, scope?: "local"): tab is FilePreviewTab {
+	return tab.kind === "file" && tab.cwd === cwd && tab.path === path && tab.scope === scope;
 }
 
-function updateTab(cwd: string, path: string, update: (tab: FilePreviewTab) => FilePreviewTab): void {
+function updateTab(cwd: string, path: string, update: (tab: FilePreviewTab) => FilePreviewTab, scope?: "local"): void {
 	setPreview((preview) => ({
 		...preview,
-		tabs: preview.tabs.map((tab) => (sameTab(tab, cwd, path) ? update(tab) : tab)),
+		tabs: preview.tabs.map((tab) => (sameTab(tab, cwd, path, scope) ? update(tab) : tab)),
 	}));
 }
 
@@ -228,28 +228,41 @@ export function setPreviewOpen(open: boolean): void {
 }
 
 /** (Re)read one tab's file from disk (legacy `loadPreviewTab`, 1746-1758). */
-export async function loadPreviewTab(cwd: string, path: string): Promise<void> {
-	updateTab(cwd, path, (tab) => ({ ...tab, loading: true, error: "" }));
+export async function loadPreviewTab(cwd: string, path: string, scope?: "local"): Promise<void> {
+	updateTab(cwd, path, (tab) => ({ ...tab, loading: true, error: "" }), scope);
 	let file: WorkspaceFile | null = null;
 	let error = "";
 	try {
-		file = await api<WorkspaceFile>(workspaceApi(cwd, "/file", { path }));
+		file = await api<WorkspaceFile>(
+			scope === "local" ? localFileApi("", path) : workspaceApi(cwd, "/file", { path }),
+		);
 	} catch (caught) {
 		error = errorMessage(caught);
 	}
-	updateTab(cwd, path, (tab) => ({ ...tab, file, error, loading: false }));
+	updateTab(cwd, path, (tab) => ({ ...tab, file, error, loading: false }), scope);
 }
 
-/** Open a workspace file in a preview tab, reusing an open tab (legacy `openFile`, 1724-1744). */
-export async function openFile(cwd: string, path: string, rendered?: boolean): Promise<void> {
+/** Open a file in a preview tab, reusing an open tab (legacy `openFile`, 1724-1744). */
+export async function openFile(cwd: string, path: string, rendered?: boolean, scope?: "local"): Promise<void> {
 	openRightPanel("files");
 	setPreview((preview) => {
-		let index = preview.tabs.findIndex((candidate) => sameTab(candidate, cwd, path));
+		let index = preview.tabs.findIndex((candidate) => sameTab(candidate, cwd, path, scope));
 		let tabs = preview.tabs;
 		if (index < 0) {
 			tabs = [
 				...tabs,
-				{ kind: "file", cwd, path, file: null, error: "", loading: false, rendered: rendered ?? false },
+				{
+					kind: "file",
+					cwd,
+					path,
+					// Files outside the workspace are read by absolute path; the field
+					// stays absent otherwise so tabs stay plain workspace references.
+					...(scope === "local" ? { scope: "local" as const } : {}),
+					file: null,
+					error: "",
+					loading: false,
+					rendered: rendered ?? false,
+				},
 			];
 			index = tabs.length - 1;
 		} else if (rendered !== undefined) {
@@ -259,17 +272,21 @@ export async function openFile(cwd: string, path: string, rendered?: boolean): P
 	});
 	const preview = getState().preview;
 	const active = preview.tabs[preview.active];
-	if (active?.kind !== "file" || !active.file) await loadPreviewTab(cwd, path);
+	if (active?.kind !== "file" || !active.file) await loadPreviewTab(cwd, path, scope);
 }
 
-/** Message references never navigate the browser or widen the host's workspace access. */
+/**
+ * Message references never navigate the browser. A reference outside the
+ * workspace opens read-only by its absolute path rather than widening the
+ * host's workspace access.
+ */
 export async function openFileReference(cwd: string, reference: string, sourcePath = ""): Promise<void> {
-	const path = workspaceFileReference(cwd, reference, sourcePath);
-	if (!path) {
+	const resolved = resolveFileReference(cwd, reference, sourcePath);
+	if (!resolved) {
 		showError(t("fileReferenceOutside"));
 		return;
 	}
-	await openFile(cwd, path, /\.mdx?$/i.test(path));
+	await openFile(cwd, resolved.path, /\.mdx?$/i.test(resolved.path), resolved.scope === "local" ? "local" : undefined);
 }
 
 /** Delivery triggers toggle only their own visible file; retained tabs survive closing. */
@@ -372,14 +389,14 @@ export function togglePreviewRendered(): void {
 	const preview = getState().preview;
 	const tab = preview.tabs[preview.active];
 	if (tab?.kind !== "file") return;
-	updateTab(tab.cwd, tab.path, (current) => ({ ...current, rendered: !current.rendered }));
+	updateTab(tab.cwd, tab.path, (current) => ({ ...current, rendered: !current.rendered }), tab.scope);
 }
 
 /** Re-read the active tab from disk (legacy `#previewReload`). */
 export function reloadActivePreview(): void {
 	const preview = getState().preview;
 	const tab = preview.tabs[preview.active];
-	if (tab?.kind === "file") void loadPreviewTab(tab.cwd, tab.path);
+	if (tab?.kind === "file") void loadPreviewTab(tab.cwd, tab.path, tab.scope);
 }
 
 /** Copy the active text file (legacy `#previewCopy`). */

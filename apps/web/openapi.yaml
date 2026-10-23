@@ -638,6 +638,27 @@ paths:
         "200": { description: "path is the chosen folder, or null when cancelled" }
         "409": { description: The system picker is unavailable or already open }
         "500": { description: The picker helper failed }
+  /api/v1/file:
+    get:
+      description: >-
+        Read-only preview of one file named by an absolute path from message content, for references that point
+        outside every workspace. Same limits and shapes as /api/v1/workspace/file, but the response path is the
+        absolute file path. No directory listing, no writes; authenticated like every other route.
+      parameters:
+        - { name: path, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: "kind text|image|binary|too-large, path, size; content for text only" }
+        "400": { description: Path is not absolute, does not exist or is not a file }
+  /api/v1/file/raw:
+    get:
+      description: Image bytes for one absolute path, mirroring /api/v1/workspace/raw.
+      parameters:
+        - { name: path, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Image bytes }
+        "400": { description: Path is not absolute, does not exist or is not a file }
+        "413": { description: Image exceeds the preview limit }
+        "415": { description: File is not an image }
   /api/v1/workspace/files:
     get:
       parameters:

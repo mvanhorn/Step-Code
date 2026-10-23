@@ -5,12 +5,12 @@
 
 import { type CSSProperties, type ReactNode, useLayoutEffect, useMemo, useRef } from "react";
 import { useT } from "../../i18n";
-import { workspaceApi } from "../../lib/api";
+import { localFileApi, workspaceApi } from "../../lib/api";
 import { basename, cx, formatBytes } from "../../lib/format";
 import { renderMarkdown } from "../../lib/markdown";
 import { copyText } from "../../state/session";
 import { type FilePreviewTab, type PreviewTab, type SideAnswerTab, useAppStore } from "../../state/store";
-import { MarkdownView, Spinner } from "../../ui";
+import { Icon, MarkdownView, Spinner } from "../../ui";
 import { openFileReference } from "./actions";
 import { codeViewHtml, isMarkdownPath, PREVIEW_LINE_LIMIT } from "./highlight";
 import { sideAnswerHtml } from "./side-answer-html";
@@ -22,6 +22,8 @@ export function useActiveTab(): PreviewTab | undefined {
 
 /** Full on-disk path of a file tab, in the workspace's own separator style. */
 function fullPath(tab: FilePreviewTab): string {
+	// Outside-workspace tabs carry their own absolute path already.
+	if (tab.scope === "local") return tab.path;
 	// Server paths are relative with "/"; show them in the workspace's own style.
 	const separator = tab.cwd.includes("\\") && !tab.cwd.includes("/") ? "\\" : "/";
 	return `${tab.cwd.replace(/[\\/]+$/, "")}${separator}${tab.path.split("/").join(separator)}`;
@@ -121,7 +123,11 @@ function PreviewContent({ tab }: { readonly tab: PreviewTab }) {
 			<img
 				className="preview-image"
 				alt={basename(file.path)}
-				src={workspaceApi(tab.cwd, "/raw", { path: tab.path })}
+				src={
+					tab.scope === "local"
+						? localFileApi("/raw", tab.path)
+						: workspaceApi(tab.cwd, "/raw", { path: tab.path })
+				}
 			/>
 		);
 	if (file.kind !== "text")
@@ -161,7 +167,14 @@ export function PreviewBody({ hidden = false }: { readonly hidden?: boolean }) {
 
 	return (
 		<div className="preview-body" id="previewBody" ref={bodyRef} hidden={hidden}>
-			{tab ? <PreviewContent tab={tab} /> : <PreviewMessage>{t("rightNoFiles")}</PreviewMessage>}
+			{tab ? (
+				<PreviewContent tab={tab} />
+			) : (
+				<div className="preview-message changes-empty">
+					<Icon name="fileText" />
+					{t("rightNoFiles")}
+				</div>
+			)}
 		</div>
 	);
 }

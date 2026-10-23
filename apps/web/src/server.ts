@@ -25,12 +25,15 @@ import { browserRoute } from "./browser-routes.ts";
 import { listWorkflowChildren, readChildTranscript } from "./child-sessions.ts";
 import { type DirectoryPickerMode, pickNativeDirectory, resolveDirectoryPickerMode } from "./directory-picker.ts";
 import {
+	absoluteLocalPath,
 	completeWorkspaceFiles,
 	containedWorkspacePath,
 	listDirectory,
 	MAX_IMAGE_BYTES,
+	readLocalFile,
 	readWorkspaceFile,
 	searchWorkspaceFiles,
+	type WorkspaceFile,
 } from "./files.ts";
 import { createBranch, GitBranchError, listLocalBranches, readGitState, switchBranch } from "./git.ts";
 import { buildLoginReport, type LoginReport, loginMethods, WebLoginController } from "./login.ts";
@@ -608,17 +611,32 @@ async function completeFiles(cwd: string, url: URL, response: ServerResponse): P
 	}
 }
 
-async function serveWorkspaceImage(response: ServerResponse, cwd: string, inputPath: string): Promise<void> {
-	const file = await readWorkspaceFile(cwd, inputPath);
-	if (file.kind !== "image") return error(response, 415, "Only images can be served raw");
-	if (file.size > MAX_IMAGE_BYTES) return error(response, 413, "Image is too large to preview");
+async function serveImageFile(
+	response: ServerResponse,
+	target: string,
+	file: Extract<WorkspaceFile, { kind: "image" }>,
+): Promise<void> {
 	response.writeHead(200, {
 		"content-type": file.mimeType,
 		"content-length": String(file.size),
 		"cache-control": "no-store",
 		"x-content-type-options": "nosniff",
 	});
-	createReadStream(await containedWorkspacePath(cwd, inputPath)).pipe(response);
+	createReadStream(target).pipe(response);
+}
+
+async function serveWorkspaceImage(response: ServerResponse, cwd: string, inputPath: string): Promise<void> {
+	const file = await readWorkspaceFile(cwd, inputPath);
+	if (file.kind !== "image") return error(response, 415, "Only images can be served raw");
+	if (file.size > MAX_IMAGE_BYTES) return error(response, 413, "Image is too large to preview");
+	await serveImageFile(response, await containedWorkspacePath(cwd, inputPath), file);
+}
+
+async function serveLocalImage(response: ServerResponse, inputPath: string): Promise<void> {
+	const file = await readLocalFile(inputPath);
+	if (file.kind !== "image") return error(response, 415, "Only images can be served raw");
+	if (file.size > MAX_IMAGE_BYTES) return error(response, 413, "Image is too large to preview");
+	await serveImageFile(response, await absoluteLocalPath(inputPath), file);
 }
 
 const server = createServer(async (request, response) => {
@@ -721,6 +739,24 @@ const server = createServer(async (request, response) => {
 			if (method === "DELETE") {
 				const removed = await workspaces.remove(url.searchParams.get("path") ?? "");
 				return removed ? json(response, 200, { ok: true }) : error(response, 404, "Workspace is not registered");
+			}
+		}
+		// Read-only preview of one file named by an absolute path from message
+		// content. Same cookie authentication as every other route; unlike
+		// /workspace/* there is no folder-registry check — the path is the
+		// user's own message reference, and these routes only read a single
+		// known file, never list directories or write.
+		if (
+			parts[2] === "file" &&
+			method === "GET" &&
+			(parts.length === 3 || (parts.length === 4 && parts[3] === "raw"))
+		) {
+			const inputPath = url.searchParams.get("path") ?? "";
+			try {
+				if (parts.length === 4) return await serveLocalImage(response, inputPath);
+				return json(response, 200, await readLocalFile(inputPath));
+			} catch (caught) {
+				return error(response, 400, caught instanceof Error ? caught.message : String(caught));
 			}
 		}
 		if (parts[2] === "workspace" && parts.length === 4 && method === "GET") {
