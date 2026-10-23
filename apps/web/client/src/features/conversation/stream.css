@@ -216,6 +216,22 @@
  * text instead of spanning the column; the earlier `width: 100%` on
  * `.message-body` (shared with replies) overrode that and pinned it left.
  */
+/*
+ * A command-invoking message's badge rides inside its bubble, inline before
+ * the text; the Markdown body inside the wrapper keeps the same typography.
+ */
+.message-body--invoked {
+	display: block;
+}
+.message-body--invoked > .message-skill {
+	margin: 0 7px 0 0;
+	vertical-align: baseline;
+}
+.message .message-md {
+	min-width: 0;
+	font-size: 14px;
+	font-weight: 500;
+}
 .message.user .message-body {
 	width: fit-content;
 	max-width: min(100%, 68ch);
