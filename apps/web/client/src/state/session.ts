@@ -1174,6 +1174,71 @@ export async function refreshSessions(): Promise<void> {
 	});
 }
 
+/** Keep the open session's snapshot in step with a row action done from a menu. */
+function patchCurrentSession(id: string, fields: Partial<SessionSummary>): void {
+	setState((state) => (state.current?.id === id ? { current: { ...state.current, ...fields } } : {}));
+}
+
+export type SessionAction = "rename" | "archive" | "delete";
+
+/** Close `#renameSessionDialog`; ignored while its request runs, so the result still lands. */
+export function closeRenameSession(): void {
+	if (getState().ui.renameSession?.pending) return;
+	setUi({ renameSession: null });
+}
+
+/**
+ * Submit `#renameSessionDialog`. The dialog closes once the host accepted the name; a failure keeps it
+ * open with the typed name so the user can retry, and reports the error in the toast.
+ */
+export async function renameSession(name: string): Promise<void> {
+	const target = getState().ui.renameSession;
+	const trimmed = name.trim();
+	if (!target || target.pending || !trimmed) return;
+	setUi({ renameSession: { ...target, pending: true } });
+	try {
+		await apiSend(`/api/v1/sessions/${target.sessionId}/name`, "PATCH", { name: trimmed });
+		patchCurrentSession(target.sessionId, { name: trimmed });
+		setUi((ui) => (ui.renameSession?.sessionId === target.sessionId ? { renameSession: null } : {}));
+		await refreshSessions();
+	} catch (error) {
+		setUi((ui) =>
+			ui.renameSession?.sessionId === target.sessionId ? { renameSession: { ...target, pending: false } } : {},
+		);
+		showError(errorMessage(error));
+	}
+}
+
+/**
+ * Rename / archive / delete one session (legacy `openSessionMenu` click
+ * handler, 1297-1328). Called from the sidebar's row menu and the
+ * conversation header's menu; the open session's snapshot follows along so
+ * the header title does not wait for the next SSE snapshot.
+ */
+export async function runSessionAction(action: SessionAction, session: SessionSummary): Promise<void> {
+	try {
+		if (action === "rename") {
+			// The dialog submits through renameSession; nothing changed yet, so there is nothing to refresh.
+			setUi({ renameSession: { sessionId: session.id, name: sessionTitle(session), pending: false } });
+			return;
+		}
+		if (action === "archive") {
+			const archived = !session.archived;
+			await apiSend(`/api/v1/sessions/${session.id}/archive`, "PATCH", { archived });
+			patchCurrentSession(session.id, { archived });
+		}
+		if (action === "delete" && window.confirm(t("confirmDelete", { name: sessionTitle(session) }))) {
+			await apiSend(`/api/v1/sessions/${session.id}`, "DELETE");
+			forgetUnlistedSession(session.id);
+			const state = getState();
+			if (state.current?.id === session.id) startDraft(state.bootstrapCwd);
+		}
+		await refreshSessions();
+	} catch (error) {
+		showError(errorMessage(error));
+	}
+}
+
 /**
  * Re-read the host's status of the sessions this page does not follow. Their
  * rows otherwise keep whatever status they had when the page left them, so a

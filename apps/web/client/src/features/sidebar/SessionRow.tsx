@@ -1,4 +1,4 @@
-import type { KeyboardEvent, MouseEvent } from "react";
+import { type DragEvent, type KeyboardEvent, type MouseEvent, useState } from "react";
 import { formatRelativeTime, useRelativeTimeClock, useT } from "../../i18n";
 import { cx } from "../../lib/format";
 import { openSession, sessionTitle, taskStatus } from "../../state/session";
@@ -8,7 +8,7 @@ import { Icon, LEGACY_ICONS, Popover } from "../../ui";
 import { applyTagFilter, closeSessionMenu, closeTagPicker, toggleSessionMenu, toggleTagPicker } from "./actions";
 import { SessionMenu } from "./SessionMenu";
 import { TagPicker } from "./TagPicker";
-import { cssVar, groupName, TAG_COLORS } from "./tags";
+import { cssVar, groupName, SESSION_DRAG_TYPE, TAG_COLORS } from "./tags";
 
 export interface SessionRowProps {
 	readonly session: SessionSummary;
@@ -73,15 +73,25 @@ export function SessionRow({ session, grouped = false, filteredOut = false }: Se
 		event.stopPropagation();
 		if (row.view === "project" && tag) applyTagFilter(row.filter === tag ? null : tag);
 	};
+	// Only the grouped view drags: it is the view where the drop targets (group sections) live.
+	const [dragging, setDragging] = useState(false);
+	const onDragStart = (event: DragEvent<HTMLDivElement>) => {
+		event.dataTransfer.setData(SESSION_DRAG_TYPE, session.id);
+		event.dataTransfer.effectAllowed = "move";
+		setDragging(true);
+	};
 
 	return (
 		// biome-ignore lint/a11y/useSemanticElements: the legacy row is a div[role=button] holding its own buttons, which a <button> cannot contain.
 		<div
-			className={cx("session-row", status, row.active && "active", row.unread && "unread")}
+			className={cx("session-row", status, row.active && "active", row.unread && "unread", dragging && "dragging")}
 			role="button"
 			tabIndex={0}
 			data-session-id={session.id}
 			style={filteredOut ? { display: "none" } : undefined}
+			draggable={grouped || undefined}
+			onDragStart={grouped ? onDragStart : undefined}
+			onDragEnd={grouped ? () => setDragging(false) : undefined}
 			onClick={onClick}
 			onKeyDown={onKeyDown}
 		>

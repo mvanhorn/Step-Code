@@ -1,7 +1,8 @@
 /**
- * Appearance: the interface theme, picked from three preview tiles. The two
- * themes are named for their material: Porcelain (light) and Nocturne (dark);
- * the stored choice values stay "light" / "dark".
+ * Appearance: the interface theme, picked from four preview tiles. The themes
+ * are named for their material: Porcelain (light), Nocturne (dark) and Violet
+ * (the periwinkle light variant); the stored choice values stay
+ * "light" / "dark" / "violet".
  */
 
 import { useT } from "../../i18n";
@@ -15,6 +16,7 @@ const THEME_CHOICES: ReadonlyArray<{ readonly value: ThemeChoice; readonly label
 	{ value: "system", label: "themeSystem", hint: "settingsThemeSystemNamedHint" },
 	{ value: "light", label: "themePorcelain", hint: "settingsThemePorcelainHint" },
 	{ value: "dark", label: "themeNocturne", hint: "settingsThemeNocturneHint" },
+	{ value: "violet", label: "themeViolet", hint: "settingsThemeVioletHint" },
 ];
 
 /** A miniature window in the tile's own palette, so each choice previews itself in either theme. */
@@ -27,6 +29,11 @@ function ThemePreview({ variant }: { readonly variant: ThemeChoice }) {
 				<i className="line short" />
 			</span>
 			<span className="theme-preview-half dark">
+				<i className="bar" />
+				<i className="line" />
+				<i className="line short" />
+			</span>
+			<span className="theme-preview-half violet">
 				<i className="bar" />
 				<i className="line" />
 				<i className="line short" />

@@ -5,7 +5,9 @@
 	z-index: 8;
 	display: none;
 	flex-direction: column;
-	background: var(--sidebar);
+	/* Frosted glass over the conversation list it slides across. */
+	background: var(--sidebar-glass);
+	backdrop-filter: blur(16px) saturate(1.3);
 }
 .file-tree.open {
 	display: flex;

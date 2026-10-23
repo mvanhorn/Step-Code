@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
-import { createBranch, GitBranchError, isPlausibleBranchName, listLocalBranches, readGitState, switchBranch } from "../src/git.ts";
+import { createBranch, GitBranchError, gitRunEnv, isPlausibleBranchName, listLocalBranches, readGitState, switchBranch } from "../src/git.ts";
 
 const git = promisify(execFile);
 
@@ -23,7 +23,9 @@ interface Repo {
 /** A committed repository on `main` with one file, plus a second branch `feature`. */
 async function repository(): Promise<Repo> {
 	const root = await mkdtemp(join(tmpdir(), "stepcode-web-git-"));
-	const run = (...args: string[]) => git("git", args, { cwd: root });
+	// `gitRunEnv` drops GIT_DIR and friends: under a hook they point at the real
+	// repository, and this fixture must stay the throwaway one it claims to be.
+	const run = (...args: string[]) => git("git", args, { cwd: root, env: gitRunEnv() });
 	await run("init", "--initial-branch=main");
 	await run("config", "user.name", "Test");
 	await run("config", "user.email", "test@example.com");
@@ -151,10 +153,10 @@ test("a switch that would overwrite local changes names the blocking files", asy
 	const { root, cleanup } = await repository();
 	try {
 		// `feature` gets a conflicting version of the same file, `main` keeps an uncommitted edit.
-		await git("git", ["switch", "--no-guess", "feature"], { cwd: root });
+		await git("git", ["switch", "--no-guess", "feature"], { cwd: root, env: gitRunEnv() });
 		await writeFile(join(root, "a.txt"), "feature\n");
-		await git("git", ["commit", "-am", "feature edit"], { cwd: root });
-		await git("git", ["switch", "--no-guess", "main"], { cwd: root });
+		await git("git", ["commit", "-am", "feature edit"], { cwd: root, env: gitRunEnv() });
+		await git("git", ["switch", "--no-guess", "main"], { cwd: root, env: gitRunEnv() });
 		await writeFile(join(root, "a.txt"), "local edit\n");
 		await assert.rejects(switchBranch(root, "feature"), (error: unknown) => {
 			assert.ok(error instanceof GitBranchError);

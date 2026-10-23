@@ -45,9 +45,9 @@ export function PreviewTabs() {
 		<div className="preview-tabs" id="previewTabs" role="tablist" ref={listRef}>
 			{tabs.map((tab, index) => (
 				<div
-					// Tabs are identified by position in the legacy DOM (`data-index`); a file's cwd + path is
-					// unique, a side answer's id is.
-					key={tab.kind === "file" ? `${tab.cwd}\u0000${tab.path}` : `btw:${tab.id}`}
+					// Tabs are identified by position in the legacy DOM (`data-index`); a file's
+					// cwd + path + scope is unique, a side answer's id is.
+					key={tab.kind === "file" ? `${tab.cwd}\u0000${tab.path}\u0000${tab.scope ?? ""}` : `btw:${tab.id}`}
 					className={cx("preview-tab", index === active && "active")}
 					role="tab"
 					tabIndex={0}

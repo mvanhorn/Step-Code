@@ -6,8 +6,8 @@
 	gap: 3px 12px;
 	min-height: 26px;
 	margin-top: 5px;
-	color: var(--ink-3);
-	font-size: 12px;
+	color: var(--ink-2);
+	font-size: 11px;
 	line-height: 20px;
 	font-variant-numeric: tabular-nums;
 }

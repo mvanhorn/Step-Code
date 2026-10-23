@@ -69,7 +69,7 @@ export function createStore<S extends object>(initial: S): Store<S> {
 
 /* ── App state (legacy app.js `state`, lines 1-53) ───────────────────────── */
 
-export type ThemeChoice = "system" | "light" | "dark";
+export type ThemeChoice = "system" | "light" | "dark" | "violet";
 export type ConversationView = "project" | "group";
 export type ModeId = "goal" | "plan" | "ultraloop";
 export type DirectoryPickerMode = "native" | "browse";
@@ -88,11 +88,13 @@ export interface TreeState {
 	readonly resultsTruncated: boolean;
 }
 
-/** A workspace file open in the preview rail. */
+/** A file open in the preview rail. */
 export interface FilePreviewTab {
 	readonly kind: "file";
 	readonly cwd: string;
 	readonly path: string;
+	/** Present when the file lives outside the workspace; `path` is then absolute. */
+	readonly scope?: "local";
 	readonly file: WorkspaceFile | null;
 	readonly error: string;
 	readonly loading: boolean;
@@ -201,10 +203,17 @@ export interface UiState {
 	readonly workspaceMenu: { readonly cwd: string } | null;
 	/** `#sessionMenu`, open below the more button of a session row. */
 	readonly sessionMenu: { readonly sessionId: string } | null;
+	/** `#streamMenu`, open below the more button of the conversation header strip. */
+	readonly streamMenu: boolean;
 	/** `#tagPicker`, open below the tag button of a session row. `sessionId` is the legacy `state.tagTarget`. */
 	readonly tagPicker: { readonly sessionId: string } | null;
 	/** `#authBanner` visible (a request returned 401). */
 	readonly authExpired: boolean;
+	/**
+	 * `#renameSessionDialog`: naming one session. `name` seeds the field; `pending` while the rename request runs.
+	 * An in-page dialog, because the desktop host (Electron) does not implement `window.prompt`.
+	 */
+	readonly renameSession: { readonly sessionId: string; readonly name: string; readonly pending: boolean } | null;
 	/** `#logoutDialog`: confirming Log out; `pending` while `POST /api/v1/logout` runs. */
 	readonly logoutConfirm: { readonly pending: boolean } | null;
 	/** `#loginGate` visible: no model can run yet (no Step credential, no custom model), and the app waits behind it. */
@@ -442,8 +451,10 @@ export function createInitialState(): AppState {
 			settingsDialog: null,
 			workspaceMenu: null,
 			sessionMenu: null,
+			streamMenu: false,
 			tagPicker: null,
 			authExpired: false,
+			renameSession: null,
 			logoutConfirm: null,
 			loginRequired: false,
 			promptFocusRequest: 0,
