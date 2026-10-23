@@ -474,7 +474,7 @@ test("plan mode tells the model it is on, without touching the session", async (
 	};
 	const reminder = on.messages.find((message) => message.customType === "step-plan-context");
 	expect(reminder?.role).toBe("custom");
-	expect(reminder?.content[0]?.text).toContain("Plan mode is active for this turn");
+	expect(reminder?.content[0]?.text).toContain("Plan mode is ON.");
 	// Request-local: the branch gained the plan state only, no context message.
 	expect(harness.session.getEntries().length).toBe(branchBefore + 1);
 	expect(harness.session.getEntries().some((entry) => entry.type === "custom_message")).toBe(false);
@@ -506,6 +506,184 @@ test("leaving plan mode without a proposal is allowed on a host with no review d
 	expect(harness.statuses.get("plan-mode")).toBeUndefined();
 	// Exiting is reported through state and the tool result, never as a notice row.
 	expect(harness.notifications.some((notice) => /exited/i.test(notice.message))).toBe(false);
+});
+
+/** The plan-mode reminder the next model request would carry, or undefined when there is none. */
+async function planReminder(harness: Harness, context: ExtensionContext): Promise<string | undefined> {
+	const messages = [{ role: "user" as const, content: [{ type: "text" as const, text: "task" }], timestamp: 1 }];
+	const result = (await harness.emit({ type: "context", messages }, context)) as {
+		messages: Array<{ customType?: string; content: Array<{ text?: string }> }>;
+	};
+	return result.messages.find((message) => message.customType === "step-plan-context")?.content[0]?.text;
+}
+
+test("the /plan reminder states the mode as fact: no enter_plan_mode, the file, one exit_plan_mode", async () => {
+	// The model used to hedge ("I never called enter_plan_mode"), probe with
+	// enter_plan_mode and call exit_plan_mode more than once. The reminder has to
+	// leave it nothing to check.
+	const cwd = makeWorkspace();
+	const harness = createHarness({ cwd });
+	createStepPlanExtension()(harness.api);
+	const context = harness.ctx({ mode: "rpc", hasUI: true });
+	await harness.commands.get("plan")!.handler("add a readme", context);
+
+	const reminder = await planReminder(harness, context);
+	const planPath = path.join(cwd, ".stepcode", "plans", "session-sess-1.md");
+	expect(reminder).toContain("Plan mode is ON.");
+	expect(reminder).toContain("The host turned it on because the user sent this request with /plan");
+	expect(reminder).toContain("must not call enter_plan_mode");
+	expect(reminder).toContain(JSON.stringify(planPath));
+	expect(reminder).toContain("write_file or edit_file");
+	expect(reminder).toContain("call exit_plan_mode exactly once");
+	// No dialog on this host: a request that needs no plan leaves with one call.
+	expect(reminder).toContain("call exit_plan_mode once (it then only leaves plan mode)");
+	expect(reminder).not.toContain("this turn");
+
+	// The terminal reviews in a dialog and its user leaves with /plan.
+	const tui = await planReminder(harness, harness.ctx());
+	expect(tui).toContain("turn plan mode off with /plan");
+	expect(tui).not.toContain("only leaves plan mode");
+});
+
+test("enter_plan_mode during a /plan request says the mode is already on and changes nothing", async () => {
+	const harness = createHarness({ cwd: makeWorkspace() });
+	createStepPlanExtension()(harness.api);
+	const context = harness.ctx({ mode: "rpc", hasUI: true });
+	await harness.commands.get("plan")!.handler("add a readme", context);
+	const entries = harness.appended.length;
+
+	const result = (await runTool(harness, "enter_plan_mode", {}, context)) as { content: Array<{ text: string }> };
+	expect(result.content[0]?.text).toContain("Plan mode is already on (the host turned it on for the user's /plan");
+	expect(result.content[0]?.text).toContain("was not needed");
+	expect(result.content[0]?.text).toContain("Do not call enter_plan_mode again");
+	expect(harness.appended).toHaveLength(entries);
+	expect(harness.statuses.get("plan-mode")).toBe("Planning (user)");
+});
+
+test("after a submitted proposal the tool results say the mode is off and not to call again", async () => {
+	const cwd = makeWorkspace();
+	const harness = createHarness({ cwd });
+	createStepPlanExtension()(harness.api);
+	const context = harness.ctx({ mode: "rpc", hasUI: true });
+	await harness.commands.get("plan")!.handler("add a readme", context);
+	const planPath = path.join(cwd, ".stepcode", "plans", "session-sess-1.md");
+	mkdirSync(path.dirname(planPath), { recursive: true });
+	writeFileSync(planPath, "# Plan\n1. Write README.md\n");
+
+	const submitted = (await runTool(harness, "exit_plan_mode", {}, context)) as {
+		content: Array<{ text: string }>;
+		details?: PlanReviewDetails;
+	};
+	// Persisted in the transcript, so a later turn still knows whose mode it was.
+	expect(submitted.content[0]?.text).toContain(
+		"Plan mode, which the host turned on for the user's /plan request, is now off",
+	);
+	expect(submitted.content[0]?.text).toContain("Do not call exit_plan_mode again");
+	expect(submitted.details?.outcome).toBe("external_approval_required");
+	expect(await planReminder(harness, context)).toBeUndefined();
+
+	const again = (await runTool(harness, "exit_plan_mode", {}, context)) as { content: Array<{ text: string }> };
+	expect(again.content[0]?.text).toContain("Plan mode is already off");
+	expect(again.content[0]?.text).toContain("Do not call exit_plan_mode again");
+	expect(harness.notifications.some((notice) => /exited|submitted/i.test(notice.message))).toBe(false);
+});
+
+test("a later /plan round does not resubmit the untouched earlier proposal", async () => {
+	// The plan file outlives a round. Re-entering with the composer's Plan chip
+	// and leaving without writing must not post the old plan for review again.
+	const cwd = makeWorkspace();
+	const harness = createHarness({ cwd });
+	createStepPlanExtension()(harness.api);
+	const context = harness.ctx({ mode: "rpc", hasUI: true });
+	const planPath = path.join(cwd, ".stepcode", "plans", "session-sess-1.md");
+	await harness.commands.get("plan")!.handler("add a readme", context);
+	mkdirSync(path.dirname(planPath), { recursive: true });
+	writeFileSync(planPath, "# Plan\n1. Write README.md\n");
+	await runTool(harness, "exit_plan_mode", {}, context);
+
+	await harness.commands.get("plan")!.handler("what does this repo do?", context);
+	expect(await planReminder(harness, context)).toContain("still holds content from before this request");
+	const left = (await runTool(harness, "exit_plan_mode", {}, context)) as {
+		content: Array<{ text: string }>;
+		details?: PlanReviewDetails;
+	};
+	expect(left.content[0]?.text).toContain("nothing to review");
+	expect(left.details).toBeUndefined();
+	expect(lastPlanEntry(harness)).toMatchObject({ enabled: false });
+
+	// The submitted hash survives a restore; a rewritten proposal is new and is submitted.
+	await harness.emit({ type: "session_start", reason: "resume" }, context);
+	await harness.commands.get("plan")!.handler("still nothing to plan", context);
+	const restored = (await runTool(harness, "exit_plan_mode", {}, context)) as { details?: PlanReviewDetails };
+	expect(restored.details).toBeUndefined();
+	await harness.commands.get("plan")!.handler("add a changelog too", context);
+	writeFileSync(planPath, "# Plan\n1. Write README.md\n2. Write CHANGELOG.md\n");
+	const resubmitted = (await runTool(harness, "exit_plan_mode", {}, context)) as { details?: PlanReviewDetails };
+	expect(resubmitted.details?.outcome).toBe("external_approval_required");
+	expect(resubmitted.details?.planContents).toContain("CHANGELOG");
+});
+
+test("a round that only inherits an earlier plan file has nothing to submit", async () => {
+	// The plan file outlives the thread and the process. A request that needs no
+	// proposal (`/plan` on a question) must not hand the previous round's plan to
+	// the user as this request's answer — the hash of the file at entry is what
+	// makes "untouched" mean untouched, even when this process never recorded a
+	// submitted hash (a session written by an older build).
+	const cwd = makeWorkspace();
+	const harness = createHarness({ cwd });
+	createStepPlanExtension()(harness.api);
+	const context = harness.ctx({ mode: "rpc", hasUI: true });
+	const planPath = path.join(cwd, ".stepcode", "plans", "session-sess-1.md");
+	mkdirSync(path.dirname(planPath), { recursive: true });
+	writeFileSync(planPath, "# Earlier plan\n1. Old work\n");
+
+	await harness.commands.get("plan")!.handler("what is this repo's structure?", context);
+	expect(await planReminder(harness, context)).toContain("still holds content from before this request");
+	const left = (await runTool(harness, "exit_plan_mode", {}, context)) as {
+		content: Array<{ text: string }>;
+		details?: PlanReviewDetails;
+	};
+	expect(left.content[0]?.text).toContain("nothing to review");
+	expect(left.details).toBeUndefined();
+	expect(lastPlanEntry(harness)).toMatchObject({ enabled: false });
+
+	// A proposal written during the round is new, even if the file existed before it.
+	await harness.commands.get("plan")!.handler("plan the parser change", context);
+	writeFileSync(planPath, "# Plan\n1. Update the parser\n");
+	const submitted = (await runTool(harness, "exit_plan_mode", {}, context)) as { details?: PlanReviewDetails };
+	expect(submitted.details?.outcome).toBe("external_approval_required");
+	expect(submitted.details?.planContents).toContain("Update the parser");
+});
+
+test("an entry-state hash survives a restore while plan mode is on", async () => {
+	// A host restart mid-round must not turn the unchanged file into a proposal.
+	const cwd = makeWorkspace();
+	const planPath = path.join(cwd, ".stepcode", "plans", "session-sess-1.md");
+	mkdirSync(path.dirname(planPath), { recursive: true });
+	writeFileSync(planPath, "# Earlier plan\n1. Old work\n");
+	const hash = createHash("sha256").update(fs.readFileSync(planPath, "utf8"), "utf8").digest("hex");
+	const harness = createHarness({
+		cwd,
+		entries: [
+			{
+				type: "custom",
+				customType: "step-plan",
+				data: { enabled: true, planFilePath: planPath, planSource: "user", planHashAtEnter: hash },
+			},
+		],
+	});
+	createStepPlanExtension()(harness.api);
+	const context = harness.ctx({ mode: "rpc", hasUI: true });
+	await harness.emit({ type: "session_start", reason: "resume" }, context);
+
+	const left = (await runTool(harness, "exit_plan_mode", {}, context)) as { details?: PlanReviewDetails };
+	expect(left.details).toBeUndefined();
+	expect(lastPlanEntry(harness)).toMatchObject({ enabled: false });
+
+	await harness.commands.get("plan")!.handler("plan the rewrite", context);
+	writeFileSync(planPath, "# Plan\n1. Rewritten\n");
+	const submitted = (await runTool(harness, "exit_plan_mode", {}, context)) as { details?: PlanReviewDetails };
+	expect(submitted.details?.outcome).toBe("external_approval_required");
 });
 
 test("the status chip does not require a theme from the host", async () => {
@@ -613,7 +791,7 @@ test.each([true, false])("rpc-mode exit_plan_mode hands approval to the caller (
 	expect(result.content).toEqual([
 		{
 			type: "text",
-			text: `Plan mode exited and the proposal was submitted for review. Exiting reports that the investigation is finished; it does not authorize implementation. Wait for the user's decision before changing files.\n\nPlan file: ${planPath}\n\nPlan contents:\n${planContents}`,
+			text: `Plan mode is now off and the proposal was submitted for review. Exiting reports that the investigation is finished; it does not authorize implementation. Do not call exit_plan_mode again; wait for the user's decision before changing files.\n\nPlan file: ${planPath}\n\nPlan contents:\n${planContents}`,
 		},
 	]);
 	expect(result.details).toEqual({
@@ -877,7 +1055,7 @@ test.each(["session_start", "session_tree"] as const)(
 		expect(harness.appended).toHaveLength(snapshotsBefore);
 		expect(events).toHaveLength(telemetryBefore);
 		expect(await runTool(harness, "exit_plan_mode", {}, harness.ctx())).toMatchObject({
-			content: [{ text: "Not in plan mode." }],
+			content: [{ text: expect.stringContaining("Plan mode is already off") }],
 		});
 		expect(events.filter((event) => event.event === "plan_mode_entered")).toEqual([]);
 	},
@@ -1196,7 +1374,12 @@ for (const { mode, hasUI } of [
 		const harness = createHarness({ cwd: makeWorkspace() });
 		createStepPlanExtension()(harness.api);
 		expect(await runTool(harness, "exit_plan_mode", {}, harness.ctx({ mode, hasUI }))).toEqual({
-			content: [{ type: "text", text: "Not in plan mode." }],
+			content: [
+				{
+					type: "text",
+					text: "Plan mode is already off, so there is nothing to submit or leave. Do not call exit_plan_mode again; to submit a revised proposal later, call enter_plan_mode first.",
+				},
+			],
 			details: undefined,
 			terminate: false,
 		});
@@ -1251,9 +1434,32 @@ for (const { mode, hasUI } of [
 		},
 	);
 
+	if (mode === "tui") {
+		test("exit_plan_mode without a written proposal keeps planning in the terminal", async () => {
+			// The terminal can always review, and its user leaves with /plan: a missing
+			// file is a proposal not yet written, not a decision to leave.
+			const harness = createHarness({ cwd: makeWorkspace() });
+			createStepPlanExtension()(harness.api);
+			const context = harness.ctx({ mode, hasUI });
+			await harness.commands.get("plan")!.handler("a quick question", context);
+			const result = (await runTool(harness, "exit_plan_mode", {}, context)) as {
+				content: Array<{ text: string }>;
+				details?: PlanReviewDetails;
+			};
+			expect(result.content[0]?.text).toContain("plan mode stays on");
+			expect(result.content[0]?.text).toContain("write_file");
+			expect(result.content[0]?.text).toContain("/plan");
+			expect(result.details).toBeUndefined();
+			expect(harness.customCalls()).toBe(0);
+			expect(lastPlanEntry(harness)).toMatchObject({ enabled: true });
+			expect(harness.statuses.get("plan-mode")).toBe("Planning (user)");
+		});
+		continue;
+	}
+
 	test(`exit_plan_mode without a written proposal leaves plan mode in ${mode} (hasUI: ${hasUI})`, async () => {
-		// "This request needs no plan" has to be expressible. Leaving is the whole
-		// decision, and nothing is reported as approved.
+		// "This request needs no plan" has to be expressible where no dialog can
+		// ask. Leaving is the whole decision, and nothing is reported as approved.
 		const harness = createHarness({ cwd: makeWorkspace() });
 		createStepPlanExtension()(harness.api);
 		const context = harness.ctx({ mode, hasUI });
@@ -1263,6 +1469,7 @@ for (const { mode, hasUI } of [
 			details?: PlanReviewDetails;
 		};
 		expect(result.content[0]?.text).toContain("nothing to review");
+		expect(result.content[0]?.text).toContain("Do not call exit_plan_mode or enter_plan_mode again");
 		expect(result.details).toBeUndefined();
 		expect(harness.customCalls()).toBe(0);
 		expect(lastPlanEntry(harness)).toMatchObject({ enabled: false });
@@ -1389,7 +1596,7 @@ test("a valid headless proposal exits requiring external approval with the whole
 	expect(result.content).toEqual([
 		{
 			type: "text",
-			text: `Plan mode exited. Plan file kept at ${planPath} for reference.\n\nPlan contents:\n${planContents}\n\nCannot show interactive prompt; caller must gate approval externally.`,
+			text: `Plan mode exited. Plan file kept at ${planPath} for reference.\n\nPlan contents:\n${planContents}\n\nCannot show interactive prompt; caller must gate approval externally. Do not call exit_plan_mode again.`,
 		},
 	]);
 	expect(result.details).toEqual({
@@ -1488,7 +1695,7 @@ test("/plan with a task enables plan mode and sends the task as a user turn", as
 	await harness.commands.get("plan")!.handler("实现一个俄罗斯方块,简单版", context);
 
 	expect(harness.statuses.get("plan-mode")).toBe("Planning (user)");
-	expect(harness.userMessages).toEqual([["实现一个俄罗斯方块,简单版", {}]]);
+	expect(harness.userMessages).toEqual([["实现一个俄罗斯方块,简单版", { expandPromptTemplates: true }]]);
 	// The turn must start under the plan-mode tool set, not the unrestricted one.
 	expect(harness.activeTools()).not.toContain("edit_file_unrestricted");
 	expect(harness.activeTools()).toContain("read_file");
@@ -1514,7 +1721,7 @@ test("/plan with a task queues as a follow-up while the agent is streaming", asy
 
 	await harness.commands.get("plan")!.handler("plan this too", harness.ctx({ isIdle: () => false }));
 
-	expect(harness.userMessages).toEqual([["plan this too", { deliverAs: "followUp" }]]);
+	expect(harness.userMessages).toEqual([["plan this too", { expandPromptTemplates: true, deliverAs: "followUp" }]]);
 });
 
 test("bare /plan still toggles plan mode and sends nothing", async () => {

@@ -6,13 +6,15 @@
  * the investigation finished — it never authorizes the work. So the card asks
  * the user, in two ways the kernel already understands:
  *
- * - "request changes" sends the user's notes as a normal message, which is the
- *   same steering path the TUI's review dialog uses;
+ * - "request changes" sends the notes through `/plan`, so the revision round is
+ *   planned again and produces a new proposal to review (plan mode itself is
+ *   already off when this card is shown);
  * - "approve and run" sends a normal message that authorizes implementation.
  *
  * Both are ordinary user messages: the decision lands in the transcript, starts
- * one turn, and needs no special execution channel. `planHash` identifies the
- * reviewed text, so a card whose proposal was superseded stays inert.
+ * one turn, and needs no special execution channel. The state projection marks
+ * only the newest undecided proposal actionable; older cards stay inert (see
+ * `settlePlanReviews`).
  */
 
 import { useState } from "react";
@@ -40,9 +42,12 @@ export function PlanReviewCard({ review }: { readonly review: PlanReview }) {
 	};
 
 	const actionable = review.pending && !settled;
+	// A transcript keeps the cards of earlier rounds as their record. The ids stay
+	// on the one card that can be answered, so they name a single element.
+	const id = (name: string, show: boolean): string | undefined => (show ? name : undefined);
 
 	return (
-		<section className="plan-review" id="planReviewCard">
+		<section className="plan-review" id={id("planReviewCard", actionable)}>
 			<header className="plan-review-heading">
 				<span className="plan-review-dot" aria-hidden="true" />
 				<span className="plan-review-heading-title">
@@ -59,11 +64,11 @@ export function PlanReviewCard({ review }: { readonly review: PlanReview }) {
 				</button>
 			</header>
 			<div className="plan-review-body">
-				<pre className="plan-review-contents" id="planReviewContents" hidden={!expanded}>
+				<pre className="plan-review-contents" id={id("planReviewContents", actionable)} hidden={!expanded}>
 					{review.planContents}
 				</pre>
 				{expanded ? null : (
-					<p className="plan-review-summary" id="planReviewSummary">
+					<p className="plan-review-summary" id={id("planReviewSummary", actionable)}>
 						{firstParagraph(review.planContents)}
 					</p>
 				)}
@@ -75,7 +80,7 @@ export function PlanReviewCard({ review }: { readonly review: PlanReview }) {
 							<button
 								type="button"
 								className="plan-review-button"
-								id="planRequestChanges"
+								id={id("planRequestChanges", actionable)}
 								disabled={busy}
 								onClick={() => setNotes("")}
 							>
@@ -85,7 +90,7 @@ export function PlanReviewCard({ review }: { readonly review: PlanReview }) {
 							<button
 								type="button"
 								className="plan-review-button approve"
-								id="planApprove"
+								id={id("planApprove", actionable)}
 								disabled={busy}
 								onClick={() => void send(t("planApproveMessage"))}
 							>
@@ -95,7 +100,7 @@ export function PlanReviewCard({ review }: { readonly review: PlanReview }) {
 					) : (
 						<div className="plan-review-notes">
 							<textarea
-								id="planReviewNotes"
+								id={id("planReviewNotes", actionable)}
 								className="plan-review-textarea"
 								value={notes}
 								placeholder={t("planChangePlaceholder")}
@@ -110,9 +115,9 @@ export function PlanReviewCard({ review }: { readonly review: PlanReview }) {
 								<button
 									type="button"
 									className="plan-review-button approve"
-									id="planSendChanges"
+									id={id("planSendChanges", actionable)}
 									disabled={busy || !notes.trim()}
-									onClick={() => void send(`${t("planChangePrefix")}\n\n${notes.trim()}`)}
+									onClick={() => void send(`/plan ${t("planChangePrefix")}\n\n${notes.trim()}`)}
 								>
 									{t("planSendChanges")}
 								</button>

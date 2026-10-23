@@ -252,7 +252,12 @@ export function Composer({ workspaceControl, branchControl }: ComposerProps) {
 				...stagedPicks.filter((pick) => pick.note).map((pick) => pick.note),
 				...contextPackages.map((item) => item.block),
 			].join("\n\n");
-			const outgoing = `${lead ? `${lead.prefix} ` : ""}${mode}${text}${tail ? `\n\n${tail}` : ""}`;
+			const command = lead ? `${lead.prefix} ` : "";
+			// `/plan` has to come first or the kernel never runs it: a leading
+			// `/skill:` would swallow it as an argument. The plan command expands a
+			// skill that follows it.
+			const head = activeMode === "plan" ? `${mode}${command}` : `${command}${mode}`;
+			const outgoing = `${head}${text}${tail ? `\n\n${tail}` : ""}`;
 			setQuery(null);
 			setPathQuery(null);
 			lastPathQuery.current = null;

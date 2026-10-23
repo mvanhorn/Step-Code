@@ -2207,6 +2207,58 @@ test("a subagent or workflow call opens its child agents' transcripts read-only 
   assert.deepEqual(refused, [404, 404])
 })
 
+test("plan mode's proposal keeps its review card after a reload and its approval starts the work", { skip }, async () => {
+  // The card used to be projected only from the live `tool_execution_end` event.
+  // Everything that refreshes the snapshot (message end, reload) rebuilt the
+  // timeline without it, so the proposal flashed and vanished before anyone could
+  // approve it. The proposal now comes from the persisted tool result.
+  const id = await browser.run(`
+    const json = { "content-type": "application/json" };
+    const session = await (await fetch("/api/v1/sessions", { method: "POST", headers: json, body: JSON.stringify({ cwd: ${JSON.stringify(workspace)} }) })).json();
+    // The proposal write must not wait on a permission prompt: this test is about the review card.
+    await fetch("/api/v1/sessions/" + session.id + "/policy", { method: "PATCH", headers: json, body: JSON.stringify({ preset: "approve-for-me" }) });
+    await fetch("/api/v1/sessions/" + session.id + "/messages", { method: "POST", headers: json, body: JSON.stringify({ text: "/plan plan-fixture describe the repository" }) });
+    await until(async () => {
+      const value = await (await fetch("/api/v1/sessions/" + session.id)).json();
+      if (value.status === "failed") throw new Error(JSON.stringify(value.entries.slice(-3)));
+      return value.status === "completed";
+    }, "plan turn settles");
+    return session.id;
+  `);
+  await browser.goto(`${origin}/`);
+  const shown = await browser.run(`
+    (await until(() => $("[data-session-id='${id}']"), "plan session")).click();
+    const card = await until(() => $("#planReviewCard"), "review card");
+    const contents = card.textContent.includes("Read the fixture files");
+    const approve = Boolean($("#planApprove"));
+    // The proposal is submitted, not approved: plan mode is already off.
+    const stripHidden = $("#planStrip").hidden;
+    $("#planApprove").click();
+    await until(() => !$("#planApprove"), "card settles after the decision");
+    await until(async () => (await (await fetch("/api/v1/sessions/${id}")).json()).status === "completed", "approval turn settles");
+    return {
+      contents,
+      approve,
+      stripHidden,
+      settled: !$("#planApprove"),
+      decided: $$(".message.user").some((node) => node.textContent.includes("同意执行")),
+    };
+  `);
+  assert.deepEqual(shown, { contents: true, approve: true, stripHidden: true, settled: true, decided: true });
+  assert.match(
+    await readFile(join(workspace, ".stepcode", "plans", `session-${id}.md`), "utf8"),
+    /Read the fixture files/,
+  );
+  await browser.goto(`${origin}/`);
+  const restored = await browser.run(`
+    (await until(() => $("[data-session-id='${id}']"), "plan session")).click();
+    await until(() => $(".plan-review"), "restored review card");
+    // Already answered: the record stays, the decision buttons do not come back.
+    return { card: Boolean($(".plan-review")), approve: Boolean($("#planApprove")) };
+  `);
+  assert.deepEqual(restored, { card: true, approve: false });
+});
+
 test("an empty conversation switches and creates git branches without losing uncommitted work", { skip }, async () => {
   const git = (...args) => promisify(execFile)("git", args, { cwd: repo })
   const repo = join(base, "branch-repo")

@@ -90,7 +90,11 @@ complete plan, rather than displaying an approved result.
 Missing, empty, whitespace-only, unreadable, and non-regular plan files retain
 their existing explanatory text and leave plan mode active. Their `details` are
 `undefined`; they never receive a successful handoff outcome or hash. Calling
-`exit_plan_mode` outside plan mode likewise returns no handoff details. A
+`exit_plan_mode` outside plan mode likewise returns no handoff details, and in
+headless/RPC sessions a readable file whose content is unchanged since the round
+entered plan mode (or that still holds the already-submitted proposal) counts as
+no new proposal: it exits plan mode and returns no handoff details, so a leftover
+plan from an earlier round is never presented as this request's answer. A
 non-error tool result alone is therefore insufficient to recognize a handoff.
 
 `approvalSource`, `planHash`, and `planModeExited` are optional in `PlanReviewDetails`
