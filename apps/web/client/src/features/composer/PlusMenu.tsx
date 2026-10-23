@@ -15,7 +15,7 @@
 import { type ChangeEvent, useLayoutEffect, useRef, useState } from "react";
 import { useT } from "../../i18n";
 import { type ModeId, useAppStore } from "../../state/store";
-import { Icon, IconButton, Popover } from "../../ui";
+import { Icon, IconButton, type IconName, Popover } from "../../ui";
 import { ControlOption, PopoverGroupLabel } from "./ControlOption";
 import { MODES } from "./modes";
 import { PluginsPanel, SessionsPanel, SkillsPanel } from "./PlusSubPanels";

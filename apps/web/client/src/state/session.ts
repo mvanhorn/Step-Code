@@ -1228,7 +1228,8 @@ export function closeRenameSession(): void {
 
 /**
  * Submit `#renameSessionDialog`. The dialog closes once the host accepted the name; a failure keeps it
- * open with the typed name so the user can retry, and reports the error in the toast.
+ * open with the typed name so the user can retry, and reports the error in the toast. A late success
+ * only closes the dialog it belongs to, and a failed list refresh does not turn into a failed rename.
  */
 export async function renameSession(name: string): Promise<void> {
 	const target = getState().ui.renameSession;
@@ -1236,23 +1237,29 @@ export async function renameSession(name: string): Promise<void> {
 	if (!target || target.pending || !trimmed) return;
 	setUi({ renameSession: { ...target, pending: true } });
 	try {
-		await apiSend(`/api/v1/sessions/${target.sessionId}/name`, "PATCH", { name: trimmed });
-		patchCurrentSession(target.sessionId, { name: trimmed });
-		setUi((ui) => (ui.renameSession?.sessionId === target.sessionId ? { renameSession: null } : {}));
-		await refreshSessions();
+		// The host trims the name to its own limit; the returned snapshot is what it stored.
+		const saved = await apiSend<SessionSummary>(`/api/v1/sessions/${target.sessionId}/name`, "PATCH", {
+			name: trimmed,
+		});
+		patchCurrentSession(target.sessionId, { name: saved.name?.trim() || trimmed });
 	} catch (error) {
 		setUi((ui) =>
 			ui.renameSession?.sessionId === target.sessionId ? { renameSession: { ...target, pending: false } } : {},
 		);
 		showError(errorMessage(error));
+		return;
 	}
+	setUi((ui) => (ui.renameSession?.sessionId === target.sessionId ? { renameSession: null } : {}));
+	// The rename already succeeded; a failed list refresh must not report it as a failure.
+	await refreshSessions().catch(() => {});
 }
 
 /**
  * Rename / archive / delete one session (legacy `openSessionMenu` click
  * handler, 1297-1328). Called from the sidebar's row menu and the
- * conversation header's menu; the open session's snapshot follows along so
- * the header title does not wait for the next SSE snapshot.
+ * conversation header's menu. Rename only opens `#renameSessionDialog`
+ * (`renameSession` saves); archive and delete patch the open session's
+ * snapshot so the header does not wait for the next SSE snapshot.
  */
 export async function runSessionAction(action: SessionAction, session: SessionSummary): Promise<void> {
 	try {

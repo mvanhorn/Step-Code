@@ -270,14 +270,10 @@ const zhCN = {
 	rightBtw: "旁问",
 	btwWaiting: "正在思考…",
 	modeUltraloopDesc: "下一条消息授权多智能体编排",
-<<<<<<< ours
-	attach: "附件",
-=======
 	modeGoalPlaceholder: "描述要达成的目标，助手将持续推进直至完成",
 	modePlanPlaceholder: "描述要规划的任务，助手将先给出计划再实施",
 	modeUltraloopPlaceholder: "描述要深入钻研的任务，助手将多智能体协同执行",
 	attach: "附件添加",
->>>>>>> theirs
 	plusTitle: "添加",
 	plusGroupAdd: "添加",
 	plusGroupMore: "更多",
