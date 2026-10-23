@@ -198,6 +198,10 @@ const stepMainOptions: MainOptions = {
 	agentDir: resolveStepAgentDir(),
 	modelsPath: join(resolveStepConfigRoot(), "models.json"),
 	configDirName: resolveStepConfigDir(),
+	// No cwd here: prepareMain resolves options.cwd ?? parseArgs(args).cwd ?? process.cwd()
+	// from the final argv it actually executes. Passing a value parsed from the early
+	// process.argv snapshot would create a second source of truth that can diverge
+	// from the rewritten argv (config defaults, step command translation, defaults).
 	sessionManagerFactory: createStepSessionManagerFactory(resolveStepAgentDir()),
 	settingsManagerFactory: (cwd, agentDir, options) => {
 		const stepManager = createStepSettingsManager(cwd, agentDir, options);
