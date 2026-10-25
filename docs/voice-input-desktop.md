@@ -40,24 +40,23 @@
 
 ### 3.3 转写等待态
 
-点「完成」后录音条变为「识别中…」直到文字落进输入框——服务端需约 0.5s 静音封口 + 转写耗时，这一两秒空窗有明确反馈，不会误以为卡死。
+点「完成」后录音条变为「识别中…」直到文字落进输入框——整段音频上传识别需要一两秒，这期间有明确反馈，不会误以为卡死。
 
 ### 3.4 文字落点与发送
 
 - 文字插入光标处，与前文自动隔一个空格；发送按钮状态同步（和手打一致）。
 - turn 运行中听写：文字照常进输入框，走排队，与手打语义相同。
-- 本协议**只有最终稿、没有逐字流式**（核对过终端插件源码），故不做流式上屏；说完停顿约半秒文字出现，与手机听写习惯一致。
+- 转写为**整段识别、一次性返回全文**（开平 ASR `stepaudio-2.5-asr`），没有逐字流式；与手机听写「说完出整段」的习惯一致。
 
 ### 3.5 快捷键与边界
 
 - **Esc**：取消并丢弃本次录音（不插入）。
-- 说完立即点完成：尾句可能丢（服务端 VAD 未封口，server_vad 模式下拒绝手动 commit）——说完停半秒再点最佳。
-- 错误场景（断网 / 服务不可达 / 模型不可用 / 麦克风被拒 / 采集失败）：toast 明确提示原因与下一步，按钮回空闲可重试。
+- 错误场景（断网 / 识别服务失败 / 麦克风被拒 / 采集失败 / 未识别到语音）：toast 明确提示原因，按钮回空闲可重试。
 
 ## 4. 验收清单
 
-- [ ] 有凭证：按钮外显；点麦克风 → 系统授权弹窗（首次）→ 录音条（波形/计时/取消/完成）→ 说话 → 停半秒或点完成 → 文字进输入框 → Enter 发送成功
-- [ ] 无凭证（未登录且无 Key）：按钮不外显，composer 无残留占位
+- [ ] 有凭证（已登录 Step / 配了开平 Key）：按钮外显；点麦克风 → 系统授权弹窗（首次）→ 录音条（波形/计时/取消/完成）→ 说话 → 点完成 → 一两秒后文字进输入框 → Enter 发送成功
+- [ ] 只配了外部模型（司内 MP）未登录：按钮不外显，composer 无残留占位
 - [ ] 录音中点 ✕：立即丢弃，无文字、无 toast，可立即重录
 - [ ] 录音中按 Esc：同上
 - [ ] turn 运行中听写：文字进输入框并排队，不抢占、不报错
@@ -66,31 +65,31 @@
 
 ## 5. 已知边界
 
-- **司内 MP 是否支持 realtime 模型未经真实验证**：凭证通道已按 Step Plan 优先、平台通道不支持时报错并引导换 Key 处理；若 MP 侧确认不支持，仅影响默认模型选择，架构不变（host 一处常量）。
+- **只认两种凭证**：环境变量里的开平 Key（`STEP_API_KEY`/`STEPFUN_API_KEY`）或 `auth.json` 里的 Step 登录态。司内 MP 等自定义模型代理（`models.json`）不接入——其 ASR 可用性无法预判，按钮不外显而非点击后报错。
 - 仅桌面端目标环境（Electron/Chromium 内核）；Safari 非目标宿主。
-- 采集为 24kHz 单声道 PCM16，与服务端约定一致。
+- 采集为 24kHz 单声道 PCM16，host 打包 WAV 上传；单次录音上限 10 分钟 / 64 MB。
 
 ## 6. 实现概览（技术索引，供 review 把关）
 
 | 层 | 位置 | 内容 |
 |---|---|---|
-| host | `apps/web/src/voice.ts`（新） | 语音中继：出站 realtime 连接、转写事件归一化去重（final 按 item_id+content_index 去重）、单会话、分片/时长/大小上限、凭证三级解析；停止时补发静音封口等 final |
-| host | `apps/web/src/voice-routes.ts`（新） | 5 端点：status / start / audio / stop / events(SSE)；`server.ts` 接线 + 关机清理 |
-| host | `apps/web/test/voice.test.ts`（新） | 22 单测：握手（等 session.updated）、转发、去重、回退、限额、SSE、flush |
+| host | `apps/web/src/voice.ts`（新） | 语音中继：单会话分片缓冲、stop 时打包 WAV 调开平 ASR（`stepaudio-2.5-asr`）返回全文；凭证两级解析（env Key / auth.json 登录态，不含 MP 自定义通道）；分片/时长/大小上限 |
+| host | `apps/web/src/voice-routes.ts`（新） | 5 端点：status / start / audio / stop（返回文本）/ cancel；`server.ts` 接线 + 关机清理 |
+| host | `apps/web/test/voice.test.ts`（新） | 21 单测：凭证收窄（MP 不解析）、会话生命周期、限额、WAV 打包、ASR 转发与错误分类、取消 |
 | 客户端 | `apps/web/client/src/features/voice/`（新） | MicButton + 录音条 UI；VoiceRecorder（getUserMedia→AudioWorklet 100ms 分片→POST、EventSource、取消/完成语义）；`client/public/voice-capture-worklet.js` 采集 + 音量 |
 | 客户端 | composer / ShellEffects / i18n / IconSprite / types | 挂载按钮、Escape 取消链、双语文案、麦克风图标、wire 类型 |
 | 桌面端 | `apps/desktop/src/window.ts` | 放行麦克风权限（media） |
 | 协议 | `apps/web/openapi.yaml` | 5 端点 + VoiceStatus schema |
 | e2e | `apps/web/test/e2e/web.e2e.mjs` | 新增 1 用例：按钮在 composer 内、可用态、status 不泄漏 Key |
 
-**关键协议事实**（联调实测，2026-10-25）：`session.update` 必须带 `turn_detection`（server_vad，缺失则服务端不收尾、永远无转写）；start 等 `session.updated` 确认后才推音频；server_vad 下手动 commit 被拒，回合靠静音关闭。已用真实凭证 + 合成/人声语音直连真服务跑通全链路（speech_started → committed → transcription.completed）。
+**ASR 接入事实**（2026-10-25 实测）：`POST https://api.stepfun.com/v1/audio/transcriptions`，multipart（model=`stepaudio-2.5-asr`、response_format=json、file=WAV），Bearer 鉴权，一次性返回 `{text}`；Step Plan 登录 token 可直接调用，~470ms/3.5s 音频。注意 Step Plan 专属 base（`/step_plan/v1`）**没有** ASR 端点（404），统一走开平标准 base。
 
 ## 7. 验证记录
 
-- host 单测 22/22；web 全量单测无回归；desktop 单测通过；三端 typecheck + biome 通过。
-- 真实 host 全链路（本地假 realtime，零外网）：start → 分片原样转发 → SSE partial/final（重放 final 只到一次）→ 重复 start 409 → stop。
-- 真实浏览器（CDP 驱动 Electron + 真实麦克风）：录音条全要素、波形实时跳动、计时、转写态、文字落框，均实测通过。
-- 已知环境备忘：AudioWorklet 全局无 `btoa`（采集用手写 base64 + 异常上报，防静默死亡）；本机 pnpm 曾冲掉 electron 真二进制（已从缓存恢复，与功能无关）。
+- host 单测 21/21；web 全量单测无回归；三端 typecheck + biome 通过。
+- 真实 ASR 服务（真实登录凭证 + 合成/人声语音）：转写正确返回；host 端到端（页面内 API 驱动）start → 35 分片 → stop → 正确文字；空录音返回空文本不调服务。
+- 真实浏览器（CDP 驱动 Electron + 真实麦克风）：录音条全要素、波形实时跳动、计时、转写态均实测通过；无凭证时按钮不渲染实测通过。
+- 已知环境备忘：AudioWorklet 全局无 `btoa`（采集用手写 base64 + 异常上报，防静默死亡）；麦克风回声消除开启时外放测试音采不到（真人说话正常）。
 
 ## 8. 关联
 

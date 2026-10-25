@@ -31,21 +31,14 @@ export interface TerminalSnapshot {
 /**
  * Voice dictation (`/api/v1/voice/*`, host `voice.ts`): the composer's
  * microphone button. The status snapshot reports where the credential comes
- * from and which channel it addresses — never the key itself.
+ * from and which channel it belongs to — never the key itself.
  */
 export interface VoiceStatus {
 	readonly available: boolean;
 	readonly reason?: "no-credential";
-	readonly channel?: "step_plan" | "platform" | "custom";
-	readonly model?: string;
-	readonly keySource?: "environment" | "auth.json" | "provider";
+	readonly channel?: "step_plan" | "platform";
+	readonly keySource?: "environment" | "auth.json";
 }
-
-/** One SSE frame from `/api/v1/voice/events`. */
-export type VoiceEvent =
-	| { readonly type: "status"; readonly status: "idle" | "connecting" | "listening" | "error" | "stopped" }
-	| { readonly type: "transcript"; readonly kind: "partial" | "final"; readonly text: string }
-	| { readonly type: "error"; readonly message: string; readonly code: string };
 
 /** Host-wide embedded-browser projection, independent of model sessions. */
 export interface EmbeddedBrowserTab {

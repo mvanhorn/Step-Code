@@ -1368,7 +1368,6 @@ test("the voice button sits in the composer and its status never carries the key
   assert.deepEqual(voice.status, {
     available: true,
     channel: "step_plan",
-    model: "stepaudio-2.5-realtime",
     keySource: "auth.json",
   });
   assert.ok(!voice.serialized.includes("e2e-not-a-real-token"), "the status must not carry the credential");

@@ -35,10 +35,9 @@ async function readBody(request: IncomingMessage): Promise<Record<string, unknow
  * the Host's cookie and Origin checks before dispatch, exactly as for
  * `terminalRoute`.
  *
- * The relay owns the realtime session; this module only translates HTTP into
- * relay calls and one SSE stream. Audio goes up as JSON chunks and events come
- * down as SSE, reusing the terminal feature's shape rather than adding a
- * second websocket server to the Host.
+ * The relay buffers the recording and transcribes it on `stop`, so the route
+ * layer is plain request/response: audio goes up as JSON chunks, the transcript
+ * comes back in the stop reply. No second websocket server, no SSE stream.
  */
 export async function voiceRoute(
 	voice: VoiceRelay,
@@ -50,7 +49,7 @@ export async function voiceRoute(
 		const method = request.method || "GET";
 		if (parts.length === 0 && method === "GET") return reply(response, 200, voice.status());
 		if (parts.length === 1 && parts[0] === "start" && method === "POST") {
-			const session = await voice.start();
+			const session = voice.start();
 			return reply(response, 200, session);
 		}
 		if (parts.length === 1 && parts[0] === "audio" && method === "POST") {
@@ -59,10 +58,13 @@ export async function voiceRoute(
 			return reply(response, 202, { ok: true });
 		}
 		if (parts.length === 1 && parts[0] === "stop" && method === "POST") {
-			voice.stop();
+			const transcript = await voice.stop();
+			return reply(response, 200, transcript);
+		}
+		if (parts.length === 1 && parts[0] === "cancel" && method === "POST") {
+			voice.cancel();
 			return reply(response, 200, { ok: true });
 		}
-		if (parts.length === 1 && parts[0] === "events" && method === "GET") return voiceEvents(voice, response);
 		throw new VoiceError("Unknown voice route", 404, "not-found");
 	} catch (error) {
 		if (response.headersSent) {
@@ -75,50 +77,4 @@ export async function voiceRoute(
 			...(voiceError ? { code: voiceError.code } : {}),
 		});
 	}
-}
-
-/**
- * SSE downlink: `status`, `transcript` and `error` events, one JSON object per
- * event, with the heartbeat and teardown the terminal stream uses. A gone page
- * must not keep the relay's listener set growing.
- */
-function voiceEvents(voice: VoiceRelay, response: ServerResponse): void {
-	response.writeHead(200, {
-		"content-type": "text/event-stream; charset=utf-8",
-		"cache-control": "no-store",
-		connection: "keep-alive",
-		"x-accel-buffering": "no",
-	});
-	// Backpressure: transcript events are transient, so a dropped one is lost
-	// text. Queue while the socket is congested and flush in order on drain.
-	const pending: string[] = [];
-	const flush = () => {
-		while (pending.length > 0 && !response.writableNeedDrain) {
-			const frame = pending.shift();
-			if (frame === undefined) break;
-			if (response.destroyed || response.writableEnded) return;
-			response.write(frame);
-		}
-	};
-	const unsubscribe = voice.subscribe((event) => {
-		if (response.destroyed || response.writableEnded) return;
-		pending.push(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
-		flush();
-	});
-	response.on("drain", flush);
-	const heartbeat = setInterval(() => {
-		if (response.destroyed || response.writableEnded) return;
-		if (response.writableNeedDrain) {
-			// A congested client that never drains is gone; the heartbeat would
-			// otherwise keep the connection (and the relay's listener) alive.
-			response.destroy();
-			return;
-		}
-		response.write(": heartbeat\n\n");
-	}, 2000);
-	response.once("close", () => {
-		clearInterval(heartbeat);
-		response.off("drain", flush);
-		unsubscribe();
-	});
 }

@@ -34,10 +34,9 @@ const ERROR_KEYS: Readonly<Record<string, string>> = {
 	"capture-failed": "voiceCaptureFailed",
 	"no-credential": "voiceNoCredential",
 	unreachable: "voiceUnreachable",
-	"model-unavailable": "voiceUnsupported",
-	"channel-unsupported": "voiceUnsupported",
-	"unsupported-runtime": "voiceUnsupported",
+	"asr-failed": "voiceAsrFailed",
 	"chunk-failed": "voiceChunkFailed",
+	"no-speech": "voiceNoSpeech",
 };
 
 /**
@@ -56,7 +55,6 @@ export function MicButton({ onTranscript }: MicButtonProps) {
 	const t = useT();
 	const [phase, setPhase] = useState<VoicePhase>("idle");
 	const [status, setStatus] = useState<VoiceStatus | undefined>();
-	const [partial, setPartial] = useState("");
 	const [level, setLevel] = useState(0);
 	const [elapsed, setElapsed] = useState(0);
 	const recorder = useRef<VoiceRecorder | undefined>(undefined);
@@ -70,7 +68,6 @@ export function MicButton({ onTranscript }: MicButtonProps) {
 	const ensureRecorder = useCallback(() => {
 		recorder.current ??= new VoiceRecorder({
 			onPhase: setPhase,
-			onPartial: setPartial,
 			onLevel: setLevel,
 			onFinal: onTranscript,
 			onError: (code, reason) => {
@@ -85,14 +82,14 @@ export function MicButton({ onTranscript }: MicButtonProps) {
 	useEffect(() => {
 		if (phase !== "listening") return;
 		const voice = ensureRecorder();
-		setVoiceStopHook(() => voice.stop({ discard: true }));
+		setVoiceStopHook(() => voice.cancel());
 		return () => setVoiceStopHook(undefined);
 	}, [phase, ensureRecorder]);
 
 	// Leaving the composer mid-recording must not keep the microphone open.
 	useEffect(
 		() => () => {
-			void recorder.current?.stop();
+			void recorder.current?.cancel();
 		},
 		[],
 	);
@@ -106,16 +103,16 @@ export function MicButton({ onTranscript }: MicButtonProps) {
 	}, [phase]);
 
 	const available = status?.available === true;
-	// Unavailable (no credential, unsupported channel, or the status query has
-	// not answered yet) hides the button outright: a permanently disabled
-	// microphone in the composer only invites questions.
+	// Unavailable (no credential, or the status query has not answered yet)
+	// hides the button outright: a permanently disabled microphone in the
+	// composer only invites questions.
 	if (!available) return null;
 
 	const connecting = phase === "connecting";
 	const listening = phase === "listening";
 	const transcribing = phase === "transcribing";
 	const label = connecting ? t("voiceConnecting") : listening ? t("voiceStop") : t("voiceStart");
-	const hint = listening ? partial || t("voiceListening") : label;
+	const hint = listening ? t("voiceListening") : label;
 
 	const button = (
 		<IconButton
@@ -151,7 +148,7 @@ export function MicButton({ onTranscript }: MicButtonProps) {
 								type="button"
 								className="voice-pill-action voice-pill-cancel"
 								aria-label={t("voiceCancel")}
-								onClick={() => void ensureRecorder().stop({ discard: true })}
+								onClick={() => void ensureRecorder().cancel()}
 							>
 								<Icon name="close" size="xs" />
 							</button>
