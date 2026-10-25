@@ -123,12 +123,85 @@ paths:
               schema: { type: string }
         "400": { description: Invalid or future cursor }
         "404": { description: Unknown terminal }
+  /api/v1/voice:
+    get:
+      description: |
+        Voice dictation availability for the composer's microphone button:
+        which channel the resolved credential addresses and which realtime
+        model it would use. The key itself never appears in any response.
+      responses:
+        "200":
+          description: Availability snapshot
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VoiceStatus" }
+        "401": { description: Authentication required }
+  /api/v1/voice/start:
+    post:
+      description: |
+        Open the one outbound realtime session (a second start while one runs
+        answers 409). The platform channel retries once with the 2.5 model
+        when the 3 model is unavailable on this account.
+      responses:
+        "200":
+          description: Session started
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sessionId]
+                properties:
+                  sessionId: { type: string }
+        "401": { description: Authentication required }
+        "409": { description: A voice session is already running }
+        "502": { description: The realtime service could not be reached }
+        "503": { description: No model credential is configured }
+  /api/v1/voice/audio:
+    post:
+      description: |
+        Forward one base64 PCM16 chunk (100 ms slices, 24 kHz mono) to the
+        active session. At most 512 KiB decoded per chunk and 10 minutes of
+        audio per session.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data: { type: string, description: Base64 PCM16 audio }
+      responses:
+        "202": { description: Chunk forwarded }
+        "400": { description: Malformed body }
+        "401": { description: Authentication required }
+        "404": { description: No active voice session }
+        "413": { description: Chunk exceeds the size limit }
+  /api/v1/voice/stop:
+    post:
+      description: End the session and close the outbound connection.
+      responses:
+        "200": { description: Session stopped }
+        "401": { description: Authentication required }
+  /api/v1/voice/events:
+    get:
+      description: |
+        Cookie/Origin-authenticated SSE with status, transcript and error
+        events. A repeated `transcription.completed` for the same
+        item_id/content_index is delivered once, so a dictated prompt never
+        receives the same text twice.
+      responses:
+        "200":
+          description: Voice event stream
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "401": { description: Authentication required }
   /api/v1/browser:
     get:
       description: Host-wide browser tab snapshot. No engine is launched by reading it. An optional control header renews that page's lease.
       parameters:
-        - { name: x-stepcode-browser-control, in: header, schema: { type: string } }
-      responses:
+        - { name: x-stepcode-browser-control, in: header, schema: { type: string } }      responses:
         "200":
           description: Browser snapshot
           content:
@@ -1995,6 +2068,15 @@ components:
             properties:
               seq: { type: integer, minimum: 1 }
               data: { type: string, maxLength: 8192 }
+    VoiceStatus:
+      type: object
+      required: [available]
+      properties:
+        available: { type: boolean }
+        reason: { type: string, enum: [no-credential], description: Why dictation is unavailable }
+        channel: { type: string, enum: [step_plan, platform, custom], description: Which StepFun service the credential addresses }
+        model: { type: string, description: Realtime model the channel would use }
+        keySource: { type: string, enum: [environment, auth.json, provider], description: Where the credential comes from; never the key }
     EmbeddedBrowserSnapshot:
       type: object
       required: [revision, activeId, tabs]

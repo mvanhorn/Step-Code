@@ -1345,6 +1345,35 @@ test("workspace @ completion is authenticated, scoped, and used by the real comp
   assert.deepEqual(picked, { text: "参考 @src/deep/needle-file.ts ", selectedWithFocus: true });
 });
 
+test("the voice button sits in the composer and its status never carries the key", async () => {
+  await browser.goto(`${origin}/`);
+  const voice = await browser.run(`
+    await until(() => $("#workspaceButtonName").textContent === "project", "bootstrap workspace");
+    const button = await until(() => $("#voiceButton"), "voice button");
+    const status = await (await fetch("/api/v1/voice")).json();
+    return {
+      inRightCluster: $(".composer-right").contains(button),
+      isButton: button.tagName === "BUTTON" && button.getAttribute("type") === "button",
+      disabled: button.disabled,
+      label: button.getAttribute("aria-label"),
+      status,
+      serialized: JSON.stringify(status),
+    };
+  `);
+  assert.equal(voice.isButton, true);
+  assert.equal(voice.inRightCluster, true);
+  // The fixture stores a Step Plan credential, so dictation is available.
+  assert.equal(voice.disabled, false);
+  assert.equal(voice.label, "语音听写");
+  assert.deepEqual(voice.status, {
+    available: true,
+    channel: "step_plan",
+    model: "stepaudio-2.5-realtime",
+    keySource: "auth.json",
+  });
+  assert.ok(!voice.serialized.includes("e2e-not-a-real-token"), "the status must not carry the credential");
+});
+
 test("the composer sends a completed @ reference as text through the real agent to a scratch file", { skip }, async () => {
   await browser.goto(`${origin}/`);
   const result = await browser.run(`

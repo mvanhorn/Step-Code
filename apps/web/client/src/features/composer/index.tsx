@@ -15,6 +15,7 @@ import type { SessionSnapshot, TreeEntry } from "../../state/types";
 import { Icon } from "../../ui";
 import { openFeedback } from "../conversation";
 import { askSideQuestion } from "../files";
+import { MicButton } from "../voice";
 import { AttachmentList } from "./Attachments";
 import {
 	type ContextPackage,
@@ -40,6 +41,7 @@ import { PolicyMenu } from "./PolicyMenu";
 import { PromptInput } from "./PromptInput";
 import {
 	insertModeLead,
+	insertTextAtCaret,
 	placeCaretAtEnd,
 	promptFileQuery,
 	promptFiles,
@@ -134,6 +136,22 @@ export function Composer({ workspaceControl, branchControl }: ComposerProps) {
 	const syncHasText = useCallback(() => {
 		setHasText(Boolean(prompt.current && promptText(prompt.current).trim()));
 	}, []);
+	/*
+	 * A dictated transcript lands at the caret like typed text, with a space
+	 * keeping it off the word before it, and the send state re-syncs — the
+	 * same path `setPromptText` takes for edits that bypass `input`.
+	 */
+	const insertVoiceTranscript = useCallback(
+		(text: string) => {
+			const editor = prompt.current;
+			if (!editor || !text) return;
+			editor.focus();
+			const existing = promptText(editor);
+			insertTextAtCaret(editor, existing && !/\s$/u.test(existing) ? ` ${text}` : text);
+			syncHasText();
+		},
+		[syncHasText],
+	);
 	const stopMode = status === "running" && !hasText;
 
 	const menu = (name: ComposerMenu) => ({
@@ -501,6 +519,7 @@ export function Composer({ workspaceControl, branchControl }: ComposerProps) {
 					/>
 					<PolicyMenu {...menu("policy")} />
 					<div className="composer-right">
+						<MicButton onTranscript={insertVoiceTranscript} />
 						<ModelMenu {...menu("model")} />
 						{stopMode ? (
 							<button

@@ -28,6 +28,7 @@ export const MISSING_FROM_LIBRARY = [
 	"layers3",
 	"user",
 	"stepcode",
+	"mic",
 ] as const;
 
 /*
@@ -44,6 +45,7 @@ export const MISSING_FROM_LIBRARY = [
  * - layers3: 三层图层（当前未被使用）
  * - user: 账号入口（Lucide user-round，与相邻线性图标同粗细）
  * - stepcode: StepCode 品牌标识（紫色圆弧 + 琥珀色提示符），双色，由 --mark-arc / --mark-chevron 着色
+ * - mic: 麦克风（语音听写按钮）。线性风格与相邻图标对齐；库里暂无同粗细对应款
  */
 
 export const ICON_NAMES = [
@@ -149,6 +151,7 @@ export const ICON_NAMES = [
 	"layers3",
 	"timer",
 	"database",
+	"mic",
 ] as const;
 
 export type IconName = (typeof ICON_NAMES)[number];
@@ -279,6 +282,23 @@ export function IconSprite() {
 					strokeLinecap="round"
 					strokeLinejoin="round"
 				/>
+			</symbol>
+			<symbol id="i-mic" viewBox="0 0 24 24" fill="none">
+				<path
+					d="M12 4.5A2.5 2.5 0 0 1 14.5 7V12A2.5 2.5 0 0 1 9.5 12V7A2.5 2.5 0 0 1 12 4.5Z"
+					stroke="currentColor"
+					strokeWidth="1.8"
+					strokeLinecap="round"
+					strokeLinejoin="round"
+				/>
+				<path
+					d="M6.75 11.5A5.25 5.25 0 0 0 17.25 11.5"
+					stroke="currentColor"
+					strokeWidth="1.8"
+					strokeLinecap="round"
+				/>
+				<path d="M12 16.75V19.25" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+				<path d="M9 19.25H15" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
 			</symbol>
 			{/* icon-library.html: EmptyCircle */}
 			<symbol id="i-summaryRing" viewBox="0 0 24 24" fill="none">
