@@ -78,8 +78,6 @@
   /* ── Brand and accent ────────────────────────────────────────────── */
   --brand-violet: #7c5cff;
   --brand-amber: #ffc940;
-  /* Light in both themes: the black mark asset reads as a disc with light cut-outs. */
-  --brand-tile: #ffffff;
   --accent: #5b47e0;
   --accent-hover: #4b38cc;
   --accent-ink: #ffffff;
@@ -241,7 +239,6 @@ html[data-theme="dark"] {
      dark enough that the light ink keeps its contrast on top of it. */
   --match-surface: #7a5c0e;
   --match-ink: #ffedb6;
-  --brand-tile: #ffffff;
   --accent: #a08fff;
   --accent-hover: #b3a5ff;
   --accent-ink: #15121f;
@@ -482,23 +479,22 @@ html[data-theme="dark"] .sidebar {
 
 /*
  * legacy 248-257: brand mark, shared by the sidebar brand row and the logged-out overlay.
- * The tile stays violet-black in both themes, as on the sign-in screen, so the
- * violet arc and amber chevron of the mark keep their contrast.
+ * A white disc fills the black mark asset's cut-outs, so the mark reads as a
+ * black circle in both themes.
  */
 .brand-mark {
   display: grid;
   place-items: center;
   width: 30px;
   height: var(--control-h-sm);
-  border-radius: var(--radius-row);
-  background: var(--brand-tile);
-  /* The light tile needs an edge to read as a tile on the light sidebar. */
-  box-shadow: inset 0 0 0 1px var(--line);
+  /* The mark is a circle: a white disc under the black asset fills its cut-outs. */
+  border-radius: 50%;
+  background: #ffffff;
   color: var(--brand-violet);
 }
 .brand-mark > .icon {
-  width: 72%;
-  height: 72%;
+  width: 100%;
+  height: 100%;
 }
 
 /*
