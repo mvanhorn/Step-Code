@@ -1,4 +1,6 @@
 import { createServer } from "node:http";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { createEventBus } from "../core/event-bus.ts";
 import { createExtensionRuntime, loadExtensionFromFactory } from "../core/extensions/loader.ts";
@@ -9,6 +11,7 @@ import {
 	createStepMcpExtension,
 	createStepMcpHostWarmup,
 	getStepMcpPoolSnapshot,
+	stdioServerCwd,
 } from "./mcp.ts";
 
 const config = vi.hoisted(() => ({ value: {} as StepConfigDocument }));
@@ -161,4 +164,21 @@ test("host warmup skips servers that must not be shared", async () => {
 	await warmup.sync(process.cwd());
 	expect(getStepMcpPoolSnapshot()).toEqual([]);
 	expect(server.initializations()).toBe(0);
+});
+
+test("a stdio server starts in the host's directory by path, or in home once that path is gone", () => {
+	const cwd = vi.spyOn(process, "cwd");
+	try {
+		cwd.mockReturnValue(tmpdir());
+		expect(stdioServerCwd()).toBe(tmpdir());
+		// A Desktop dev host's directory deleted by a rebuild and not recreated.
+		cwd.mockReturnValue(join(tmpdir(), "stepcode-deleted-host-cwd-does-not-exist"));
+		expect(stdioServerCwd()).toBe(homedir());
+		cwd.mockImplementation(() => {
+			throw Object.assign(new Error("uv_cwd"), { code: "ENOENT" });
+		});
+		expect(stdioServerCwd()).toBe(homedir());
+	} finally {
+		cwd.mockRestore();
+	}
 });
