@@ -455,67 +455,11 @@
 	white-space: nowrap;
 }
 /* The turn row keeps it at the end of the actions, not under a step of the turn. */
-/* A user bubble's copy / rewrite affordances, quiet until hovered. */
-.prompt-actions {
-	display: inline-flex;
-	gap: 2px;
-	margin-top: 3px;
-	opacity: 0;
-	transition: opacity var(--fast);
-}
-.message:hover .prompt-actions,
-.prompt-actions:focus-within {
-	opacity: 1;
-}
-.prompt-actions button {
-	display: grid;
-	place-items: center;
-	width: 24px;
-	height: 22px;
-	padding: 0;
-	border: 0;
-	border-radius: var(--radius-control);
-	background: transparent;
-	color: var(--ink-3);
-	cursor: pointer;
-}
-.prompt-actions button:hover {
-	background: var(--surface-soft);
-	color: var(--ink);
-}
-.message-meta {
+.message-actions .message-meta {
 	margin-top: 0;
 }
 @media (prefers-reduced-motion: reduce) {
-	/* A user bubble's copy / rewrite affordances, quiet until hovered. */
-.prompt-actions {
-	display: inline-flex;
-	gap: 2px;
-	margin-top: 3px;
-	opacity: 0;
-	transition: opacity var(--fast);
-}
-.message:hover .prompt-actions,
-.prompt-actions:focus-within {
-	opacity: 1;
-}
-.prompt-actions button {
-	display: grid;
-	place-items: center;
-	width: 24px;
-	height: 22px;
-	padding: 0;
-	border: 0;
-	border-radius: var(--radius-control);
-	background: transparent;
-	color: var(--ink-3);
-	cursor: pointer;
-}
-.prompt-actions button:hover {
-	background: var(--surface-soft);
-	color: var(--ink);
-}
-.message-meta {
+	.message-meta {
 		transition: none;
 	}
 }
