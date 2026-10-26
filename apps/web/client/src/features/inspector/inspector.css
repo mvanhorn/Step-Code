@@ -317,24 +317,12 @@
 	font-size: 12px;
 	font-weight: 500;
 }
-/* The full objective clamps to three lines; the summary line above carries the gist. */
 .sb-goal-summary {
 	margin: 0 0 4px;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 	font-weight: 600;
-}
-.sb-goal-objective {
-	display: -webkit-box;
-	-webkit-box-orient: vertical;
-	-webkit-line-clamp: 3;
-	overflow: hidden;
-	margin: 0 0 2px;
-	color: var(--ink);
-	font-size: 13px;
-	line-height: 1.6;
-	overflow-wrap: anywhere;
 }
 .sb-goal-stats {
 	margin: 0;

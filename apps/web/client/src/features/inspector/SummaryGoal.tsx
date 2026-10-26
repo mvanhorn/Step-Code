@@ -174,9 +174,11 @@ export function SummaryGoal() {
 					<span className="sb-goal-status">{t(statusKey(goal.status))}</span>
 				)}
 			</div>
-			{/* A one-line summary of the objective, then the full text clamped to three lines. */}
-			<p className="sb-goal-summary">{summarizeGoal(goal.objective)}</p>
-			<p className="sb-goal-objective">{goal.objective}</p>
+			{/* The one-line summary is the objective here: showing both it and the
+			 * clamped full text reads as saying the same thing twice. */}
+			<p className="sb-goal-summary" title={goal.objective}>
+				{summarizeGoal(goal.objective)}
+			</p>
 			<p className="sb-goal-stats">
 				{t("goalRounds", { rounds: goal.rounds })}
 				{" · "}
