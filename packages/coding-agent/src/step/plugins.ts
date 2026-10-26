@@ -640,7 +640,9 @@ export async function diagnoseStepPlugin(
 		}
 	}
 	if (mcpServers.length > 0) {
-		warnings.push(`MCP declarations saved for ${mcpServers.join(", ")}; the server starts after Step restarts.`);
+		warnings.push(
+			`MCP declarations saved for ${mcpServers.join(", ")}; running sessions start the server before their next request.`,
+		);
 	}
 	if (read.manifest.entry)
 		warnings.push("Executable plugin entries are recorded but not loaded by the Step marketplace facade.");
@@ -1303,7 +1305,7 @@ async function openInstalledPluginDetails(
 	}
 	try {
 		await uninstallPlugin(path.dirname(plugin.rootPath), plugin.id);
-		say(`Uninstalled '${plugin.name}'. Restart Step to unload it.`);
+		say(`Uninstalled '${plugin.name}'. Running sessions unload its MCP servers before their next request.`);
 	} catch (error) {
 		say(describe(error), "error");
 	}
@@ -1363,7 +1365,7 @@ async function openMarketplacePluginDetails(
 		say(
 			[
 				`Installed '${entry.name}' from ${entry.marketplace}.`,
-				"Restart Step to activate plugin contributions.",
+				"Its MCP servers connect before the next request; skills and commands load in new sessions.",
 				...result.warnings,
 			].join("\n"),
 			result.warnings.length > 0 ? "warning" : "info",
@@ -1582,7 +1584,7 @@ export function registerStepPluginCommand(pi: ExtensionAPI, options: StepPluginC
 						say(
 							[
 								`Installed ${entry.name} from ${entry.marketplace} to ${installed.installedPath}.`,
-								"Restart Step to start the plugin's MCP server.",
+								"Its MCP servers connect before the next request.",
 								...installed.warnings,
 							].join("\n"),
 							installed.warnings.length > 0 ? "warning" : "info",
@@ -1601,7 +1603,9 @@ export function registerStepPluginCommand(pi: ExtensionAPI, options: StepPluginC
 							return;
 						}
 						const removed = await uninstallPlugin(pluginsDir, name);
-						say(`Removed ${removed.removedPath}. Restart Step to unload it.`);
+						say(
+							`Removed ${removed.removedPath}. Running sessions unload its MCP servers before their next request.`,
+						);
 						return;
 					}
 					case "marketplace": {

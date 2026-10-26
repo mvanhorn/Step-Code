@@ -3,10 +3,10 @@
  *
  * Every function reads and writes the user's global StepCode configuration
  * through `@step-harness/coding-agent`, the same files `step mcp`, `/plugin`
- * and the TUI resource selector use. Project scope is not offered here. None
- * of these changes reach a running session: MCP servers connect on session
- * start and skills load with the session's resources, so the client tells the
- * user that new sessions pick them up.
+ * and the TUI resource selector use. Project scope is not offered here. MCP
+ * changes reach running sessions too: each session re-reads its MCP servers
+ * before the next model request. Skills still load with a session's
+ * resources, so the client tells the user that new sessions pick them up.
  */
 
 import { realpathSync } from "node:fs";

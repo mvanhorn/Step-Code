@@ -80,7 +80,8 @@ async function session() {
 	};
 	cleanups.push(() => stop());
 	await extension.handlers.get("session_start")![0]({ type: "session_start" }, ctx);
-	return { extension, stop };
+	const beforeAgentStart = () => extension.handlers.get("before_agent_start")![0]({ type: "before_agent_start" }, ctx);
+	return { extension, stop, beforeAgentStart };
 }
 
 test("sessions in one process share one connection per server", async () => {
@@ -181,4 +182,35 @@ test("a stdio server starts in the host's directory by path, or in home once tha
 	} finally {
 		cwd.mockRestore();
 	}
+});
+
+test("a server added mid-session reuses the connection another session already holds", async () => {
+	const server = await countingServer();
+	const open = await session();
+	config.value = { mcp_servers: { docs: { url: server.url } } };
+	const other = await session();
+	expect(server.initializations()).toBe(1);
+
+	await open.beforeAgentStart();
+	expect(open.extension.tools.has("docs__probe")).toBe(true);
+	expect(server.initializations()).toBe(1);
+	expect(getStepMcpPoolSnapshot()).toEqual([{ name: "docs", leases: 2, connected: true }]);
+	await other.stop();
+});
+
+test("a server removed mid-session is released at once but stays open for a session still holding it", async () => {
+	const server = await countingServer();
+	config.value = { mcp_servers: { docs: { url: server.url } } };
+	const first = await session();
+	const second = await session();
+
+	config.value = {};
+	await first.beforeAgentStart();
+	expect(first.extension.tools.has("docs__probe")).toBe(false);
+	expect(getStepMcpPoolSnapshot()).toEqual([{ name: "docs", leases: 1, connected: true }]);
+
+	await second.beforeAgentStart();
+	expect(second.extension.tools.has("docs__probe")).toBe(false);
+	// No idle grace: the identity is no longer configured, so nothing will reuse it.
+	expect(getStepMcpPoolSnapshot()).toEqual([]);
 });

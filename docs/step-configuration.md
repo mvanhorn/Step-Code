@@ -232,6 +232,15 @@ accepting work.
 Closing or replacing a session cancels pending MCP connections and prevents their
 late tools or warnings from reaching the new session.
 
+A running session also picks up MCP declarations that change while it runs:
+`/plugin install` or `/plugin remove`, `step mcp add` or `step mcp remove` in
+another terminal, the Web or Desktop settings screen, or a command the agent runs
+itself. Before each prompt, and after each turn that ran tools, the session
+leases new servers, re-leases changed ones, and releases removed or disabled
+ones, so the next model request already has the new tools. A failed server is retried
+only when its declaration changes or a new session starts. See
+[MCP catalogs](../packages/coding-agent/docs/mcp-catalog.md#changes-during-a-session).
+
 The macOS/Linux installer and `step update` run `step mcp prepare` after
 installing the new binary. This prepares the built-in StepPage executable before
 the installer finishes. StepPage requires Node.js 20 or newer on PATH; Step itself
