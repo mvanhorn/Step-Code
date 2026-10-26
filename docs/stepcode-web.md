@@ -445,14 +445,27 @@ only its own turn: the turn's patches are reverse-applied newest first, and
 nothing is written unless all of them apply. Like `patch -R`, a hunk may have
 moved (later turns added lines elsewhere in the file) and its unchanged context
 lines may have been edited since; only the lines the turn itself changed must be
-intact. Otherwise the request is refused with 409 and a `code` (`conflict` with
-the file's path, `missing`, `busy` while a turn runs or another revert of the
-session is in progress, `reverted`), and the card tells the user to undo the
-later turns that touched the file first; a prompt sent during a revert also gets
-409. Undoing turns newest-first therefore always works. Files the turn created
-are deleted, and an overwritten file gets its previous line ending and BOM back.
-Files without a patch are left alone and listed in the response's `skipped`,
-which the toast names.
+intact. Otherwise the request is refused with 409 before anything is written,
+with a `code`: `conflict` only when undoing later turns first was simulated to
+work: the later turns not yet reverted that changed one of this turn's files
+(and, transitively, the turns that changed one of theirs), one of them having
+changed the blocking file, are reverted newest first, each as a whole, and then
+this turn, all in memory against the files as they are now; the card then tells
+the user to undo the later turns first, newest first. Otherwise the code is
+`modified` with the file's path: the file does not match and that order of
+undoing does not help (a `bash` command or an outside edit changed it). Also
+`missing`, `busy` while a turn runs or another revert of the session is in
+progress, and `reverted`. A prompt sent during a revert also gets 409. What a
+command changed cannot be undone, so a turn whose file a command rewrote stays
+refused. A failure while writing is reported as an error and is not rolled
+back. Paths that name the same file (letter case on a case-insensitive disk, a
+symlink) are reverted as one file. A file the turn created is deleted only when
+reversing reaches the `write` that created it with nothing left and the turn has
+no unpatched change to the same file (`created` describes that one write, not
+the whole turn); an overwritten file gets its previous line ending and BOM back.
+Patches compare LF text without a BOM, so a change to only the line endings, the
+BOM or the final newline is not detected. Files without a patch are left alone
+and listed in the response's `skipped`, which the toast names.
 A successful undo appends a `stepcode-web.turn-revert` custom message (in the
 model's context, not a new turn) naming the request and the restored files, so
 the model does not assume its edits are still on disk; the snapshot's

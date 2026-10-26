@@ -107,10 +107,11 @@ export async function decideApproval(approvalId: string, verdict: ApprovalVerdic
 }
 
 /** The toast for a refused revert (host `TurnRevertError` codes). */
-function revertFailure(error: unknown): string {
+export function revertFailure(error: unknown): string {
 	const body = error instanceof ApiError ? error.body : {};
 	const path = typeof body.path === "string" ? body.path : "";
 	if (body.code === "conflict") return t("turnRevertConflict", { path });
+	if (body.code === "modified") return t("turnRevertModified", { path });
 	if (body.code === "missing") return t("turnRevertMissing", { path });
 	if (body.code === "busy") return t("turnRevertBusy");
 	return t("turnRevertFailed", { reason: errorMessage(error) });

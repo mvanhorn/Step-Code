@@ -8,12 +8,14 @@
  *
  * A turn is the run of entries from one user message to the next. Reverting a
  * turn reverse-applies its own patches, newest first, and writes nothing unless
- * every patch still applies. Changes without a patch (large or binary files,
- * `bash`) cannot be reverted and are reported as skipped. A revert is recorded
- * as a custom message on the branch, which also tells the model.
+ * every patch still applies. Changes without a patch (large or binary files)
+ * cannot be reverted and are reported as skipped; what a `bash` command changed
+ * is not recorded at all, so a file a command rewrote no longer matches and is
+ * left as it is. A revert is recorded as a custom message on the branch, which
+ * also tells the model.
  */
 
-import { readFile, unlink, writeFile } from "node:fs/promises";
+import { readFile, stat, unlink, writeFile } from "node:fs/promises";
 import {
 	detectLineEnding,
 	normalizeToLF,
@@ -28,8 +30,14 @@ function toolPath(input: Readonly<Record<string, unknown>>): string | undefined 
 	return typeof value === "string" && value.trim() ? value : undefined;
 }
 
-/** Why a revert was refused; `path` is the file as the tool call named it. */
-export type TurnRevertCode = "busy" | "reverted" | "empty" | "missing" | "conflict";
+/**
+ * Why a revert was refused; `path` is the file as the tool call named it.
+ * `modified` means the file no longer matches the turn's patches and nothing
+ * recorded explains it (a `bash` command, an outside edit); `conflict` means
+ * undoing the later turns that changed it first was checked to let this turn
+ * undo. Neither writes anything.
+ */
+export type TurnRevertCode = "busy" | "reverted" | "empty" | "missing" | "conflict" | "modified";
 
 export class TurnRevertError extends Error {
 	readonly code: TurnRevertCode;
@@ -282,6 +290,8 @@ export function turnChanges(entries: readonly SessionEntry[], turnId: string): T
 }
 
 interface RevertFile {
+	/** The path the revert reads and writes: the first one a change named it by. */
+	absolute: string;
 	/** LF, without BOM: the view the patches were made against. */
 	content: string;
 	lineEnding: LineEnding;
@@ -290,36 +300,79 @@ interface RevertFile {
 }
 
 /**
- * Reverse-apply a turn's changes. Every file is computed first; nothing is
- * written unless all patches apply. Returns the absolute paths touched.
+ * The same file however a path names it: `a.txt` and `A.txt` on a
+ * case-insensitive disk, a symlink and its target. Two paths that would be
+ * planned separately overwrite each other's result. A path that does not
+ * exist keys as itself; the revert refuses it as `missing`.
  */
-export async function revertTurnChanges(changes: readonly TurnChange[], cwd: string): Promise<string[]> {
+async function fileKey(absolute: string): Promise<string> {
+	try {
+		const { dev, ino } = await stat(absolute, { bigint: true });
+		return `${dev}:${ino}`;
+	} catch {
+		return absolute;
+	}
+}
+
+/** A file's text as a revert sees it; `undefined` when it cannot be read. */
+type ReadText = (absolute: string, key: string) => Promise<string | undefined>;
+
+async function readCurrent(absolute: string): Promise<string | undefined> {
+	try {
+		return await readFile(absolute, "utf8");
+	} catch {
+		// Unreadable counts as gone: the revert refuses it as `missing` and writes nothing.
+		return undefined;
+	}
+}
+
+/** The text a planned file is written back as. */
+function revertedText(file: RevertFile): string {
+	const text = restoreLineEndings(file.content, file.lineEnding);
+	return file.bom ? `\uFEFF${text}` : text;
+}
+
+/**
+ * What reverting `changes` would leave, file by file, read through `read`;
+ * nothing is written. Throws `modified` when a file no longer matches the
+ * patches and `missing` when one is gone. A file is deleted only when
+ * reversing reaches the `write` that created it with nothing left, and the
+ * turn has no unpatched change to the same path: `created` says the file was
+ * absent before that one write, and an unrecorded change to the path leaves
+ * open what was there before the turn. Files are keyed by `fileKey`.
+ */
+async function planRevert(
+	changes: readonly TurnChange[],
+	skipped: readonly SkippedChange[],
+	cwd: string,
+	read: ReadText,
+): Promise<Map<string, RevertFile>> {
 	if (!changes.length) throw new TurnRevertError("empty", "This turn has no file changes that can be reverted");
+	const unpatched = new Set(await Promise.all(skipped.map((change) => fileKey(resolveToCwd(change.path, cwd)))));
 	const files = new Map<string, RevertFile>();
 	for (const change of [...changes].reverse()) {
 		const absolute = resolveToCwd(change.path, cwd);
-		const conflict = () => new TurnRevertError("conflict", `${change.path} changed since this turn`, change.path);
-		let file = files.get(absolute);
+		const key = await fileKey(absolute);
+		const mismatch = () =>
+			new TurnRevertError("modified", `${change.path} no longer matches this turn's changes`, change.path);
+		let file = files.get(key);
 		if (!file) {
-			let raw: string;
-			try {
-				raw = await readFile(absolute, "utf8");
-			} catch {
-				throw new TurnRevertError("missing", `${change.path} no longer exists`, change.path);
-			}
-			const bom = raw.startsWith("﻿");
+			const raw = await read(absolute, key);
+			if (raw === undefined) throw new TurnRevertError("missing", `${change.path} no longer exists`, change.path);
+			const bom = raw.startsWith("\uFEFF");
 			const text = bom ? raw.slice(1) : raw;
-			file = { content: normalizeToLF(text), lineEnding: detectLineEnding(text), bom, deleted: false };
-			files.set(absolute, file);
+			file = { absolute, content: normalizeToLF(text), lineEnding: detectLineEnding(text), bom, deleted: false };
+			files.set(key, file);
 		}
-		if (file.deleted) throw conflict();
+		// A change from before the file was recreated: what it held in between was not recorded.
+		if (file.deleted) throw mismatch();
 		try {
 			file.content = reversePatch(file.content, change.patch);
 		} catch {
-			throw conflict();
+			throw mismatch();
 		}
 		if (change.created) {
-			if (file.content !== "") throw conflict();
+			if (file.content !== "" || unpatched.has(key)) throw mismatch();
 			file.deleted = true;
 		} else if (change.previous) {
 			// A write replaced the whole file, line endings and BOM included.
@@ -327,15 +380,87 @@ export async function revertTurnChanges(changes: readonly TurnChange[], cwd: str
 			file.bom = change.previous.bom;
 		}
 	}
-	for (const [absolute, file] of files) {
-		if (file.deleted) {
-			await unlink(absolute);
-			continue;
-		}
-		const text = restoreLineEndings(file.content, file.lineEnding);
-		await writeFile(absolute, file.bom ? `﻿${text}` : text, "utf8");
+	return files;
+}
+
+/**
+ * Reverse-apply a turn's changes. Every file is computed first, and a refusal
+ * (`TurnRevertError`) writes nothing. A failure while writing is passed on
+ * unchanged; files written before it stay written. Returns the absolute paths
+ * touched.
+ */
+export async function revertTurnChanges(
+	changes: readonly TurnChange[],
+	cwd: string,
+	skipped: readonly SkippedChange[] = [],
+): Promise<string[]> {
+	const files = [...(await planRevert(changes, skipped, cwd, readCurrent)).values()];
+	for (const file of files) {
+		if (file.deleted) await unlink(file.absolute);
+		else await writeFile(file.absolute, revertedText(file), "utf8");
 	}
-	return [...files.keys()];
+	return files.map((file) => file.absolute);
+}
+
+/**
+ * Whether undoing later turns first would let the turn `turnId` undo. The
+ * later turns not yet reverted that this turn's files depend on are those that
+ * changed one of its files, then those that changed one of theirs, and so on;
+ * one of them must have recorded a patch to `blocked`. Reverting them newest
+ * first, each as a whole, then this turn must succeed on the files as they are
+ * now. Simulated in memory; nothing is written, and the real reverts check
+ * everything again.
+ */
+async function laterTurnsUnblock(
+	entries: readonly SessionEntry[],
+	turnId: string,
+	turn: TurnChangeSet,
+	/** `fileKey` of the file that blocked this turn's revert. */
+	blocked: string,
+	cwd: string,
+): Promise<boolean> {
+	const start = entries.findIndex((entry) => entry.id === turnId && isUserMessage(entry));
+	const reverted = new Set(revertedTurnIds(entries));
+	const keysOf = (set: TurnChangeSet) =>
+		Promise.all(set.changes.map((change) => fileKey(resolveToCwd(change.path, cwd))));
+	const candidates = await Promise.all(
+		entries
+			.slice(start + 1)
+			.filter((entry) => isUserMessage(entry) && !reverted.has(entry.id))
+			.map(async (entry) => {
+				const set = turnChanges(entries, entry.id);
+				return { set, keys: new Set(await keysOf(set)) };
+			}),
+	);
+	const touched = new Set(await keysOf(turn));
+	const dependent = new Set<(typeof candidates)[number]>();
+	for (let grew = true; grew; ) {
+		grew = false;
+		for (const candidate of candidates) {
+			if (dependent.has(candidate) || ![...candidate.keys].some((key) => touched.has(key))) continue;
+			dependent.add(candidate);
+			for (const key of candidate.keys) touched.add(key);
+			grew = true;
+		}
+	}
+	const later = candidates.filter((candidate) => dependent.has(candidate));
+	if (!later.some((candidate) => candidate.keys.has(blocked))) return false;
+	// What each simulated revert left, by file key: the text, or undefined once deleted.
+	const simulated = new Map<string, string | undefined>();
+	const read: ReadText = (absolute, key) =>
+		simulated.has(key) ? Promise.resolve(simulated.get(key)) : readCurrent(absolute);
+	try {
+		for (const { set } of later.reverse()) {
+			for (const [key, file] of await planRevert(set.changes, set.skipped, cwd, read)) {
+				simulated.set(key, file.deleted ? undefined : revertedText(file));
+			}
+		}
+		await planRevert(turn.changes, turn.skipped, cwd, read);
+		return true;
+	} catch (error) {
+		if (error instanceof TurnRevertError) return false;
+		throw error;
+	}
 }
 
 /**
@@ -352,7 +477,11 @@ export class TurnReverter {
 		return this.busy;
 	}
 
-	/** Revert the turn `turnId`; `record` appends the revert entry once the files are written. */
+	/**
+	 * Revert the turn `turnId`; `record` appends the revert entry once the files
+	 * are written. A file that no longer matches is refused as `conflict` only
+	 * when undoing later turns first was checked to work, otherwise as `modified`.
+	 */
 	async revert(
 		turnId: string,
 		entries: readonly SessionEntry[],
@@ -364,10 +493,27 @@ export class TurnReverter {
 			throw new TurnRevertError("reverted", "This turn was already reverted");
 		this.busy = true;
 		try {
-			const { changes, skipped } = turnChanges(entries, turnId);
-			const paths = await revertTurnChanges(changes, cwd);
-			await record(turnId, changes, paths);
-			return { paths, skipped };
+			const turn = turnChanges(entries, turnId);
+			let paths: string[];
+			try {
+				paths = await revertTurnChanges(turn.changes, cwd, turn.skipped);
+			} catch (error) {
+				if (
+					error instanceof TurnRevertError &&
+					error.code === "modified" &&
+					error.path !== undefined &&
+					(await laterTurnsUnblock(entries, turnId, turn, await fileKey(resolveToCwd(error.path, cwd)), cwd))
+				) {
+					throw new TurnRevertError(
+						"conflict",
+						`${error.path} was changed by a later turn; undo the later turns first, newest first`,
+						error.path,
+					);
+				}
+				throw error;
+			}
+			await record(turnId, turn.changes, paths);
+			return { paths, skipped: turn.skipped };
 		} finally {
 			this.busy = false;
 		}

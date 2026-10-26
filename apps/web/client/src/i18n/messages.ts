@@ -561,7 +561,8 @@ const zhCN = {
 	showFewerFiles: "收起",
 	turnRevertedToast: "已撤销 {count} 个文件的修改",
 	turnRevertFailed: "无法撤销：{reason}",
-	turnRevertConflict: "无法撤销：{path} 在这一轮之后又被修改过。请先撤销之后修改它的轮次",
+	turnRevertConflict: "无法撤销：{path} 在这一轮之后又被修改过。请从最新一轮开始，依次撤销之后的轮次",
+	turnRevertModified: "无法撤销：{path} 的当前内容与本轮记录不一致，无法自动还原；没有修改任何文件",
 	turnRevertMissing: "无法撤销：{path} 已不存在",
 	turnRevertBusy: "请先停止正在运行的任务，再撤销",
 	turnRevertedSkippedToast: "已撤销 {count} 个文件的修改；以下文件没有记录 diff，未撤销：{paths}",
@@ -1487,7 +1488,9 @@ const enUS: Record<MessageKey, string> = {
 	turnRevertedToast: "Reverted changes to {count} files",
 	turnRevertFailed: "Could not undo: {reason}",
 	turnRevertConflict:
-		"Could not undo: {path} was changed again after this turn. Undo the later turns that changed it first",
+		"Could not undo: {path} was changed again after this turn. Undo the later turns first, starting with the newest",
+	turnRevertModified:
+		"Could not undo: {path} no longer matches what this turn recorded and cannot be restored automatically. No files were changed",
 	turnRevertMissing: "Could not undo: {path} no longer exists",
 	turnRevertBusy: "Stop the running task before undoing",
 	turnRevertedSkippedToast:

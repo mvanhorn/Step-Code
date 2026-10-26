@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { SessionEntry as HostEntry } from "@step-harness/coding-agent";
+import { revertFailure } from "../client/src/features/conversation/actions.ts";
+import { t } from "../client/src/i18n/index.ts";
+import { ApiError } from "../client/src/lib/api.ts";
 import { collectTurnChanges } from "../client/src/lib/turn-changes.ts";
 import { timelineFromEntries } from "../client/src/state/session.ts";
 import type { SessionEntry, TimelineItem } from "../client/src/state/types.ts";
@@ -85,4 +88,12 @@ test("collectTurnChanges keeps unchanged turns and files as the same objects", (
 	// The running turn's position moved, so the turn is new, but its file did not change.
 	assert.notEqual(next[1], first[1]);
 	assert.equal(next[1]?.files[0], first[1]?.files[0]);
+});
+
+test("a refused undo names its reason: later turns only for conflict", () => {
+	const refusal = (code: string) => revertFailure(new ApiError(409, { error: "refused", code, path: "a.txt" }));
+	assert.equal(refusal("modified"), t("turnRevertModified", { path: "a.txt" }));
+	assert.equal(refusal("conflict"), t("turnRevertConflict", { path: "a.txt" }));
+	assert.notEqual(refusal("modified"), refusal("conflict"));
+	assert.match(refusal("modified"), /a\.txt/);
 });
