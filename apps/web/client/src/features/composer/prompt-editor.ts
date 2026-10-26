@@ -41,9 +41,8 @@ function serialize(parent: Node): string {
 			if (child.classList.contains(CHIP_CLASS)) out += chipText(child);
 			// A plain command chip is the inline rendering of the command text itself.
 			else if (child.classList.contains(COMMAND_LEAD_CLASS)) out += child.dataset.text ?? "";
-			// The staged mode's lead is the inline rendering of its command; the
-			// outgoing message gets that command from `modePrefix`, not the chip.
-			else if (child.classList.contains(MODE_LEAD_CLASS)) continue;
+			// Every lead chip carries its exact command text, modes included.
+			else if (child.classList.contains(MODE_LEAD_CLASS)) out += child.dataset.text ?? "";
 			else if (child.tagName === "BR") out += "\n";
 			else if (child.tagName === "DIV" || child.tagName === "P") {
 				// A block starts a new line unless one just ended.
@@ -454,26 +453,61 @@ export interface ModeLead {
  * mode replaces the chip in place.
  */
 export function insertModeLead(root: HTMLElement, lead: ModeLead): void {
-	const existing = root.querySelector<HTMLElement>(`.${MODE_LEAD_CLASS}`);
-	if (existing?.dataset.mode === lead.id && existing.textContent === lead.label) return;
-	existing?.remove();
+	const existing = root.querySelector<HTMLElement>(`.${MODE_LEAD_CLASS}[data-mode="${lead.id}"]`);
+	if (existing) return;
+	insertLeadChip(root, MODE_LEAD_CLASS, lead.id, lead.icon, lead.label, `${lead.command} `);
+}
+
+/**
+ * Drop one mode's lead chip (toggling it off, a wiped prompt); without `id`,
+ * every mode chip goes — commands stack, so they each own their lifecycle.
+ */
+export function removeModeLead(root: HTMLElement, id?: string): void {
+	for (const chip of [...root.querySelectorAll<HTMLElement>(`.${MODE_LEAD_CLASS}`)]) {
+		if (id && chip.dataset.mode !== id) continue;
+		if (chip.nextSibling?.textContent === " ") chip.nextSibling.remove();
+		chip.remove();
+	}
+	refreshPlaceholderHint(root);
+}
+
+/**
+ * A lead chip, shared by modes and plain commands: the sent format's own look
+ * (tool-glyph + label, no pill), its exact command text on `dataset.text`, and
+ * it APPENDS after any leads already staged — one input can carry several
+ * commands, in the order they were staged.
+ */
+function insertLeadChip(
+	root: HTMLElement,
+	className: string,
+	mode: string | undefined,
+	icon: string,
+	label: string,
+	text: string,
+): void {
 	const chip = document.createElement("span");
-	chip.className = MODE_LEAD_CLASS;
+	chip.className = className;
 	chip.contentEditable = "false";
-	chip.dataset.mode = lead.id;
-	chip.title = lead.command;
-	const icon = document.createElementNS(SVG_NS, "svg");
-	icon.setAttribute("class", `icon icon--xs ${MODE_LEAD_CLASS}-icon`);
-	icon.setAttribute("aria-hidden", "true");
+	if (mode) chip.dataset.mode = mode;
+	chip.dataset.text = text;
+	chip.title = text.trim();
+	const glyph = document.createElement("span");
+	glyph.className = "tool-glyph";
+	const svg = document.createElementNS(SVG_NS, "svg");
+	svg.setAttribute("class", "icon icon--xs tool-kind-icon");
+	svg.setAttribute("aria-hidden", "true");
 	const use = document.createElementNS(SVG_NS, "use");
-	use.setAttribute("href", `#i-${lead.icon}`);
-	icon.append(use);
-	const label = document.createElement("span");
-	label.className = `${MODE_LEAD_CLASS}-label`;
-	label.textContent = lead.label;
-	chip.append(icon, label);
-	root.insertBefore(chip, root.firstChild ?? null);
-	// The space after it is where the caret sits and what separates the chip from the typed text.
+	use.setAttribute("href", `#i-${icon}`);
+	svg.append(use);
+	glyph.append(svg);
+	const labelText = document.createElement("span");
+	labelText.className = `${className}-label`;
+	labelText.textContent = label;
+	chip.append(glyph, labelText);
+	// Append after the last lead chip already staged, keeping the stack in order.
+	const leads = root.querySelectorAll(`.${MODE_LEAD_CLASS}, .${COMMAND_LEAD_CLASS}`);
+	const anchor = leads.length ? (leads[leads.length - 1] as HTMLElement).nextSibling : (root.firstChild ?? null);
+	root.insertBefore(chip, anchor);
 	root.insertBefore(document.createTextNode(" "), chip.nextSibling);
 	if (document.activeElement === root) {
 		const range = document.createRange();
@@ -481,15 +515,6 @@ export function insertModeLead(root: HTMLElement, lead: ModeLead): void {
 		range.collapse(true);
 		select(range);
 	}
-	refreshPlaceholderHint(root);
-}
-
-/** Drop the lead chip and its separating space (toggling the mode off, or a wiped prompt). */
-export function removeModeLead(root: HTMLElement): void {
-	const chip = root.querySelector(`.${MODE_LEAD_CLASS}`);
-	if (!chip) return;
-	if (chip.nextSibling?.textContent === " ") chip.nextSibling.remove();
-	chip.remove();
 	refreshPlaceholderHint(root);
 }
 
@@ -516,30 +541,7 @@ export interface CommandLead {
  * command text, so the message the kernel receives is unchanged.
  */
 export function insertCommandLead(root: HTMLElement, lead: CommandLead): void {
-	root.querySelector(`.${COMMAND_LEAD_CLASS}`)?.remove();
-	const chip = document.createElement("span");
-	chip.className = COMMAND_LEAD_CLASS;
-	chip.contentEditable = "false";
-	chip.dataset.text = `${lead.command} `;
-	chip.title = lead.command;
-	const icon = document.createElementNS(SVG_NS, "svg");
-	icon.setAttribute("class", `icon icon--xs ${COMMAND_LEAD_CLASS}-icon`);
-	icon.setAttribute("aria-hidden", "true");
-	const use = document.createElementNS(SVG_NS, "use");
-	use.setAttribute("href", `#i-${lead.icon}`);
-	icon.append(use);
-	const label = document.createElement("span");
-	label.className = `${COMMAND_LEAD_CLASS}-label`;
-	label.textContent = lead.command;
-	chip.append(icon, label);
-	root.insertBefore(chip, root.firstChild ?? null);
-	root.insertBefore(document.createTextNode(" "), chip.nextSibling);
-	if (document.activeElement === root) {
-		const range = document.createRange();
-		range.setStart(chip.nextSibling ?? chip, chip.nextSibling ? 1 : 0);
-		range.collapse(true);
-		select(range);
-	}
+	insertLeadChip(root, COMMAND_LEAD_CLASS, undefined, lead.icon, lead.command, `${lead.command} `);
 }
 
 /**

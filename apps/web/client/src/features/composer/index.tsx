@@ -409,24 +409,19 @@ export function Composer({ workspaceControl, branchControl, variant = "full" }: 
 			}
 			/*
 			 * Staged chips shape the outgoing message: one command pick may lead
-			 * it (the kernel runs a single slash command per message, and only
-			 * when it starts with `/`), and note picks plus session-context
-			 * blocks ride at the tail (ZCode's prompt-tail pattern).
+			 * it, and note picks plus session-context blocks ride at the tail.
+			 * The lead chips' own commands ride IN the text: every chip carries
+			 * its exact command line, so stacked commands keep their order.
 			 */
 			const lead = stagedPicks.find((pick) => pick.prefix);
-			// A mode applies to this message only: it leads the text and is dropped
-			// once the message is accepted, never toggled off by a second command.
-			const mode = activeMode ? modePrefix(activeMode) : "";
 			const tail = [
 				...stagedPicks.filter((pick) => pick.note).map((pick) => pick.note),
 				...contextPackages.map((item) => item.block),
 			].join("\n\n");
+			// Lead chips serialize their own commands into `text` in staged order,
+			// so a stacked input (plan + skill + prompt) keeps its built order.
 			const command = lead ? `${lead.prefix} ` : "";
-			// `/plan` has to come first or the kernel never runs it: a leading
-			// `/skill:` would swallow it as an argument. The plan command expands a
-			// skill that follows it.
-			const head = activeMode === "plan" ? `${mode}${command}` : `${command}${mode}`;
-			const outgoing = `${head}${text}${tail ? `\n\n${tail}` : ""}`;
+			const outgoing = `${command}${text}${tail ? `\n\n${tail}` : ""}`;
 			setQuery(null);
 			setPathQuery(null);
 			lastPathQuery.current = null;
