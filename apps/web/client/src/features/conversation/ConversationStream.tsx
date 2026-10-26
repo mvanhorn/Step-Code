@@ -197,6 +197,12 @@ export function ConversationStream() {
 	}, [items, running, breaks]);
 	// Rewriting swaps the message for the compact edit composer, in place.
 	const editingPrompt = useAppStore((state) => state.ui.editingPrompt);
+	// A turn that starts under an open editor (a goal round fires at any idle
+	// boundary) leaves its fork stale; close it instead of keeping a dead
+	// composer parked mid-flow.
+	useEffect(() => {
+		if (running && editingPrompt) setUi({ editingPrompt: null });
+	}, [running, editingPrompt]);
 	// Only the latest prompt is rewritable: fork to the entry before it.
 	let lastUserIndex = -1;
 	for (let index = items.length - 1; index >= 0; index -= 1) {
@@ -214,6 +220,14 @@ export function ConversationStream() {
 			break;
 		}
 	}
+	/*
+	 * Rewriting forks the session back before the latest prompt — only
+	 * coherent once its turn has settled. While a turn runs, the latest prompt
+	 * is a steering message parked mid-flow (a goal round keeps turns busy for
+	 * minutes), and swapping it for an edit composer there reads as an input
+	 * box intruding into the transcript.
+	 */
+	const rewriteClosed = running;
 	return (
 		<div
 			className="stream"
@@ -249,7 +263,9 @@ export function ConversationStream() {
 													row.item.role === "assistant" ? attachmentsFor.get(row.item) : undefined
 												}
 												rewritableBefore={
-													items[lastUserIndex] === row.item ? (rewriteBefore ?? "") : undefined
+													!rewriteClosed && items[lastUserIndex] === row.item
+														? (rewriteBefore ?? "")
+														: undefined
 												}
 											/>
 										)
