@@ -59,6 +59,7 @@ import { PlusMenu } from "./PlusMenu";
 import { PolicyMenu } from "./PolicyMenu";
 import { PromptInput } from "./PromptInput";
 import {
+	insertLineBreak,
 	insertModeLead,
 	insertTextAtCaret,
 	placeCaretAtEnd,
@@ -133,6 +134,8 @@ export function Composer({ workspaceControl, branchControl, variant = "full" }: 
 	const previewRef = useRef<HTMLDivElement | null>(null);
 	/** Closing the preview asks for the editor back: focus waits for the commit that unhides it. */
 	const returnToEditor = useRef(false);
+	/** Shift+Enter leaves the preview: the editor gets the newline it asked for once it is visible. */
+	const newlineOnReturn = useRef(false);
 	/** Picked other-session contexts, one removable chip each, sent with the next message. */
 	const [contextPackages, setContextPackages] = useState<readonly ContextPackage[]>([]);
 	/** Picked skills and plugins, one light-purple icon chip each, sent with the next message. */
@@ -161,18 +164,11 @@ export function Composer({ workspaceControl, branchControl, variant = "full" }: 
 			});
 		else removeModeLead(editor);
 	}, [activeModeMeta, t]);
-	const syncHasText = useCallback(() => {
-		const editor = prompt.current;
-		const text = editor ? promptText(editor) : "";
-		setHasText(Boolean(text.trim()));
-		if (!previewing.current) return;
-		// Edits that bypass `input` (voice, menus, a failed send) still refresh the preview;
-		// an emptied prompt closes it rather than showing a stale render.
-		if (text.trim()) setPreviewSource(text);
-		else {
-			previewing.current = false;
-			setPreviewOpen(false);
-		}
+	/** Back to the editor, caret after the draft. */
+	const closePreview = useCallback(() => {
+		previewing.current = false;
+		returnToEditor.current = true;
+		setPreviewOpen(false);
 	}, []);
 	/** Show the draft as rendered Markdown; the menus belong to the editor and close. */
 	const openPreview = useCallback(() => {
@@ -188,12 +184,6 @@ export function Composer({ workspaceControl, branchControl, variant = "full" }: 
 		lastPathQuery.current = null;
 		setUi({ slashMenu: null, fileCompletionOpen: false });
 	}, []);
-	/** Back to the editor, caret after the draft. */
-	const closePreview = useCallback(() => {
-		previewing.current = false;
-		returnToEditor.current = true;
-		setPreviewOpen(false);
-	}, []);
 	const togglePreview = useCallback(() => {
 		if (previewing.current) closePreview();
 		else openPreview();
@@ -204,6 +194,16 @@ export function Composer({ workspaceControl, branchControl, variant = "full" }: 
 		returnToEditor.current = false;
 		setPreviewOpen(false);
 	}, []);
+	const syncHasText = useCallback(() => {
+		const editor = prompt.current;
+		const text = editor ? promptText(editor) : "";
+		setHasText(Boolean(text.trim()));
+		if (!previewing.current) return;
+		// Edits that bypass `input` (voice, menus, a failed send) still refresh the preview;
+		// an emptied prompt closes it rather than showing a stale render.
+		if (text.trim()) setPreviewSource(text);
+		else closePreview();
+	}, [closePreview]);
 	useEffect(() => {
 		if (previewOpen) {
 			previewRef.current?.focus();
@@ -217,6 +217,10 @@ export function Composer({ workspaceControl, branchControl, variant = "full" }: 
 		if (!editor) return;
 		editor.focus();
 		placeCaretAtEnd(editor);
+		if (newlineOnReturn.current) {
+			newlineOnReturn.current = false;
+			insertLineBreak(editor);
+		}
 	}, [previewOpen]);
 	/*
 	 * A dictated transcript lands at the caret like typed text, with a space
@@ -277,7 +281,12 @@ export function Composer({ workspaceControl, branchControl, variant = "full" }: 
 			// Backspacing over the staged mode's lead chip drops the mode, like deleting its command.
 			if (prompt.current) syncStagedModeLead(prompt.current);
 			setHasText(Boolean(value.trim()));
-			if (previewing.current) setPreviewSource(value);
+			if (previewing.current) {
+				// An undo can empty the draft while the preview owns the screen; it closes rather
+				// than leaving an empty rendered pane over a hidden editor.
+				if (value.trim()) setPreviewSource(value);
+				else closePreview();
+			}
 			const next = slashQuery(value);
 			setQuery(next);
 			const view = getState().ui.slashMenu;
@@ -285,7 +294,7 @@ export function Composer({ workspaceControl, branchControl, variant = "full" }: 
 			else if (view) setUi({ slashMenu: null });
 			syncFileQuery();
 		},
-		[syncFileQuery],
+		[syncFileQuery, closePreview],
 	);
 
 	const onCompositionChange = useCallback((active: boolean) => {
@@ -533,16 +542,25 @@ export function Composer({ workspaceControl, branchControl, variant = "full" }: 
 	/** In the preview, Enter sends and Cmd/Ctrl+Enter steers exactly as in the editor. */
 	const onPreviewKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
 		const mod = event.metaKey || event.ctrlKey;
+		const native = event.nativeEvent;
 		if (event.key === "Escape" || (mod && event.shiftKey && event.key.toLowerCase() === "m")) {
 			event.preventDefault();
 			closePreview();
 			return;
 		}
-		if (event.key !== "Enter") return;
+		// Only a plain Enter is a send: an IME's confirm key, Alt+Enter and other chords are not.
+		if (event.key !== "Enter" || native.isComposing || native.keyCode === 229 || event.altKey) return;
 		// The prompt is not accepting input while the host waits for an approval.
 		if (waiting) return;
 		// A link or a code block's copy button keeps its own Enter.
 		if (event.target instanceof Element && event.target.closest("a, button")) return;
+		if (event.shiftKey) {
+			// Shift+Enter never sends: it returns to the editor and inserts the newline it asked for.
+			event.preventDefault();
+			newlineOnReturn.current = true;
+			closePreview();
+			return;
+		}
 		event.preventDefault();
 		if (mod) steer();
 		else form.current?.requestSubmit();
@@ -655,6 +673,7 @@ export function Composer({ workspaceControl, branchControl, variant = "full" }: 
 						onCompositionChange={onCompositionChange}
 						onMenuKey={edit ? undefined : (key) => files.current?.key(key) || slash.current?.key(key) || false}
 						onTogglePreview={edit ? undefined : togglePreview}
+						onRichPaste={edit ? undefined : openPreview}
 						stageFilesRef={stageFiles}
 					/>
 					{/* The rendered draft covers the editor, which stays mounted so the send path still reads it. */}
@@ -690,7 +709,7 @@ export function Composer({ workspaceControl, branchControl, variant = "full" }: 
 								className="prompt-preview-toggle"
 								aria-label={previewOpen ? t("markdownEdit") : t("markdownPreview")}
 								aria-pressed={previewOpen}
-								disabled={!hasText}
+								disabled={!hasText && !previewOpen}
 								onClick={togglePreview}
 							/>
 						</Tooltip>
