@@ -1878,3 +1878,7 @@ button.compaction-head:focus-visible {
 	background: var(--hover);
 	color: var(--ink);
 }
+
+.message-skill .tool-glyph {
+	color: inherit;
+}

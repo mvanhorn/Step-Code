@@ -23,7 +23,10 @@ export function CommandRow({ item }: { readonly item: CommandTimelineItem }) {
 	const meta = mode ? MODES.find((entry) => entry.id === mode) : undefined;
 	const badge = (
 		<span className={mode ? `message-skill message-skill--${mode}` : "message-skill message-skill--command"}>
-			<Icon name={meta?.icon ?? commandLeadIcon(name)} size="xs" />
+			{/* The model output's own glyph: the tool rows' 16px grid, not bespoke markup. */}
+			<span className="tool-glyph" aria-hidden="true">
+				<Icon className="tool-kind-icon" name={meta?.icon ?? commandLeadIcon(name)} size="xs" />
+			</span>
 			{meta ? t(meta.labelKey) : `/${name}`}
 		</span>
 	);

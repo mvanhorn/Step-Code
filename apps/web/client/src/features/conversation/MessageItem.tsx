@@ -106,7 +106,7 @@ export const MessageItem = memo(function MessageItem({
 	const badgeKind = skill ? "skill" : ultraloop ? "ultraloop" : "plugin";
 	const invokedHtml =
 		(skill || ultraloop || pluginInstall) && html
-			? `<span class="message-skill message-skill--${badgeKind}" title="${escapeHtml(badgeLabel)}"><svg class="icon icon--xs" aria-hidden="true"><use href="#i-${badgeIcon}"></use></svg>${escapeHtml(badgeLabel)}</span>${html}`
+			? `<span class="message-skill message-skill--${badgeKind}" title="${escapeHtml(badgeLabel)}"><span class="tool-glyph" aria-hidden="true"><svg class="icon icon--xs tool-kind-icon" aria-hidden="true"><use href="#i-${badgeIcon}"></use></svg></span>${escapeHtml(badgeLabel)}</span>${html}`
 			: html;
 	useFadeIn(bodyRef, html, live);
 	if (item.error) return <MessageError entryId={item.entryId} error={item.error} />;
