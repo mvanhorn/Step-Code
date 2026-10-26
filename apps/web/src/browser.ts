@@ -36,7 +36,9 @@ export interface BrowserFrame {
 type BrowserEvent =
 	| { type: "snapshot"; data: BrowserSnapshot }
 	| { type: "frame"; data: BrowserFrame }
-	| { type: "closed"; data: null };
+	| { type: "closed"; data: null }
+	/** Another page with the same client id took control; the displaced page must not take it back. */
+	| { type: "replaced"; data: null };
 interface OwnedTab {
 	page: Page;
 	cdp: CDPSession;
@@ -111,20 +113,36 @@ export class WebBrowser {
 		if (this.disposed) throw new BrowserRequestError("Browser host is stopping", 503);
 		if (typeof clientId !== "string" || !/^[a-zA-Z0-9-]{16,80}$/.test(clientId))
 			throw new BrowserRequestError("Invalid browser client id");
-		if (this.lease && this.lease.until > Date.now() && this.lease.clientId !== clientId)
+		const lease = this.lease;
+		if (lease && lease.clientId !== clientId && this.holds(lease.token))
 			throw new BrowserRequestError("The browser is controlled by another StepCode page", 409);
-		// Rotate tokens on reload: late cleanup from the previous page cannot release its replacement.
-		if (this.lease) this.release(this.lease.token);
-		else this.detachConsumer();
+		if (lease) {
+			// Rotate tokens on reload: late cleanup from the previous page cannot release its replacement.
+			// The same id can also belong to a live duplicate (a duplicated tab copies sessionStorage), so
+			// the displaced stream learns it was replaced, not dropped, and must not take control back.
+			if (this.consumer?.token === lease.token) this.consumer.send({ type: "replaced", data: null });
+			this.release(lease.token);
+		} else this.detachConsumer();
 		const token = randomUUID();
-		this.lease = { clientId, token, until: Date.now() + 15_000 };
+		this.lease = { clientId, token, until: Date.now() + LEASE_MS };
 		this.touch(token);
 		return { token };
 	}
 
+	/**
+	 * Whether `token` controls the browser. The attached frame stream is that page's own connection,
+	 * so it keeps control past the lease deadline: a sleeping window, a stalled renderer or a busy Host
+	 * can outlast the heartbeat interval. Requests, competing pages and the expiry callback all ask
+	 * this, so a request served before the callback runs gets the same answer. A page whose stream
+	 * closed keeps control only until the deadline.
+	 */
+	private holds(token: string): boolean {
+		const lease = this.lease;
+		return !!lease && lease.token === token && (lease.until > Date.now() || this.consumer?.token === token);
+	}
+
 	touch(token: string): void {
-		if (this.disposed || !this.lease || this.lease.token !== token || this.lease.until <= Date.now())
-			throw new BrowserRequestError("Browser control expired; reconnect", 409);
+		if (this.disposed || !this.holds(token)) throw new BrowserRequestError("Browser control expired; reconnect", 409);
 		this.renew(token);
 	}
 
@@ -136,19 +154,11 @@ export class WebBrowser {
 		this.leaseTimer.unref();
 	}
 
-	/**
-	 * The lease lapsed without a heartbeat. An attached frame stream is that page's own
-	 * connection: a sleeping window, a stalled renderer or a busy Host can outlast the heartbeat
-	 * interval, so control is renewed instead of ending the stream. With no consumer (the page's
-	 * socket closed) control is released for the next page.
-	 */
+	/** The deadline passed without a heartbeat: an attached page keeps control, a detached one loses it. */
 	private expire(token: string): void {
 		if (this.lease?.token !== token) return;
-		if (this.consumer?.token === token) {
-			this.renew(token);
-			return;
-		}
-		this.release(token);
+		if (this.holds(token)) this.renew(token);
+		else this.release(token);
 	}
 
 	release(token: string): void {

@@ -250,11 +250,14 @@ When to add or change one:
   `src/browser.ts` / `browser-routes.ts`, not a Desktop bridge or iframe.
   Hiding releases its stream/controller but keeps tabs. Refresh rotates a
   leased controller token; late cleanup must not release its replacement.
-  Coalesce pointer moves and wheel deltas per frame: a fast trackpad must keep
-  its scroll distance instead of filling the input queue. An attached frame
-  stream renews the lease across a missed heartbeat, and a dropped stream
-  reconnects with backoff; only a competing page or a stopping Host leaves the
-  manual Reconnect control.
+  Coalesce pointer moves and wheel deltas per frame in event order: a fast
+  trackpad must keep its scroll distance instead of filling the input queue,
+  but never sum wheels at different places or in opposite directions. An
+  attached frame stream keeps control past the lease deadline, and requests,
+  competing pages and the expiry timer must use the same rule. A same-id
+  replacement sends `replaced` to the displaced stream, which must not
+  reconnect by itself. Only a lost stream reconnects with backoff; restore the
+  retry budget after a healthy connection, not when connect resolves.
   Keep frame/input queues bounded and block host/client ports for subresources
   and WebSockets too. The browser-owned authenticated loopback proxy checks
   connection destinations across redirects and tunnels; keep loopback bypass

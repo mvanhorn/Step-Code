@@ -5,19 +5,36 @@ import { writeClipboard } from "../../lib/clipboard";
 import { isMacPlatform } from "../../lib/format";
 import type { EmbeddedBrowserFrame, EmbeddedBrowserSnapshot } from "../../state/types";
 import { Button, Icon, IconButton, type IconName, Tooltip } from "../../ui";
-import { BrowserConnection, browserKeyRoute } from "./actions";
+import {
+	BrowserConnection,
+	BrowserDisconnect,
+	type BrowserPointerMove,
+	browserKeyRoute,
+	browserRetryable,
+} from "./actions";
 
 const EMPTY: EmbeddedBrowserSnapshot = { revision: 0, activeId: null, tabs: [] };
 /** Backoff for an unexpected stream drop; a manual Reconnect starts over. */
 const RECONNECT_DELAYS_MS = [1000, 2000, 4000, 8000, 8000];
+/**
+ * A connection must stay up this long before its retry budget is restored. A stream that opens and
+ * drops at once is not healthy: resetting on every open would retry it every second forever.
+ */
+const HEALTHY_AFTER_MS = 10_000;
 
 export function BrowserPanel({ open }: { open: boolean }) {
 	const t = useT();
 	const [snapshot, setSnapshot] = useState(EMPTY);
 	const [error, setError] = useState("");
-	/* The host refuses a second page with 409; say so in the UI language instead of echoing its English. */
+	/*
+	 * The host refuses a second page with 409, and tells a displaced duplicate page it was replaced; say
+	 * so in the UI language instead of echoing its English.
+	 */
 	const failureText = (failure: unknown) =>
-		failure instanceof ApiError && failure.status === 409 ? t("browserBusy") : errorMessage(failure);
+		(failure instanceof ApiError && failure.status === 409) ||
+		(failure instanceof BrowserDisconnect && failure.reason === "replaced")
+			? t("browserBusy")
+			: errorMessage(failure);
 	const [ready, setReady] = useState(false);
 	const [retry, setRetry] = useState(0);
 	const [frame, setFrame] = useState<EmbeddedBrowserFrame>();
@@ -39,6 +56,7 @@ export function BrowserPanel({ open }: { open: boolean }) {
 		if (!open) return;
 		let disposed = false;
 		let retryTimer: ReturnType<typeof setTimeout> | undefined;
+		let healthyTimer: ReturnType<typeof setTimeout> | undefined;
 		let decoding = false;
 		let latest: EmbeddedBrowserFrame | undefined;
 		const display = async (value: EmbeddedBrowserFrame) => {
@@ -60,10 +78,11 @@ export function BrowserPanel({ open }: { open: boolean }) {
 				decoding = false;
 			}
 		};
-		// A dropped stream (a stalled renderer, a Host restart) reconnects by itself; a competing
-		// page or a stopping Host keeps the manual Reconnect button instead of retrying forever.
-		const reconnect = () => {
-			if (disposed || retryTimer) return;
+		// A lost stream (a stalled renderer, a Host restart) reconnects by itself with backoff. A competing
+		// page, a displaced duplicate page and a stopping Host keep the manual Reconnect button instead,
+		// so two pages never take control from each other in a loop.
+		const reconnect = (failure: unknown) => {
+			if (disposed || retryTimer || !browserRetryable(failure)) return;
 			const attempt = attempts.current;
 			if (attempt >= RECONNECT_DELAYS_MS.length) return;
 			attempts.current = attempt + 1;
@@ -83,8 +102,9 @@ export function BrowserPanel({ open }: { open: boolean }) {
 				if (disposed) return;
 				setError(failureText(failure));
 				if (disconnected) {
+					clearTimeout(healthyTimer);
 					setReady(false);
-					reconnect();
+					reconnect(failure);
 				}
 			},
 		);
@@ -94,20 +114,22 @@ export function BrowserPanel({ open }: { open: boolean }) {
 		void client
 			.connect()
 			.then(() => {
-				if (!disposed) {
+				if (disposed) return;
+				setReady(true);
+				healthyTimer = setTimeout(() => {
 					attempts.current = 0;
-					setReady(true);
-				}
+				}, HEALTHY_AFTER_MS);
 			})
 			.catch((failure: unknown) => {
 				if (disposed) return;
 				setError(failureText(failure));
 				client.close();
-				if (!(failure instanceof ApiError) || (failure.status !== 409 && failure.status !== 503)) reconnect();
+				reconnect(failure);
 			});
 		return () => {
 			disposed = true;
 			clearTimeout(retryTimer);
+			clearTimeout(healthyTimer);
 			client.close();
 			connection.current = null;
 		};
@@ -136,11 +158,13 @@ export function BrowserPanel({ open }: { open: boolean }) {
 	const action = (name: string, value?: unknown) => {
 		if (activeId) connection.current?.send(`/tabs/${activeId}/action`, { action: name, value });
 	};
-	const sendInput = (event: unknown, move = false) => {
+	const sendInput = (event: unknown) => {
 		if (!activeId || !ready) return;
-		const path = `/tabs/${activeId}/input`;
-		if (move) connection.current?.move(path, event);
-		else connection.current?.send(path, event);
+		connection.current?.send(`/tabs/${activeId}/input`, event);
+	};
+	const moveInput = (event: BrowserPointerMove) => {
+		if (!activeId || !ready) return;
+		connection.current?.move(`/tabs/${activeId}/input`, event);
 	};
 	const copy = () => {
 		if (!activeId) return;
@@ -182,16 +206,10 @@ export function BrowserPanel({ open }: { open: boolean }) {
 				input.current.focus({ preventScroll: true });
 			}
 		}
-		sendInput(
-			{
-				kind: "pointer",
-				phase,
-				...point(event.clientX, event.clientY),
-				button: event.button === 2 ? "right" : event.button === 1 ? "middle" : "left",
-				clicks: clicks.current.count,
-			},
-			phase === "move",
-		);
+		const position = point(event.clientX, event.clientY);
+		const button = event.button === 2 ? "right" : event.button === 1 ? "middle" : "left";
+		if (phase === "move") moveInput({ kind: "pointer", phase, ...position, button, clicks: clicks.current.count });
+		else sendInput({ kind: "pointer", phase, ...position, button, clicks: clicks.current.count });
 	};
 	const key = (event: KeyboardEvent<HTMLTextAreaElement>) => {
 		event.stopPropagation();

@@ -260,15 +260,18 @@ paths:
   /api/v1/browser/events:
     get:
       description: |
-        Authenticated SSE with snapshot, frame and closed events. Each frame has
+        Authenticated SSE with snapshot, frame, closed and replaced events. Each frame has
         tabId, width, height (remote CSS viewport coordinates), surfaceWidth and
         surfaceHeight (the captured image in the same units; the page is its
         top-left width x height, the rest is unused window area) and base64 JPEG data.
         Chromium frames are ACKed locally; transport is capped at 15 fps with one
         pending latest frame. Network backpressure drops frames and retains only
-        the newest snapshot. Frame payloads are bounded to 2.8 million base64
+        the newest snapshot; closed and replaced are always written because the
+        stream ends right after them. Frame payloads are bounded to 2.8 million base64
         characters. The client renews its lease every five seconds through GET
-        /browser; the stream itself does not renew ownership.
+        /browser; while this stream stays attached its token keeps control past the
+        lease deadline. replaced means another page with the same client id took
+        control; that page must not reconnect by itself.
       parameters:
         - { $ref: "#/components/parameters/BrowserControl" }
       responses:

@@ -791,14 +791,25 @@ page at a time owns a 15-second input lease; polling every five seconds renews
 it. The page's sessionStorage client id allows refresh to rotate the token,
 and a late old-page release cannot remove its replacement. A competing page
 gets 409 rather than silently moving another page's tabs or viewport. The
-attached frame stream is the page's own connection, so a missed heartbeat
-renews the lease instead of ending the stream: a sleeping window, a stalled
-renderer or a busy Host can outlast the interval, and frames resume when the
-page does. A page whose socket closed has no consumer and loses control when
-the lease lapses. Closing or hiding the inspector releases input/stream
-ownership, not tabs. An unexpected stream end reconnects with backoff before
-the manual Reconnect control is needed, and two consecutive heartbeat misses
-do not count as a lost Host.
+attached frame stream is the page's own connection, so it keeps control past
+the lease deadline: a sleeping window, a stalled renderer or a busy Host can
+outlast the heartbeat interval, and frames resume when the page does. Requests,
+competing pages and the expiry timer share that one rule, so a request served
+before the timer runs gets the same answer. A page whose stream closed keeps
+control only until the deadline. Closing or hiding the inspector releases
+input/stream ownership, not tabs.
+
+A duplicated browser tab copies sessionStorage, so two live pages can share a
+client id. The newer page takes control as a refresh would, and the displaced
+page receives a `replaced` event before its stream ends; it shows the busy
+message and does not reconnect by itself, so the two pages never take control
+from each other in a loop. A connection counts as established only once its
+frame stream opens. A lost or unopened stream, network errors and three
+consecutive missed heartbeats reconnect with 1, 2, 4, 8 and 8 second backoff;
+the retry budget is restored only after the connection stays up for ten
+seconds, so a stream that opens and drops at once stops after five retries. A
+competing page (409), a stopping Host and a displaced page wait for the manual
+Reconnect control.
 Initial reads, command replies, heartbeat reads and SSE snapshots share one
 revision gate per connection. Duplicate/older revisions and replies arriving
 after connection close cannot replace current state.
@@ -829,10 +840,14 @@ it. The host ACKs Chromium frames locally,
 caps delivery at 15 fps and keeps at most one newest scheduled frame. A blocked
 response drops frames and keeps only the newest metadata; the client keeps
 one decoding image plus one pending latest frame. Input is serialized and
-bounded (48 client / 64 host operations); pointer moves and wheel deltas are
-coalesced. One coalesced wheel command carries the accumulated delta for a
-frame, because Chromium needs about two frames per wheel dispatch; a fast
-trackpad therefore keeps its scroll distance instead of filling the queue.
+bounded (48 client / 64 host operations). Pointer moves and wheel deltas are
+coalesced for one 40 ms frame in the order they happened: Chromium needs about
+two frames per wheel dispatch, so a fast trackpad would otherwise fill the
+queue and lose scroll distance. Wheels are summed only when they scroll the
+same way within 16 CSS pixels of where the batch started: a wheel elsewhere may
+reach another scroll container, and up-then-down at a scroll boundary still
+scrolls down. A wheel replaces an earlier pending move because the Host moves
+the remote pointer to the wheel first; a later move is sent after the wheel.
 Hidden inspectors disconnect the stream instead of decoding background frames.
 
 Mouse clicks/dragging, wheel, editing/navigation keys, text paste and committed
