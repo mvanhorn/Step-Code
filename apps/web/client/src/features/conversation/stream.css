@@ -160,7 +160,8 @@
 .message-skill {
 	--message-kind-accent: var(--ink-2);
 	display: inline-flex;
-	align-items: center;
+	/* Baseline, not box center: the label rides the prompt text's baseline. */
+	align-items: baseline;
 	gap: 5px;
 	max-width: 100%;
 	color: var(--message-kind-accent);
