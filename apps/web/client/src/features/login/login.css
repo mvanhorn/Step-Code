@@ -27,8 +27,8 @@
 	width: 76px;
 	height: 76px;
 	border-radius: 22px;
-	/* Brand tile: stays dark in both themes so the mark keeps its contrast. */
 	background: var(--brand-tile);
+	box-shadow: inset 0 0 0 1px var(--line);
 }
 
 .login-logo-mark {

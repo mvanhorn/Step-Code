@@ -147,6 +147,7 @@
 	height: 44px;
 	border-radius: 12px;
 	background: var(--brand-tile);
+	box-shadow: inset 0 0 0 1px var(--line);
 }
 .empty-mark > .icon {
 	width: 28px;

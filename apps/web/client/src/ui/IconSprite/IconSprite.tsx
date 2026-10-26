@@ -184,11 +184,11 @@ export function IconSprite() {
 			</symbol>
 			{/*
 			 * The StepCode mark (the sign-in logo): the supplied brand asset,
-			 * `/brand-mark.png`, used as-is. It is a pure-black shape on
-			 * transparency, so it inverts to white on the dark brand tile.
+			 * `/brand-mark.png`, used as-is — a black disc whose cut-outs read
+			 * as the light brand tile behind it.
 			 */}
 			<symbol id="i-stepcode" viewBox="0 0 339 339">
-				<image href="/brand-mark.png" width="339" height="339" style={{ filter: "invert(1)" }} />
+				<image href="/brand-mark.png" width="339" height="339" />
 			</symbol>
 			{/* icon-library.html: ExternalLink */}
 			<symbol id="i-accountExternal" viewBox="0 0 24 24" fill="none">
