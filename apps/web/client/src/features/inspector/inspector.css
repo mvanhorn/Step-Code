@@ -311,7 +311,19 @@
 	font-size: 12px;
 	font-weight: 500;
 }
+/* The full objective clamps to three lines; the summary line above carries the gist. */
+.sb-goal-summary {
+	margin: 0 0 4px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-weight: 600;
+}
 .sb-goal-objective {
+	display: -webkit-box;
+	-webkit-box-orient: vertical;
+	-webkit-line-clamp: 3;
+	overflow: hidden;
 	margin: 0 0 2px;
 	color: var(--ink);
 	font-size: 13px;
@@ -399,4 +411,23 @@
 }
 .right-tool-rail .icon-button.rail-goal-held::after {
 	background: var(--attention);
+}
+
+/* Pause / resume beside the 目标 label. */
+.sb-goal-toggle {
+	display: grid;
+	place-items: center;
+	width: 22px;
+	height: 22px;
+	margin-left: 2px;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-control);
+	background: transparent;
+	color: var(--ink-3);
+	cursor: pointer;
+}
+.sb-goal-toggle:hover {
+	background: var(--surface-soft);
+	color: var(--ink);
 }

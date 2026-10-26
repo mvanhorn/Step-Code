@@ -9,7 +9,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useT } from "../../i18n";
 import { apiSend, errorMessage } from "../../lib/api";
-import { useImeGuard } from "../../lib/ime";
 import { refreshCurrent, showError } from "../../state/session";
 import { useAppStore } from "../../state/store";
 import type { GoalState } from "../../state/types";
@@ -35,6 +34,15 @@ function statusKey(status: GoalState["status"]): string {
 	}
 }
 
+/**
+ * A one-line title for the objective: its first sentence or clause, capped —
+ * the full text stays available in the clamped body underneath.
+ */
+function summarizeGoal(objective: string): string {
+	const first = objective.split(/(?<=[。！？!?；;\n])/u)[0]?.trim() ?? objective.trim();
+	return first.length > 36 ? `${first.slice(0, 36).trimEnd()}…` : first || objective;
+}
+
 /** `mm:ss`, growing to `h:mm:ss` once an hour is past. */
 function formatElapsed(seconds: number): string {
 	const total = Math.max(0, Math.floor(seconds));
@@ -49,20 +57,8 @@ export function SummaryGoal() {
 	const t = useT();
 	const goal = useAppStore((state) => state.current?.goal);
 	const sessionId = useAppStore((state) => state.current?.id);
-	const [editing, setEditing] = useState<string | null>(null);
-	const [draft, setDraft] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [expanded, setExpanded] = useState(false);
-	const editor = useRef<HTMLInputElement | null>(null);
-	const ime = useImeGuard();
-
-	// The edit form belongs to one goal; a replaced or cleared goal closes it.
-	useEffect(() => {
-		if (editing !== null && goal?.id !== editing) setEditing(null);
-	}, [editing, goal]);
-	useEffect(() => {
-		if (editing !== null) editor.current?.focus();
-	}, [editing]);
 
 	/*
 	 * The projection carries active-only seconds; between refreshes the clock
@@ -95,7 +91,6 @@ export function SummaryGoal() {
 				action,
 				...(objective === undefined ? {} : { objective }),
 			});
-			if (action === "edit") setEditing(null);
 			// Clearing a finished goal folds the section away with it.
 			if (action === "clear") setExpanded(false);
 			// The goal is persisted state; re-read it rather than guessing the result.
@@ -107,13 +102,8 @@ export function SummaryGoal() {
 		}
 	};
 
-	const submitEdit = (): void => {
-		const text = draft.trim();
-		if (text) void send("edit", text);
-	};
-
 	// A finished goal is history: one line until the user asks for the card.
-	if (goal.status === "complete" && !expanded && editing === null) {
+	if (goal.status === "complete" && !expanded) {
 		return (
 			<section className="sb-goal" data-status="complete" aria-label={t("rightGoal")}>
 				{/* The completed-tasks trigger pattern, verbatim; the meta only clamps and adds figures. */}
@@ -143,6 +133,19 @@ export function SummaryGoal() {
 		<section className="sb-goal" data-status={goal.status} aria-label={t("rightGoal")}>
 			<div className="sb-section-heading">
 				<h3>{t("rightGoal")}</h3>
+				{/* Pause / resume rides beside the label; a finished goal keeps its fold. */}
+				{goal.status === "complete" ? null : (
+					<button
+						className="sb-goal-toggle"
+						type="button"
+						title={t(active ? "goalPause" : "goalResume")}
+						aria-label={t(active ? "goalPause" : "goalResume")}
+						disabled={busy}
+						onClick={() => void send(active ? "pause" : "resume")}
+					>
+						<Icon name={active ? "stop" : "orbit"} size="xs" />
+					</button>
+				)}
 				{goal.status === "complete" ? (
 					<button
 						className="sb-goal-fold"
@@ -157,96 +160,48 @@ export function SummaryGoal() {
 					<span className="sb-goal-status">{t(statusKey(goal.status))}</span>
 				)}
 			</div>
-			{editing !== null ? (
-				<div className="sb-goal-edit">
-					<input
-						ref={editor}
-						className="sb-goal-input"
-						value={draft}
-						aria-label={t("goalEditLabel")}
-						onChange={(event) => setDraft(event.target.value)}
-						onKeyDown={(event) => {
-							if (ime.isComposing(event)) return;
-							if (event.key === "Enter") {
-								event.preventDefault();
-								submitEdit();
-							}
-							if (event.key === "Escape") {
-								event.preventDefault();
-								setEditing(null);
-							}
-						}}
+			{/* A one-line summary of the objective, then the full text clamped to three lines. */}
+			<p className="sb-goal-summary">{summarizeGoal(goal.objective)}</p>
+			<p className="sb-goal-objective">{goal.objective}</p>
+			<p className="sb-goal-stats">
+				{t("goalRounds", { rounds: goal.rounds })}
+				{" · "}
+				{t("goalElapsed", { time: formatElapsed(elapsed) })}
+				{" · "}
+				{t("goalTokens", {
+					used: goal.tokensUsed.toLocaleString(),
+					budget: goal.tokenBudget === undefined ? t("goalUnbounded") : goal.tokenBudget.toLocaleString(),
+				})}
+			</p>
+			{goal.tokenBudget === undefined ? null : (
+				<div
+					className="sb-goal-progress"
+					data-tight={goal.tokensUsed / goal.tokenBudget >= 0.8 ? "" : undefined}
+					role="progressbar"
+					aria-label={t("goalTokens", {
+						used: goal.tokensUsed.toLocaleString(),
+						budget: goal.tokenBudget === undefined ? t("goalUnbounded") : goal.tokenBudget.toLocaleString(),
+					})}
+					aria-valuemin={0}
+					aria-valuemax={100}
+					aria-valuenow={Math.round((goal.tokensUsed / goal.tokenBudget) * 100)}
+					aria-valuetext={t("goalTokens", {
+						used: goal.tokensUsed.toLocaleString(),
+						budget: goal.tokenBudget === undefined ? t("goalUnbounded") : goal.tokenBudget.toLocaleString(),
+					})}
+				>
+					<div
+						className="sb-goal-progress-fill"
+						style={{ width: `${Math.min(100, (goal.tokensUsed / goal.tokenBudget) * 100)}%` }}
 					/>
-					<div className="sb-goal-actions">
-						<Button variant="primary" onClick={submitEdit} disabled={busy || !draft.trim()}>
-							{t("goalSave")}
-						</Button>
-						<Button onClick={() => setEditing(null)} disabled={busy}>
-							{t("goalCancel")}
-						</Button>
-					</div>
 				</div>
-			) : (
-				<>
-					<p className="sb-goal-objective">{goal.objective}</p>
-					<p className="sb-goal-stats">
-						{t("goalRounds", { rounds: goal.rounds })}
-						{" · "}
-						{t("goalElapsed", { time: formatElapsed(elapsed) })}
-						{" · "}
-						{t("goalTokens", {
-							used: goal.tokensUsed.toLocaleString(),
-							budget: goal.tokenBudget === undefined ? t("goalUnbounded") : goal.tokenBudget.toLocaleString(),
-						})}
-					</p>
-					{goal.tokenBudget === undefined ? null : (
-						<div
-							className="sb-goal-progress"
-							data-tight={goal.tokensUsed / goal.tokenBudget >= 0.8 ? "" : undefined}
-							role="progressbar"
-							aria-label={t("goalTokens", {
-								used: goal.tokensUsed.toLocaleString(),
-								budget: goal.tokenBudget.toLocaleString(),
-							})}
-							aria-valuemin={0}
-							aria-valuemax={100}
-							aria-valuenow={Math.round((goal.tokensUsed / goal.tokenBudget) * 100)}
-							aria-valuetext={t("goalTokens", {
-								used: goal.tokensUsed.toLocaleString(),
-								budget: goal.tokenBudget.toLocaleString(),
-							})}
-						>
-							<div
-								className="sb-goal-progress-fill"
-								style={{ width: `${Math.min(100, (goal.tokensUsed / goal.tokenBudget) * 100)}%` }}
-							/>
-						</div>
-					)}
-					<div className="sb-goal-actions">
-						<Button
-							onClick={() => void send(active ? "pause" : "resume")}
-							disabled={busy || goal.status === "complete"}
-						>
-							<Icon name={active ? "stop" : "orbit"} size="2xs" />
-							{t(active ? "goalPause" : "goalResume")}
-						</Button>
-						<Button
-							onClick={() => {
-								setDraft(goal.objective);
-								setEditing(goal.id);
-							}}
-							disabled={busy}
-						>
-							<Icon name="pencil" size="2xs" />
-							{t("goalEdit")}
-						</Button>
-						<Button onClick={() => void send("clear")} disabled={busy}>
-							<Icon name="trash" size="2xs" />
-							{t("goalDelete")}
-						</Button>
-					</div>
-				</>
 			)}
+			<div className="sb-goal-actions">
+				<Button onClick={() => void send("clear")} disabled={busy}>
+					<Icon name="trash" size="2xs" />
+					{t("goalDelete")}
+				</Button>
+			</div>
 		</section>
 	);
 }
