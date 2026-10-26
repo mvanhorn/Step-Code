@@ -119,7 +119,7 @@ export function MicButton({ onTranscript }: MicButtonProps) {
 			id="voiceButton"
 			className={cx("voice-button", listening && "voice-button--listening")}
 			icon={connecting || transcribing ? undefined : "mic"}
-			iconSize={listening ? "lg" : "md"}
+			iconSize={"lg"}
 			aria-label={label}
 			disabled={connecting || transcribing}
 			onClick={() => {
