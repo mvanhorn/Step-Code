@@ -172,6 +172,10 @@ export function parseMcpServerConfig(input: unknown): StepMcpServerConfig {
 	if (enabledTools) config.enabled_tools = enabledTools;
 	const disabledTools = stringList(input.disabled_tools, "disabled_tools");
 	if (disabledTools && disabledTools.length > 0) config.disabled_tools = disabledTools;
+	if (input.shared !== undefined) {
+		if (typeof input.shared !== "boolean") throw new SettingsError(400, "shared must be a boolean");
+		config.shared = input.shared;
+	}
 	const startup = positiveNumber(input.startup_timeout_sec, "startup_timeout_sec");
 	if (startup !== undefined) config.startup_timeout_sec = startup;
 	const toolTimeout = positiveNumber(input.tool_timeout_sec, "tool_timeout_sec");
@@ -231,7 +235,9 @@ export function saveMcpServer(name: string, input: unknown, options: { replace: 
 		const existing = servers[name];
 		if (options.replace && !existing) throw new SettingsError(404, `MCP server '${name}' does not exist`);
 		if (!options.replace && existing) throw new SettingsError(409, `MCP server '${name}' already exists`);
-		return { ...servers, [name]: config };
+		// The settings form has no sharing switch: an edit keeps a `shared` set in config.toml.
+		const kept = config.shared === undefined && isRecord(existing) && typeof existing.shared === "boolean";
+		return { ...servers, [name]: kept ? { ...config, shared: existing.shared as boolean } : config };
 	});
 }
 

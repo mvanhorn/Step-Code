@@ -2205,6 +2205,7 @@ components:
           type: array
           items: { type: string }
         disabled_tools: { type: array, items: { type: string } }
+        shared: { type: boolean, description: "false gives every session its own connection instead of the shared one" }
         oauth:
           type: object
           properties:

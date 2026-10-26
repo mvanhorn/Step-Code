@@ -184,11 +184,13 @@ export interface WebQueueState {
 export type WebSessionStatus = "idle" | "running" | "waiting" | "completed" | "failed";
 
 /**
- * MCP servers of the host process. The kernel keeps one status list, written
- * by the session that started last; the Web host renders no `/mcp` notify text.
+ * MCP server statuses. With a session manager, what that session connected;
+ * otherwise the list of the session that started last in this process. Servers
+ * are pooled per process, so sessions share connections, but each session
+ * still discovers its own set (project plugins depend on its cwd and trust).
  */
-export function mcpStatuses(): StepMcpStatus[] {
-	return getStepMcpStatuses();
+export function mcpStatuses(session?: object): StepMcpStatus[] {
+	return getStepMcpStatuses(session);
 }
 
 /** One `/btw` answer as the rail shows it. */
@@ -731,6 +733,15 @@ export class WebSession {
 	private lastRunAborted = false;
 	/** The kernel's retry of a failed model request, while one is scheduled or running. */
 	private readonly retry = new RetryTracker();
+	/** Settles when the bound session's `session_start` handlers (MCP startup included) have finished. */
+	private extensionsReady: Promise<void> = Promise.resolve();
+	/** Startup of the bound session; replaced on fork or /new so a stale binding cannot report into it. */
+	private extensionsStartup: { settled: boolean } = { settled: true };
+	/**
+	 * A sent message waiting for extension startup before it becomes a prompt.
+	 * Other messages queue behind it, and `interrupt` cancels it back into the queue.
+	 */
+	private startingPrompt?: { cancelled: boolean };
 	/** One background attempt to name this session after its first prompt has run. */
 	private sessionTitleGenerated = false;
 	/**
@@ -1075,7 +1086,12 @@ export class WebSession {
 				setImmediate(() => this.dispatchQueued());
 			}
 		});
-		void session.bindExtensions({
+		// Extension startup (MCP servers above all) registers tools after binding.
+		// A prompt sent before it settles goes out without them, so the first
+		// message of a new chat could not call any MCP tool. `send` waits on this.
+		const bound = { settled: false };
+		this.extensionsStartup = bound;
+		const binding = session.bindExtensions({
 			mode: "rpc",
 			uiContext: webUiContext(
 				this.broker,
@@ -1095,6 +1111,21 @@ export class WebSession {
 			},
 			onError: (error) => this.emit({ type: "error", message: error.error }),
 		});
+		this.extensionsReady = binding.then(
+			() => {
+				bound.settled = true;
+			},
+			(caught: unknown) => {
+				bound.settled = true;
+				// A failed startup keeps the tools it did register; the session stays
+				// usable, so report it instead of blocking prompts.
+				if (this.extensionsStartup === bound)
+					this.emit({
+						type: "error",
+						message: `Extension startup failed: ${caught instanceof Error ? caught.message : String(caught)}`,
+					});
+			},
+		);
 	}
 
 	private setStatus(status: WebSessionStatus, unread = this.unread): void {
@@ -1193,6 +1224,41 @@ export class WebSession {
 	async send(text: string, attachments: readonly WebAttachment[] = [], followUp = false): Promise<void> {
 		if (this.isReverting()) throw new Error("Wait for the revert to finish");
 		this.unread = false;
+		if (!this.extensionsStartup.settled) {
+			if (this.startingPrompt) {
+				// A second message before the first could start waits behind it.
+				this.queue.add({ text, attachments, files: [] });
+				return;
+			}
+			const starting = { cancelled: false };
+			this.startingPrompt = starting;
+			const before = this.status;
+			// The page already shows the pending turn; report it as running so
+			// further messages queue behind it instead of racing it.
+			if (before !== "waiting") this.setStatus("running", false);
+			try {
+				await this.extensionsReady;
+			} finally {
+				if (this.startingPrompt === starting) this.startingPrompt = undefined;
+			}
+			if (starting.cancelled) {
+				// Stopped before it began: keep what the user sent, like a stopped turn does.
+				this.queue.prepend([{ text, attachments }]);
+				return;
+			}
+			try {
+				await this.promptNow(text, attachments, followUp);
+			} finally {
+				// A message the kernel handled without a run (an extension command)
+				// never emits agent_start/agent_settled; do not leave it "running".
+				if (this.status === "running" && !this.session.isStreaming) this.setStatus(before, false);
+			}
+			return;
+		}
+		await this.promptNow(text, attachments, followUp);
+	}
+
+	private async promptNow(text: string, attachments: readonly WebAttachment[], followUp: boolean): Promise<void> {
 		this.echoCommand(text);
 		this.maybeGenerateSessionTitle(text);
 		const images = imagesOf(attachments);
@@ -1270,7 +1336,13 @@ export class WebSession {
 
 	/** Whether a message sent now has to wait: a run is active, the context is being compacted, or the session waits on the user. */
 	private mustQueue(): boolean {
-		return this.session.isStreaming || this.session.isCompacting || this.status === "waiting" || this.isReverting();
+		return (
+			this.session.isStreaming ||
+			this.session.isCompacting ||
+			this.startingPrompt !== undefined ||
+			this.status === "waiting" ||
+			this.isReverting()
+		);
 	}
 
 	/**
@@ -1582,7 +1654,7 @@ export class WebSession {
 				...(usage ? { contextUsed: usage.tokens, contextWindow: usage.contextWindow } : {}),
 				toolCount: this.session.getActiveToolNames().length,
 				skillCount: this.skills().length,
-				mcpServerNames: mcpStatuses().map((status) => status.name),
+				mcpServerNames: mcpStatuses(this.session.sessionManager).map((status) => status.name),
 			},
 		});
 	}
@@ -1699,6 +1771,7 @@ export class WebSession {
 	async interrupt(): Promise<void> {
 		this.clarifications.clear();
 		this.holdQueue = true;
+		if (this.startingPrompt) this.startingPrompt.cancelled = true;
 		await this.session.abort();
 		const pending = this.session.clearQueue();
 		const steering = this.steeringImages.match(pending.steering);
@@ -1841,7 +1914,7 @@ export class WebSession {
 			stats: { tokens: stats.tokens, cost: stats.cost, contextUsage: stats.contextUsage },
 			skillCount: this.skills().length,
 			mcpScope: "process",
-			mcp: mcpStatuses().map(({ name, status }) => ({ name, status })),
+			mcp: mcpStatuses(this.session.sessionManager).map(({ name, status }) => ({ name, status })),
 		};
 	}
 
@@ -1899,6 +1972,7 @@ export class WebSession {
 	}
 
 	async close(): Promise<void> {
+		if (this.startingPrompt) this.startingPrompt.cancelled = true;
 		this.clarifications.clear();
 		this.selections.clear();
 		this.textInputs.clear();

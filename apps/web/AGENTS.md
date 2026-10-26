@@ -289,8 +289,11 @@ When to add or change one:
 - `/api/v1/settings/*` is the settings screen's own surface (MCP servers, plugins, marketplaces, skills). It reads
   and writes the user's global StepCode configuration through `@step-harness/coding-agent` — the same files
   `step mcp`, `/plugin` and the TUI resource selector use — and never project scope. Only user-scope state moves;
-  a change reaches a session when that session starts (MCP servers connect at `session_start`, skills load with its
-  resources), so the client says so instead of reloading sessions.
+  a change reaches a session when that session starts (MCP tools register at `session_start`, skills load with its
+  resources), so the client says so instead of reloading sessions. The host holds the global MCP servers from
+  startup (`createStepMcpHostWarmup`) and re-syncs them after MCP/plugin settings changes, sign-in and sign-out;
+  sessions share those pooled connections. `send` waits for the session's extension startup, so a first message
+  carries the MCP tools.
 - Account settings are separate from General and reuse `features/login/actions.ts`
   and the existing Host sign-in routes. Keep credential presence (`configured`)
   separate from validity, and both separate from the account session

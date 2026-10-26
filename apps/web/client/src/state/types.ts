@@ -730,6 +730,8 @@ export interface McpServerConfig {
 	readonly tool_timeout_sec?: number;
 	readonly enabled_tools?: readonly string[];
 	readonly disabled_tools?: readonly string[];
+	/** False gives every session its own connection instead of the process-wide shared one. */
+	readonly shared?: boolean;
 	readonly oauth?: {
 		readonly client_id?: string;
 		readonly client_secret?: string;

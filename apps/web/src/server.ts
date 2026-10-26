@@ -7,6 +7,9 @@ import { dirname, extname, join, normalize, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url";
 import type { StepPermissionPresetId } from "@step-harness/coding-agent";
 import {
+	closeStepMcpPool,
+	configureStepMcpPool,
+	createStepMcpHostWarmup,
 	getStepAccountProfile,
 	getStepAuthPath,
 	getStepLoginStatus,
@@ -266,6 +269,16 @@ async function directoryList(inputPath: string): Promise<unknown> {
 	};
 }
 
+// Closing one chat must not stop servers the next chat would start again:
+// released MCP connections idle in the process pool, and shutdown closes them.
+configureStepMcpPool({ quitRelease: "idle" });
+/**
+ * The host holds the global MCP servers itself, connected from startup, so a
+ * new chat's first message already has their tools instead of waiting for them.
+ * Re-synced after anything that changes which servers exist or how they start.
+ */
+const mcpWarmup = createStepMcpHostWarmup();
+const resyncMcp = (): void => void mcpWarmup.sync(defaultWorkspace());
 const sessionSearch = new WebSessionSearch(resolveStepAgentDir());
 const store = new WebSessionStore({ index: sessionSearch });
 const workspaces = new WorkspaceRegistry(join(resolveStepAgentDir(), WORKSPACES_FILE));
@@ -348,6 +361,8 @@ const login = new WebLoginController({
 		loginCache = undefined;
 		account.invalidate();
 		void store.reloadCredentials();
+		// The Step login key is part of a server's environment: reconnect with it.
+		resyncMcp();
 	},
 });
 
@@ -383,6 +398,7 @@ async function signOutOfStep(response: ServerResponse): Promise<void> {
 	});
 	loginCache = undefined;
 	account.invalidate();
+	resyncMcp();
 	const [report, customModels] = await Promise.all([loginReport(), hasUsableCustomModel()]);
 	return json(response, 200, { ...outcome, customModels, login: report });
 }
@@ -465,6 +481,7 @@ async function settingsRoute(
 	response: ServerResponse,
 ): Promise<void> {
 	const [area, name, action] = parts;
+	const changesMcp = method !== "GET" && (area === "mcp" || area === "plugins" || area === "marketplaces");
 	try {
 		if (area === "mcp") {
 			if (!name && method === "GET") return json(response, 200, { servers: await listMcpServers() });
@@ -574,6 +591,9 @@ async function settingsRoute(
 	} catch (caught) {
 		if (caught instanceof SettingsError) return error(response, caught.status, caught.message);
 		throw caught;
+	} finally {
+		// Connect what was added or enabled now; what was removed closes once no chat uses it.
+		if (changesMcp && response.statusCode < 400) resyncMcp();
 	}
 }
 
@@ -1138,6 +1158,8 @@ const server = createServer(async (request, response) => {
 // models page and the first session already see them. It runs once per
 // installation and never rejects; listening must not wait on anything else.
 void importLocalStepgoModels().finally(() => {
+	// Connect in the background: listening must not wait on slow servers.
+	resyncMcp();
 	server.listen(port, bindHost, () => {
 		console.log(
 			formatStartupBanner({
@@ -1170,7 +1192,9 @@ const shutdown = async (): Promise<void> => {
 					await store.close();
 				} finally {
 					// Flush sessions before stopping their index, even if session teardown fails.
-					await sessionSearch.close();
+					// Sessions only release their MCP leases; the pool owns the server processes.
+					await mcpWarmup.release();
+					await Promise.all([sessionSearch.close(), closeStepMcpPool()]);
 				}
 			})(),
 		]);
