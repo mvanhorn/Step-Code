@@ -14,7 +14,7 @@
 import type { AttachedFile } from "../../lib/attached-files";
 import type { UploadedFile } from "../../state/types";
 import { type FileCompletionText, type FileQuery, fileQuery, sameFileQuery } from "./file-completion";
-import type { PlannedEdit, PromptRange } from "./markdown-format";
+import type { PlannedEdit, PromptEditRun, PromptRange } from "./markdown-format";
 
 const CHIP_CLASS = "prompt-file";
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -407,24 +407,51 @@ function selectPromptRange(root: HTMLElement, start: number, end: number): boole
 }
 
 /**
- * Apply a planned Markdown edit. Runs are applied from the highest offset down,
- * so each run's pre-edit offsets are still valid; `execCommand` keeps the
- * browser's undo history. Only marker text changes — the selected content and
- * its line breaks are never rewritten.
+ * Apply a planned Markdown edit. A change that stays inside one text node goes
+ * through a single `execCommand`, so one formatting action is one undo step; a
+ * change that crosses a line break or a chip falls back to per-run edits.
+ * `execCommand` keeps the browser's undo history, and the fallback only inserts
+ * or deletes markers — the selected content is never rewritten.
  */
 export function applyPromptEdit(root: HTMLElement, edit: PlannedEdit): boolean {
-	const runs = [...edit.runs].sort((left, right) => right.start - left.start);
-	for (const run of runs) {
+	const runs = [...edit.runs].sort((left, right) => left.start - right.start);
+	const applied =
+		runs.length > 1 && applyInOneStep(root, edit, runs[0].start, runs[runs.length - 1].end)
+			? true
+			: applyRuns(root, runs);
+	if (!applied) return false;
+	// The restored selection follows the edits above; the composer reads the
+	// prompt's text on this event (the last execCommand's input ran first).
+	selectPromptRange(root, edit.selectionStart, edit.selectionEnd);
+	root.dispatchEvent(new InputEvent("input", { bubbles: true }));
+	return true;
+}
+
+function applyRuns(root: HTMLElement, runs: readonly PromptEditRun[]): boolean {
+	for (const run of [...runs].sort((left, right) => right.start - left.start)) {
 		if (!selectPromptRange(root, run.start, run.end)) return false;
 		const applied =
 			run.start === run.end ? document.execCommand("insertText", false, run.text) : document.execCommand("delete");
 		if (!applied) return false;
 	}
-	// The restored selection follows the caret adjustments above; the composer
-	// reads the prompt's text on this event (the last execCommand's input ran first).
-	selectPromptRange(root, edit.selectionStart, edit.selectionEnd);
-	root.dispatchEvent(new InputEvent("input", { bubbles: true }));
 	return true;
+}
+
+/**
+ * Replace the whole changed span in one command when it lives in a single text
+ * node. The replacement is the plan's own result for that span, so markers and
+ * text stay identical to the per-run application.
+ */
+function applyInOneStep(root: HTMLElement, edit: PlannedEdit, start: number, end: number): boolean {
+	const projection = completionProjection(root);
+	const from = projectionPoint(projection, start);
+	const to = projectionPoint(projection, end);
+	if (!from || !to || from.node !== to.node) return false;
+	const removed = end - start;
+	const replacementLength = edit.text.length - (projection.text.length - removed);
+	const replacement = edit.text.slice(start, start + replacementLength);
+	if (!selectPromptRange(root, start, end)) return false;
+	return document.execCommand("insertText", false, replacement);
 }
 
 /** Insert a marker pair around the selection (or drop an existing one). */

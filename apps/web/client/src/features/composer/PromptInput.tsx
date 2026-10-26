@@ -22,7 +22,7 @@ import { showError } from "../../state/session";
 import { getState, useAppStore } from "../../state/store";
 import { addAttachments, applyLeadingCommand, uploadFile } from "./actions";
 import { FileDropOverlay } from "./FileDropOverlay";
-import { htmlToMarkdown } from "./html-to-markdown";
+import { hasMarkdownSyntax, htmlToMarkdown } from "./html-to-markdown";
 import { planInlineFormat, planLink } from "./markdown-format";
 import {
 	applyPromptEdit,
@@ -71,6 +71,11 @@ export interface PromptInputProps {
 	/** Cmd/Ctrl+Shift+M: the composer swaps the editor for the rendered Markdown preview. */
 	readonly onTogglePreview?: () => void;
 	/**
+	 * A rich paste that started the draft with real Markdown markers: the
+	 * composer shows the rendered preview instead of leaving raw source on show.
+	 */
+	readonly onRichPaste?: () => void;
+	/**
 	 * Filled with the editor's file stager, so files picked elsewhere (`#attachInput` in `#plusMenu`) are staged
 	 * exactly like pasted or dropped ones: images as attachments, every other file as an inline chip.
 	 */
@@ -91,6 +96,7 @@ export function PromptInput({
 	onCompositionChange,
 	onMenuKey,
 	onTogglePreview,
+	onRichPaste,
 	stageFilesRef,
 }: PromptInputProps) {
 	const t = useT();
@@ -260,7 +266,11 @@ export function PromptInput({
 				markdown = null;
 			}
 		}
+		const emptyBefore = !promptText(root).trim();
 		insertTextAtCaret(root, markdown ?? plain);
+		// A rich paste that starts a draft shows its render instead of raw markers;
+		// typing into an existing draft is never interrupted.
+		if (markdown && emptyBefore && hasMarkdownSyntax(markdown)) onRichPaste?.();
 	};
 
 	const onDrop = (event: DragEvent<HTMLDivElement>) => {

@@ -203,6 +203,10 @@ test("HTML paste conversion keeps blocks, inline marks, tables and app-rendered 
 			["<div class=\"code-block\"><div class=\"code-block-header\"><span>ts</span><button class=\"copy-code\">Copy</button></div><pre><code>const x = 1;</code></pre></div>", "```\nconst x = 1;\n```"],
 			["<p><b>keep</b> <del>gone</del> <code>a`b</code></p>", "**keep** ~~gone~~ ``a`b``"],
 			["<p>first<span class=\"md-gap\"></span>second</p>", "first\n\nsecond"],
+			["<pre><code>a  \n\n\nb</code></pre>", "```\na  \n\n\nb\n```"],
+			["<div style=\"white-space: pre\">if ready:\n    print(1)</div>", "```\nif ready:\n    print(1)\n```"],
+			["<ul><li>note</li><li><pre><code>x = 1\nprint(x)</code></pre></li></ul>", "- note\n\n```\nx = 1\nprint(x)\n```"],
+			["<p><code>a  b</code></p>", "`a  b`"],
 		];
 		for (const [html, expected] of cases) {
 			const actual = await page.evaluate((html) => window.fixture.htmlToMarkdown(html), html);
@@ -233,9 +237,132 @@ test("pasting rich text inserts Markdown; an Office copy keeps its plain text", 
 			text: "Hello bold and docs",
 		});
 		assert.equal(await promptValue(page), "Hello **bold** and [docs](https://example.com)");
+		// A rich paste that started the draft shows its preview; return to editing for the next case.
+		await preview(page).waitFor();
+		await page.keyboard.press("Escape");
+		await page.waitForFunction(() => !document.querySelector(".prompt-preview"));
 		// Word/Excel pair the rich text with a rendered image file: the text wins.
 		await setPrompt(page, "");
 		await paste(page, { html: "<p><b>rich</b></p>", text: "plain rich", file: "image.png" });
 		assert.equal(await promptValue(page), "plain rich");
+	} finally { await page.close(); }
+});
+
+test("a rich paste that starts the draft opens its preview; a draft in progress is untouched", { skip }, async () => {
+	const page = await pageFixture();
+	try {
+		await setPrompt(page, "");
+		await paste(page, { html: "<h1>复盘</h1><ul><li><b>根因</b></li></ul>", text: "复盘\n根因" });
+		await preview(page).waitFor();
+		assert.equal(await preview(page).locator("h2").textContent(), "复盘");
+		assert.equal(await preview(page).locator("strong").textContent(), "根因");
+		await page.keyboard.press("Escape");
+		await page.waitForFunction(() => !document.querySelector(".prompt-preview"));
+
+		// Rich prose with no markers has nothing to render, so the editor stays.
+		await setPrompt(page, "");
+		await paste(page, { html: "<p>just prose</p>", text: "just prose" });
+		await page.waitForTimeout(120);
+		assert.equal(await preview(page).count(), 0);
+
+		// Into an existing draft the paste must not take the editor away.
+		await setPrompt(page, "existing ");
+		await paste(page, { html: "<p><b>bold</b></p>", text: "bold" });
+		assert.equal(await promptValue(page), "existing **bold**");
+		await page.waitForTimeout(120);
+		assert.equal(await preview(page).count(), 0);
+	} finally { await page.close(); }
+});
+
+const mod = process.platform === "darwin" ? "Meta" : "Control";
+
+test("Shift+Enter in the preview never sends and returns to editing with a newline", { skip }, async () => {
+	const page = await pageFixture();
+	try {
+		await setPrompt(page, "");
+		await paste(page, { html: "<p><strong>draft</strong></p>", text: "draft" });
+		await preview(page).waitFor();
+		await page.evaluate(() => {
+			window.__submits = 0;
+			document.querySelector("#composer").addEventListener("submit", (event) => {
+				event.preventDefault();
+				event.stopPropagation();
+				window.__submits += 1;
+			}, { capture: true });
+		});
+		// An IME's confirm Enter is not a send either.
+		await page.evaluate(() => {
+			document.querySelector(".prompt-preview").dispatchEvent(new KeyboardEvent("keydown", {
+				key: "Enter", keyCode: 229, isComposing: true, bubbles: true, cancelable: true,
+			}));
+		});
+		assert.equal(await page.evaluate(() => window.__submits), 0);
+		await page.keyboard.press("Shift+Enter");
+		await page.waitForFunction(() => !document.querySelector(".prompt-preview"));
+		assert.equal(await page.evaluate(() => window.__submits), 0);
+		assert.match(await promptValue(page), /\n$/);
+		assert.equal(await page.evaluate(() => document.activeElement.id), "prompt");
+	} finally { await page.close(); }
+});
+
+test("one formatting action is one undo step", { skip }, async () => {
+	const page = await pageFixture();
+	try {
+		await page.locator("#prompt").focus();
+		await page.keyboard.type("hello world");
+		await page.evaluate(() => {
+			const root = document.querySelector("#prompt");
+			const range = document.createRange();
+			range.setStart(root.firstChild, 6);
+			range.setEnd(root.firstChild, 11);
+			getSelection().removeAllRanges();
+			getSelection().addRange(range);
+		});
+		await page.keyboard.press(`${mod}+b`);
+		assert.equal(await promptValue(page), "hello **world**");
+		await page.keyboard.press(`${mod}+z`);
+		assert.equal(await promptValue(page), "hello world");
+	} finally { await page.close(); }
+});
+
+test("undoing an auto-previewed paste closes the preview and returns focus", { skip }, async () => {
+	const page = await pageFixture();
+	try {
+		await setPrompt(page, "");
+		await paste(page, { html: "<p><strong>undo me</strong></p>", text: "undo me" });
+		await preview(page).waitFor();
+		await page.keyboard.press(`${mod}+z`);
+		await page.waitForFunction(() => !document.querySelector(".prompt-preview"));
+		assert.equal(await promptValue(page), "");
+		assert.equal(await page.evaluate(() => document.activeElement.id), "prompt");
+	} finally { await page.close(); }
+});
+
+test("pasted code keeps its whitespace in the draft", { skip }, async () => {
+	const page = await pageFixture();
+	try {
+		const code = 'value = """a  \n\n\nb"""\n';
+		await setPrompt(page, "");
+		await paste(page, { html: `<pre><code class="language-python">${code}</code></pre>`, text: code });
+		await preview(page).waitFor();
+		await page.keyboard.press("Escape");
+		await page.waitForFunction(() => !document.querySelector(".prompt-preview"));
+		assert.equal(await promptValue(page), '```python\nvalue = """a  \n\n\nb"""\n```');
+	} finally { await page.close(); }
+});
+
+test("pasted inline code with backticks renders, and italic-only text previews", { skip }, async () => {
+	const page = await pageFixture();
+	try {
+		await setPrompt(page, "");
+		await paste(page, { html: "<p><code>a`b</code></p>", text: "a`b" });
+		await preview(page).waitFor();
+		assert.equal(await preview(page).locator("code").textContent(), "a`b");
+		await page.keyboard.press("Escape");
+		await page.waitForFunction(() => !document.querySelector(".prompt-preview"));
+		await setPrompt(page, "");
+		await paste(page, { html: "<p><em>italic</em></p>", text: "italic" });
+		await preview(page).waitFor();
+		assert.equal(await preview(page).locator("em").textContent(), "italic");
 	} finally { await page.close(); }
 });

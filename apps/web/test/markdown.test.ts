@@ -218,3 +218,16 @@ test("emphasis markers never swallow inline links or HTML-escaped text", () => {
 	assert.match(html, /<em>看<a href="https:\/\/example.com"[^>]*>文档<\/a><\/em>/);
 	assert.match(html, /&lt;b&gt;x&lt;\/b&gt;/);
 });
+
+test("multi-backtick code spans keep inner backticks and drop one padding space", () => {
+	assert.equal(renderMarkdown("``a`b``", labels), "<code>a`b</code>");
+	assert.equal(renderMarkdown("`` `x` ``", labels), "<code>`x`</code>");
+	assert.equal(renderMarkdown("`` a ` b ``", labels), "<code>a ` b</code>");
+	// A shorter run never closes a longer one, so an unpaired marker stays literal.
+	assert.equal(renderMarkdown("`a```", labels), "`a```");
+	// Links and emphasis inside a span stay literal.
+	assert.equal(
+		renderMarkdown("``[**x**](https://example.com)``", labels),
+		"<code>[**x**](https://example.com)</code>",
+	);
+});

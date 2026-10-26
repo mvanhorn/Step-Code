@@ -79,11 +79,42 @@ export function htmlToMarkdown(html: string): string | null {
 		return null;
 	}
 	if (!body) return null;
-	const markdown = contentOf(body)
-		.replace(/[ \t]+\n/g, "\n")
-		.replace(/\n{3,}/g, "\n\n")
-		.trim();
+	const markdown = normalize(contentOf(body));
 	return markdown || null;
+}
+
+/**
+ * Collapse the walk's generous spacing without touching fenced code: trailing
+ * spaces and blank lines inside a fence are the code, not layout.
+ */
+function normalize(markdown: string): string {
+	const lines = markdown.split("\n");
+	const out: string[] = [];
+	let fence: string | null = null;
+	let blanks = 0;
+	for (const line of lines) {
+		const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+		if (marker) {
+			if (!fence) fence = marker;
+			else if (marker[0] === fence[0] && marker.length >= fence.length) fence = null;
+			out.push(line);
+			blanks = 0;
+			continue;
+		}
+		if (fence) {
+			out.push(line);
+			continue;
+		}
+		const trimmed = line.replace(/[ \t]+$/, "");
+		if (trimmed) {
+			blanks = 0;
+			out.push(trimmed);
+		} else if (blanks === 0) {
+			blanks = 1;
+			out.push("");
+		}
+	}
+	return out.join("\n").trim();
 }
 
 function dropped(element: HTMLElement): boolean {
@@ -127,11 +158,11 @@ function inlineNode(node: Node): string {
 	const tag = node.tagName;
 	if (tag === "BR") return "\n";
 	if (tag === "IMG") return node.getAttribute("alt")?.trim() ?? "";
+	// Code keeps its own spacing: the surrounding walk collapses prose whitespace only.
+	if (tag === "CODE") return codeSpan(node.textContent ?? "");
 	const inner = inlineChildren(node);
 	const trimmed = inner.trim();
 	switch (tag) {
-		case "CODE":
-			return codeSpan(inner);
 		case "STRONG":
 		case "B":
 			return trimmed ? `**${trimmed}**` : inner;
@@ -166,6 +197,11 @@ function blockElement(element: HTMLElement): string {
 		return `\n${listIndent(element)}- ${inlineChildren(element).trim()}\n`;
 	}
 	const tag = element.tagName;
+	// A block the page laid out with `white-space: pre*` holds its indentation as content.
+	if (tag !== "PRE") {
+		const preserved = preformattedBlock(element);
+		if (preserved) return `\n\n${preserved}\n\n`;
+	}
 	if (/^H[1-6]$/.test(tag)) {
 		const level = Number(tag.slice(1));
 		return `\n\n${"#".repeat(level)} ${inlineChildren(element).trim()}\n\n`;
@@ -198,11 +234,60 @@ function listIndent(element: HTMLElement): string {
 	return element.classList.contains("md-li-nested") ? "  " : "";
 }
 
+/**
+ * A block the page laid out with `white-space: pre*`: its indentation is content,
+ * so it becomes a fenced block instead of losing its spaces to prose collapsing.
+ * A single line without runs of spaces carries nothing a paragraph would not, and
+ * stays prose.
+ */
+function preformattedBlock(element: HTMLElement): string | null {
+	const whiteSpace = element.style.whiteSpace;
+	if (whiteSpace !== "pre" && whiteSpace !== "pre-wrap" && whiteSpace !== "break-spaces") return null;
+	const text = preformattedText(element).replace(/^\n+/, "").replace(/\s+$/, "");
+	if (!text || !/(\n|\t| {2})/.test(text)) return null;
+	return fenced(text, "");
+}
+
+/** Text of a whitespace-preserving block, with its block children on their own lines. */
+function preformattedText(element: HTMLElement): string {
+	let out = "";
+	const walk = (parent: Node) => {
+		for (const child of parent.childNodes) {
+			if (child instanceof Text) {
+				out += child.data;
+				continue;
+			}
+			if (!(child instanceof HTMLElement) || dropped(child)) continue;
+			if (child.tagName === "BR") {
+				out += "\n";
+				continue;
+			}
+			if (isBlock(child)) {
+				if (out && !out.endsWith("\n")) out += "\n";
+				walk(child);
+				if (!out.endsWith("\n")) out += "\n";
+				continue;
+			}
+			walk(child);
+		}
+	};
+	walk(element);
+	return out;
+}
+
+function fenced(code: string, language: string): string {
+	const longest = Math.max(0, ...[...code.matchAll(/`+/g)].map((match) => match[0].length));
+	const marker = "`".repeat(Math.max(3, longest + 1));
+	return `${marker}${language}\n${code.replace(/\n$/, "")}\n${marker}`;
+}
+
 function listLines(list: HTMLElement, depth: number): string {
 	const ordered = list.tagName === "OL";
 	let index = Number(list.getAttribute("start") ?? "1") || 1;
 	const lines: string[] = [];
 	const indent = "  ".repeat(depth);
+	// Code inside an item is a block of its own; keep its bytes and append it after the list.
+	const blocks: string[] = [];
 	for (const item of list.children) {
 		const marker = ordered ? `${index++}. ` : "- ";
 		let inline = "";
@@ -210,6 +295,8 @@ function listLines(list: HTMLElement, depth: number): string {
 		for (const node of item.childNodes) {
 			if (node instanceof HTMLElement && (node.tagName === "UL" || node.tagName === "OL")) {
 				nested += listLines(node, depth + 1);
+			} else if (node instanceof HTMLElement && node.tagName === "PRE") {
+				blocks.push(fencedCode(node));
 			} else if (node instanceof HTMLElement && isBlock(node)) {
 				inline += ` ${contentOf(node).trim()} `;
 			} else {
@@ -217,9 +304,10 @@ function listLines(list: HTMLElement, depth: number): string {
 			}
 		}
 		const body = inline.replace(/\s+/g, " ").trim();
-		lines.push(`${indent}${marker}${body}`.trimEnd());
+		if (body || !blocks.length) lines.push(`${indent}${marker}${body}`.trimEnd());
 		if (nested.trim()) lines.push(nested.trimEnd());
 	}
+	if (blocks.length) lines.push("", ...blocks, "");
 	return lines.join("\n");
 }
 
@@ -240,14 +328,13 @@ function table(element: HTMLElement): string {
 function fencedCode(pre: HTMLElement): string {
 	const code = pre.textContent ?? "";
 	const language = /(?:language|lang)-([\w-]+)/.exec(pre.querySelector("code")?.className ?? "")?.[1] ?? "";
-	const longest = Math.max(0, ...[...code.matchAll(/`+/g)].map((match) => match[0].length));
-	const marker = "`".repeat(Math.max(3, longest + 1));
-	return `${marker}${language}\n${code.replace(/\n$/, "")}\n${marker}`;
+	return fenced(code, language);
 }
 
 function codeSpan(value: string): string {
-	const text = value.replace(/\s+/g, " ").trim();
-	if (!text) return "";
+	// Line breaks become spaces (CommonMark); runs of spaces inside code are content.
+	const text = value.replace(/[\r\n\t]+/g, " ");
+	if (!text.trim()) return "";
 	const longest = Math.max(0, ...[...text.matchAll(/`+/g)].map((match) => match[0].length));
 	const marker = "`".repeat(longest + 1);
 	// A span that starts or ends with a backtick needs padding, per CommonMark.
@@ -259,4 +346,24 @@ function codeSpan(value: string): string {
 function safeHref(value: string | null): string | null {
 	if (!value) return null;
 	return /^(?:https?:|mailto:)/i.test(value.trim()) ? value.trim() : null;
+}
+
+/**
+ * Whether converted source carries Markdown a plain-text paste would not: block
+ * markers, a paragraph gap, emphasis, code or a link. Prose with none of these
+ * stays in the editor — a preview would show nothing the text does not.
+ */
+export function hasMarkdownSyntax(markdown: string): boolean {
+	// Emphasis is matched after removing the spans that are already proven, so `**bold**`
+	// is never mistaken for italic and arithmetic keeps its asterisks.
+	const withoutEmphasis = markdown
+		.replace(/\*\*[^*\n]+\*\*/g, "")
+		.replace(/~~[^~\n]+~~/g, "")
+		.replace(/`[^`\n]+`/g, "");
+	return (
+		/(^|\n)[ \t]{0,3}(?:#{1,6}[ \t]|[-*+][ \t]|\d{1,9}[.)][ \t]|>[ \t]?|`{3,}|~{3,}|\|)/.test(markdown) ||
+		/\*\*[^*\n]+\*\*|~~[^~\n]+~~|`[^`\n]+`|\[[^\]\n]+\]\([^)\n]+\)/.test(markdown) ||
+		/(^|[^*\w])\*(?=\S)([^*\n]*\S)\*(?![*\w])/.test(withoutEmphasis) ||
+		/\n{2,}/.test(markdown)
+	);
 }

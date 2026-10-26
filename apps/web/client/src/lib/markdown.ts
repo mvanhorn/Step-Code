@@ -201,10 +201,11 @@ export function renderMarkdown(value: unknown, labels: MarkdownLabels, options: 
 	// Protect inline code and links before formatting so URL punctuation and HTML
 	// attributes cannot be interpreted as Markdown. Fenced code is already protected.
 	const inlineSource = source.replace(
-		/`([^`]+)`|\[([^\]\n]+)\]\([ \t]*(<[^<>\n]+>|(?:[^\s()<>]|\([^()\n]*\))+)[ \t]*\)|\[([^\]\n]+)\]\[([^\]\n]*)\]|https?:\/\/[^\s<>\u0000\u0001\u0002，。、；：！？）」』】》]+/g,
+		/(`+)([\s\S]*?[^`])\1(?!`)|\[([^\]\n]+)\]\([ \t]*(<[^<>\n]+>|(?:[^\s()<>]|\([^()\n]*\))+)[ \t]*\)|\[([^\]\n]+)\]\[([^\]\n]*)\]|https?:\/\/[^\s<>\u0000\u0001\u0002，。、；：！？）」』】》]+/g,
 		(
 			match,
-			code: string | undefined,
+			ticks: string | undefined,
+			rawCode: string | undefined,
 			label: string | undefined,
 			destination: string | undefined,
 			referenceLabel: string | undefined,
@@ -212,7 +213,11 @@ export function renderMarkdown(value: unknown, labels: MarkdownLabels, options: 
 		) => {
 			let html: string;
 			let suffix = "";
-			if (code !== undefined) {
+			if (ticks !== undefined && rawCode !== undefined) {
+				// CommonMark: a run of backticks spans code that itself contains backticks,
+				// and one space of padding at both ends is removed.
+				const code =
+					rawCode.startsWith(" ") && rawCode.endsWith(" ") && rawCode.trim() ? rawCode.slice(1, -1) : rawCode;
 				const local = localFileReference(code);
 				if (local) options.onFileReference?.({ path: code, label: code, inlineCode: true });
 				html = `<code>${escapeHtml(code)}</code>`;
