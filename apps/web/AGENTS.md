@@ -55,6 +55,7 @@ apps/web/
     terminal-cleanup.ts  owned process discovery: POSIX session/group/tty, Windows identity-validated descendants
     terminal-native.ts   node-pty native build probe and macOS spawn-helper exec-bit repair
     terminal-routes.ts, terminal-policy.ts  authenticated HTTP/SSE and shell/environment/input policy
+    site-preview.ts      token-scoped loopback static origin for rendered workspace pages
     directory-picker.ts  server-side folder chooser
     settings.ts          settings back end: MCP servers, plugins/marketplaces, skills
     model-providers.ts   model settings back end: models.json declarations, auth.json keys, model discovery

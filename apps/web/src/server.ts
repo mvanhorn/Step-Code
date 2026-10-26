@@ -79,6 +79,7 @@ import {
 	setSkillEnabled,
 	updateMarketplace,
 } from "./settings.ts";
+import { SitePreviewServer } from "./site-preview.ts";
 import { WebTerminals } from "./terminal.ts";
 import { terminalRoute } from "./terminal-routes.ts";
 import { TurnRevertError } from "./turn-changes.ts";
@@ -204,7 +205,8 @@ function authorized(request: IncomingMessage): boolean {
 		.map((part) => part.trim())
 		.find((part) => part.startsWith("stepcode_web="))
 		?.slice("stepcode_web=".length);
-	return auth.authorize(cookie, request.headers.origin);
+	const fetchSite = request.headers["sec-fetch-site"];
+	return auth.authorize(cookie, request.headers.origin, typeof fetchSite === "string" ? fetchSite : undefined);
 }
 
 async function body(request: IncomingMessage): Promise<Record<string, unknown>> {
@@ -283,6 +285,8 @@ const sessionSearch = new WebSessionSearch(resolveStepAgentDir());
 const store = new WebSessionStore({ index: sessionSearch });
 const workspaces = new WorkspaceRegistry(join(resolveStepAgentDir(), WORKSPACES_FILE));
 const embeddedBrowser = new WebBrowser([port, launchPort]);
+/** Rendered previews of workspace files, on their own origin (see site-preview.ts). */
+const sitePreview = new SitePreviewServer();
 const terminals = new WebTerminals();
 const voice = new VoiceRelay();
 
@@ -783,6 +787,15 @@ const server = createServer(async (request, response) => {
 				return error(response, 400, caught instanceof Error ? caught.message : String(caught));
 			}
 		}
+		if (parts[2] === "workspace" && parts[3] === "site" && parts.length === 4 && method === "POST") {
+			const cwd = await knownWorkspace(url.searchParams.get("cwd"));
+			if (!cwd) return error(response, 403, "Folder is not a known workspace");
+			try {
+				return json(response, 200, { url: await sitePreview.url(cwd, url.searchParams.get("path") ?? "") });
+			} catch (caught) {
+				return error(response, 400, caught instanceof Error ? caught.message : String(caught));
+			}
+		}
 		if (parts[2] === "workspace" && parts.length === 4 && method === "GET") {
 			const cwd = await knownWorkspace(url.searchParams.get("cwd"));
 			if (!cwd) return error(response, 403, "Folder is not a known workspace");
@@ -1185,6 +1198,7 @@ const shutdown = async (): Promise<void> => {
 	try {
 		const results = await Promise.allSettled([
 			embeddedBrowser.close(),
+			sitePreview.close(),
 			terminals.stopAll(),
 			voice.stopAll(),
 			(async () => {
