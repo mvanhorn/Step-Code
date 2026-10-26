@@ -6,13 +6,31 @@
 
 import "./composer.css";
 
-import { type FormEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import {
+	type FormEvent,
+	type KeyboardEvent as ReactKeyboardEvent,
+	type MouseEvent as ReactMouseEvent,
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { useT } from "../../i18n";
 import { api, errorMessage } from "../../lib/api";
-import { activeCwd, interruptCurrent, sessionTitle, showError, timelineFromEntries } from "../../state/session";
+import { renderMarkdown } from "../../lib/markdown";
+import {
+	activeCwd,
+	copyText,
+	interruptCurrent,
+	sessionTitle,
+	showError,
+	timelineFromEntries,
+} from "../../state/session";
 import { getState, type ModeId, setUi, useAppStore } from "../../state/store";
 import type { SessionSnapshot, TreeEntry } from "../../state/types";
-import { Icon } from "../../ui";
+import { Icon, IconButton, MarkdownView, Tooltip } from "../../ui";
 import { openFeedback } from "../conversation";
 import { askSideQuestion } from "../files";
 import { MicButton } from "../voice";
@@ -105,6 +123,13 @@ export function Composer({ workspaceControl, branchControl }: ComposerProps) {
 	 * (`setPromptText`, `restorePrompt`) call `syncHasText` themselves.
 	 */
 	const [hasText, setHasText] = useState(false);
+	/** `#prompt` swapped for its rendered Markdown (the editor stays mounted underneath). */
+	const [previewOpen, setPreviewOpen] = useState(false);
+	const [previewSource, setPreviewSource] = useState("");
+	const previewing = useRef(false);
+	const previewRef = useRef<HTMLDivElement | null>(null);
+	/** Closing the preview asks for the editor back: focus waits for the commit that unhides it. */
+	const returnToEditor = useRef(false);
 	/** Picked other-session contexts, one removable chip each, sent with the next message. */
 	const [contextPackages, setContextPackages] = useState<readonly ContextPackage[]>([]);
 	/** Picked skills and plugins, one light-purple icon chip each, sent with the next message. */
@@ -134,8 +159,62 @@ export function Composer({ workspaceControl, branchControl }: ComposerProps) {
 		else removeModeLead(editor);
 	}, [activeModeMeta, t]);
 	const syncHasText = useCallback(() => {
-		setHasText(Boolean(prompt.current && promptText(prompt.current).trim()));
+		const editor = prompt.current;
+		const text = editor ? promptText(editor) : "";
+		setHasText(Boolean(text.trim()));
+		if (!previewing.current) return;
+		// Edits that bypass `input` (voice, menus, a failed send) still refresh the preview;
+		// an emptied prompt closes it rather than showing a stale render.
+		if (text.trim()) setPreviewSource(text);
+		else {
+			previewing.current = false;
+			setPreviewOpen(false);
+		}
 	}, []);
+	/** Show the draft as rendered Markdown; the menus belong to the editor and close. */
+	const openPreview = useCallback(() => {
+		const editor = prompt.current;
+		if (!editor) return;
+		const text = promptText(editor);
+		if (!text.trim()) return;
+		setPreviewSource(text);
+		previewing.current = true;
+		setPreviewOpen(true);
+		setQuery(null);
+		setPathQuery(null);
+		lastPathQuery.current = null;
+		setUi({ slashMenu: null, fileCompletionOpen: false });
+	}, []);
+	/** Back to the editor, caret after the draft. */
+	const closePreview = useCallback(() => {
+		previewing.current = false;
+		returnToEditor.current = true;
+		setPreviewOpen(false);
+	}, []);
+	const togglePreview = useCallback(() => {
+		if (previewing.current) closePreview();
+		else openPreview();
+	}, [openPreview, closePreview]);
+	/** Drop the preview without moving focus: the prompt is being cleared for a send. */
+	const dismissPreview = useCallback(() => {
+		previewing.current = false;
+		returnToEditor.current = false;
+		setPreviewOpen(false);
+	}, []);
+	useEffect(() => {
+		if (previewOpen) {
+			previewRef.current?.focus();
+			return;
+		}
+		// The editor stays `visibility: hidden` until this commit clears `data-preview`,
+		// so it can only take focus — and the caret — here.
+		if (!returnToEditor.current) return;
+		returnToEditor.current = false;
+		const editor = prompt.current;
+		if (!editor) return;
+		editor.focus();
+		placeCaretAtEnd(editor);
+	}, [previewOpen]);
 	/*
 	 * A dictated transcript lands at the caret like typed text, with a space
 	 * keeping it off the word before it, and the send state re-syncs — the
@@ -180,6 +259,7 @@ export function Composer({ workspaceControl, branchControl }: ComposerProps) {
 			// Backspacing over the staged mode's lead chip drops the mode, like deleting its command.
 			if (prompt.current) syncStagedModeLead(prompt.current);
 			setHasText(Boolean(value.trim()));
+			if (previewing.current) setPreviewSource(value);
 			const next = slashQuery(value);
 			setQuery(next);
 			const view = getState().ui.slashMenu;
@@ -204,6 +284,9 @@ export function Composer({ workspaceControl, branchControl }: ComposerProps) {
 		lastPathQuery.current = null;
 		setPathQuery(null);
 		setUi({ fileCompletionOpen: false });
+		// The preview belongs to the draft it showed; another session or workspace starts in the editor.
+		previewing.current = false;
+		setPreviewOpen(false);
 		return () => setUi({ fileCompletionOpen: false });
 	}, [selection]);
 
@@ -273,6 +356,8 @@ export function Composer({ workspaceControl, branchControl }: ComposerProps) {
 			const text = promptText(editor).trim();
 			const files = promptFiles(editor);
 			if (!text) return;
+			// A send starts from the draft, not from its render: the preview goes either way.
+			dismissPreview();
 			// `/btw` is a side question, not a message: it opens its own rail tab and
 			// never becomes a user turn (the kernel command is the same one the CLI runs).
 			const sideQuestion = /^\/btw(?:\s+([\s\S]+))?$/u.exec(text)?.[1]?.trim();
@@ -424,6 +509,35 @@ export function Composer({ workspaceControl, branchControl }: ComposerProps) {
 		if (queuedCount) void updateQueued({ kind: "steer" });
 	};
 
+	const previewHtml = useMemo(
+		() => renderMarkdown(previewSource, { code: t("code"), copy: t("copy"), table: t("markdownTable") }),
+		[previewSource, t],
+	);
+	/** In the preview, Enter sends and Cmd/Ctrl+Enter steers exactly as in the editor. */
+	const onPreviewKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+		const mod = event.metaKey || event.ctrlKey;
+		if (event.key === "Escape" || (mod && event.shiftKey && event.key.toLowerCase() === "m")) {
+			event.preventDefault();
+			closePreview();
+			return;
+		}
+		if (event.key !== "Enter") return;
+		// The prompt is not accepting input while the host waits for an approval.
+		if (waiting) return;
+		// A link or a code block's copy button keeps its own Enter.
+		if (event.target instanceof Element && event.target.closest("a, button")) return;
+		event.preventDefault();
+		if (mod) steer();
+		else form.current?.requestSubmit();
+	};
+	/** The toggle (or a click on rendered text) returns to editing; links, copy buttons and a drag-selection do not. */
+	const onPreviewClick = (event: ReactMouseEvent<HTMLDivElement>) => {
+		if (event.target instanceof Element && event.target.closest("a, button")) return;
+		const selection = getSelection();
+		if (selection && !selection.isCollapsed && selection.toString()) return;
+		closePreview();
+	};
+
 	return (
 		<form className="composer" id="composer" ref={form} onSubmit={(event) => onFormSubmit(event)}>
 			<SlashMenu handle={slash} query={query} promptRef={prompt} onPick={pickSlash} />
@@ -489,25 +603,42 @@ export function Composer({ workspaceControl, branchControl }: ComposerProps) {
 						))}
 					</div>
 				) : null}
-				<PromptInput
-					promptRef={prompt}
-					disabled={waiting}
-					onSubmit={() => form.current?.requestSubmit()}
-					onSteer={steer}
-					placeholder={
-						// A running turn's queue hint outranks the mode's coaching text.
-						active
-							? t(queuedCount ? "queuePlaceholderSteerAll" : "queuePlaceholderRunning")
-							: activeModeMeta
-								? t(activeModeMeta.placeholderKey)
-								: undefined
-					}
-					onValueInput={onValueInput}
-					onCaretChange={syncFileQuery}
-					onCompositionChange={onCompositionChange}
-					onMenuKey={(key) => files.current?.key(key) || slash.current?.key(key) || false}
-					stageFilesRef={stageFiles}
-				/>
+				<div className="prompt-deck" data-preview={previewOpen ? "" : undefined}>
+					<PromptInput
+						promptRef={prompt}
+						disabled={waiting}
+						onSubmit={() => form.current?.requestSubmit()}
+						onSteer={steer}
+						placeholder={
+							// A running turn's queue hint outranks the mode's coaching text.
+							active
+								? t(queuedCount ? "queuePlaceholderSteerAll" : "queuePlaceholderRunning")
+								: activeModeMeta
+									? t(activeModeMeta.placeholderKey)
+									: undefined
+						}
+						onValueInput={onValueInput}
+						onCaretChange={syncFileQuery}
+						onCompositionChange={onCompositionChange}
+						onMenuKey={(key) => files.current?.key(key) || slash.current?.key(key) || false}
+						onTogglePreview={togglePreview}
+						stageFilesRef={stageFiles}
+					/>
+					{/* The rendered draft covers the editor, which stays mounted so the send path still reads it. */}
+					{previewOpen ? (
+						<MarkdownView
+							ref={previewRef}
+							className="prompt-preview message-body"
+							html={previewHtml}
+							role="region"
+							aria-label={t("markdownPreview")}
+							tabIndex={0}
+							onCopyCode={(code) => void copyText(code)}
+							onKeyDown={onPreviewKeyDown}
+							onClick={onPreviewClick}
+						/>
+					) : null}
+				</div>
 				<div className="composer-controls">
 					<PlusMenu
 						{...menu("plus")}
@@ -518,6 +649,17 @@ export function Composer({ workspaceControl, branchControl }: ComposerProps) {
 						onFiles={(picked) => stageFiles.current?.(picked)}
 					/>
 					<PolicyMenu {...menu("policy")} />
+					<Tooltip content={`${previewOpen ? t("markdownEdit") : t("markdownPreview")} (Cmd/Ctrl+Shift+M)`}>
+						<IconButton
+							icon={previewOpen ? "pencil" : "eye"}
+							iconSize="sm"
+							className="prompt-preview-toggle"
+							aria-label={previewOpen ? t("markdownEdit") : t("markdownPreview")}
+							aria-pressed={previewOpen}
+							disabled={!hasText}
+							onClick={togglePreview}
+						/>
+					</Tooltip>
 					<div className="composer-right">
 						<MicButton onTranscript={insertVoiceTranscript} />
 						<ModelMenu {...menu("model")} />

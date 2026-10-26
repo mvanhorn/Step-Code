@@ -3,9 +3,9 @@
  * `contentText`, `renderMarkdown`).
  *
  * The renderer is deliberately tiny: fenced code blocks, `#`/`##`/`###`
- * headings, `-` / `*` bullets, GFM pipe tables, links, `**bold**`, inline code,
- * line breaks and paragraph gaps. Everything else is
- * escaped. Its output is an HTML string meant for `dangerouslySetInnerHTML`
+ * headings, `-` / `*` bullets, GFM pipe tables, links, `**bold**`, `*italic*`,
+ * `~~strikethrough~~`, inline code, line breaks and paragraph gaps. Everything
+ * else is escaped. Its output is an HTML string meant for `dangerouslySetInnerHTML`
  * (see ui/MarkdownView, which also wires the `.copy-code` buttons).
  */
 
@@ -55,8 +55,20 @@ export interface MarkdownOptions {
 	readonly highlightCode?: (code: string, language: string) => string;
 }
 
+/**
+ * Bold, italic and strikethrough, in that order: bold consumes its `**` pair
+ * first, so the italic rule only sees single markers. Italic follows the
+ * flanking rule loosely — the opening marker must be preceded by a non-word
+ * character and followed by non-space, the closing one preceded by non-space
+ * and followed by a non-word character — so `2 * 3 * 4`, `a*b*c` and
+ * `snake_case` stay literal. `_italic_` is deliberately unsupported for the
+ * same reason; inline code and links are already protected by the caller.
+ */
 function renderInline(value: string): string {
-	return escapeHtml(value).replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+	return escapeHtml(value)
+		.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+		.replace(/(^|[^*\w])\*(?=\S)([^*\n]*\S)\*(?![*\w])/g, "$1<em>$2</em>")
+		.replace(/~~(?=\S)([^~\n]*\S)~~/g, "<del>$1</del>");
 }
 
 /** Inline code/links are already protected; escaped pipes are cell content. */
