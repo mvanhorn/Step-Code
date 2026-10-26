@@ -264,16 +264,23 @@ export function mergeSessionSummary(
 	return next;
 }
 
+/** File-changing tools: the built-in names and the Step tool profile's, which Web sessions use. */
+const FILE_CHANGE_TOOLS: ReadonlySet<string> = new Set(["edit", "write", "edit_file", "write_file"]);
+
 /**
- * The file change of a finished edit/write call: both tools record a unified
- * patch in their result details; `write` says why when it recorded none.
+ * The file change of a finished edit/write call. `edit`, `write` and Step's
+ * `edit_file` record a unified patch in their result details; `write` says why
+ * when it recorded none. Step's `write_file` records no patch (an untracked
+ * change), and `changed: false` when the file already held the content.
  */
 function fileChange(name: string, args: unknown, result: AgentMessage | undefined): FileChange | undefined {
-	if ((name !== "edit" && name !== "write") || !result || result.isError) return undefined;
+	if (!FILE_CHANGE_TOOLS.has(name) || !result || result.isError) return undefined;
 	const details = (result.details ?? {}) as {
 		patch?: unknown;
 		untracked?: unknown;
+		changed?: unknown;
 	};
+	if (details.changed === false) return undefined;
 	const input = (args ?? {}) as { path?: unknown; file_path?: unknown };
 	const path = typeof input.path === "string" ? input.path : input.file_path;
 	if (typeof path !== "string" || !path.trim()) return undefined;

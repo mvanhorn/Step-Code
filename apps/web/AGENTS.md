@@ -283,8 +283,12 @@ When to add or change one:
   visible Files preview, retaining tabs and trigger focus; other files or
   panels switch to the requested file. A card whose turn changed the file
   opens that turn's diff (`collectTurnChanges`, not a second change model)
-  and renders the page as that turn left it (`fileAtTurnEnd` reverses later
-  patches; never write while rebuilding); otherwise it keeps a source action.
+  and renders the page as that turn left it (`fileAtTurnEnd` replays the
+  recorded writes and patches, else reverses later patches from disk; never
+  write while rebuilding); otherwise it keeps a source action. Every card
+  requests its own turn's version. Turn changes recognize the Step tool
+  profile Web sessions use (`edit_file` patches, `write_file` untracked and
+  ignored when `changed: false`) as well as `edit` / `write`.
   Browser-renderable pages open in the
   embedded browser on click, with a system-browser action; both
   browsers load them from `src/site-preview.ts`, a separate token-scoped

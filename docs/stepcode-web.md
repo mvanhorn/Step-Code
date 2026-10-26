@@ -422,13 +422,20 @@ A page the embedded browser can render (`.html`, `.htm`, `.xhtml`, `.svg`)
 opens there when its card is clicked. When the card's turn changed the file,
 the card shows that turn's `+added -removed` lines, its first action opens the
 turn's diff in the changes view unfolded at the file (the same records as the
-"Edited N files" card), and the page opens as that turn left it: the Host
-reverses later turns' patches to the file (`POST
-/api/v1/sessions/{id}/turns/{turnId}/site`) and serves the result from memory
+"Edited N files" card). Every card opens its page as its own turn left the
+file (`POST /api/v1/sessions/{id}/turns/{turnId}/site`), served from memory
 beside the file, so successive edits of one page each show their own version.
-When a later change cannot be reversed (no patch, a recreated file, or an edit
-outside the session) the current file opens with a notice. A card whose turn
-only referenced the file keeps a source action instead. The pill also opens
+The Host replays the session's records up to the end of that turn: the latest
+full content a write recorded (Step's `write_file` included, even when the
+file already held it), then each later patch applied forward. That does not
+depend on what the file holds now. Without such a write (the file predates the
+session) it reverses later turns' patches from the file on disk instead; when
+neither reaches the version (an untracked change, a recreated file, or an edit
+outside the session), a card whose turn changed the file opens the current file
+with a notice. Changes count Step's `edit_file` (a patch) and `write_file` (no
+patch, so untracked for undo; nothing when it changed nothing) as well as
+`edit` and `write`. A card whose turn only referenced the file keeps a source
+action instead of the diff. The pill also opens
 the page in the system browser, named and shown
 with its icon: on Desktop the system default browser with its OS icon (macOS
 and Windows), in Web a new tab of the browser showing the page, detected from

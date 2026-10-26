@@ -66,8 +66,8 @@ test("recognizes bounded turn outputs from explicit references and successful st
 	];
 	const [footer] = collectTurnFooters(items, "idle", false);
 	assert.deepEqual(turnArtifacts(items, footer, "D:/Work"), [
-		{ path: "output/report.md", label: "report.md", kind: "document" },
-		{ path: "output/chart.png", label: "Image", kind: "image" },
+		{ path: "output/report.md", label: "report.md", kind: "document", turnId: "u1" },
+		{ path: "output/chart.png", label: "Image", kind: "image", turnId: "u1" },
 	]);
 	assert.equal(artifactKind("slides.PPTX"), "presentation");
 	assert.equal(artifactKind("data.csv"), "spreadsheet");
@@ -158,8 +158,8 @@ test("a delivery carries its own turn's change, matched across the tool's path s
 	const file = { path: ".\\site\\index.html", patches: ["@@ -1 +1 @@\n-a\n+b\n"], additions: 1, deletions: 1 };
 	const turn = { turnId: "u2", ordinal: 2, latest: true, lastIndex: 5, files: [file], additions: 1, deletions: 1 };
 	const artifacts = [
-		{ path: "site/index.html", label: "Snake", kind: "website" as const },
-		{ path: "notes.md", label: "notes.md", kind: "document" as const },
+		{ path: "site/index.html", label: "Snake", kind: "website" as const, turnId: "u2" },
+		{ path: "notes.md", label: "notes.md", kind: "document" as const, turnId: "u2" },
 	];
 	const attached = withTurnChanges(artifacts, turn, "D:/Work");
 	assert.deepEqual(attached[0]?.change, { turnId: "u2", file });
