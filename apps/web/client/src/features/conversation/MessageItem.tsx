@@ -88,6 +88,18 @@ export const MessageItem = memo(function MessageItem({
 			{ highlightCode: highlightFence },
 		).replace(FILE_MARKER, (_match, index: string) => fileChipHtml(files[Number(index)]));
 	}, [content, files, codeLabel, copyLabel, tableLabel, role, cwd]);
+	/*
+	 * An invoked message carries its badge inline at the head of the markdown's
+	 * first line — prepended into the rendered html, so the command chip and
+	 * the prompt share one bubble with native typography.
+	 */
+	const badgeLabel = skill?.name ?? pluginInstall?.name ?? t("modeUltraloop");
+	const badgeIcon = skill ? "wrench" : ultraloop ? "orbit" : "puzzle";
+	const badgeKind = skill ? "skill" : ultraloop ? "ultraloop" : "plugin";
+	const invokedHtml =
+		(skill || ultraloop || pluginInstall) && html
+			? `<span class="message-skill message-skill--${badgeKind}" title="${escapeHtml(badgeLabel)}"><svg class="icon icon--xs" aria-hidden="true"><use href="#i-${badgeIcon}"></use></svg>${escapeHtml(badgeLabel)}</span>${html}`
+			: html;
 	useFadeIn(bodyRef, html, live);
 	if (item.error) return <MessageError entryId={item.entryId} error={item.error} />;
 	// The live turn before its first text (reasoning, or waiting on the first token).
@@ -97,49 +109,18 @@ export const MessageItem = memo(function MessageItem({
 	 * before the text — the command and the prompt share one bubble, exactly
 	 * like the composer showed them.
 	 */
-	const invoked = Boolean(skill || ultraloop || pluginInstall);
 	return (
 		<article className={`message ${role}`} data-content={item.content || ""} data-entry-id={item.entryId}>
 			{/* A user message can be images only; it still opens a turn, so it gets a row. */}
 			{images.length ? <MessageImages images={images} /> : null}
 			{content ? (
-				invoked ? (
-					<div className="message-body message-body--invoked">
-						{skill ? (
-							<span className="message-skill message-skill--skill" title={skill.name}>
-								<Icon name="wrench" size="xs" />
-								{skill.name}
-							</span>
-						) : null}
-						{ultraloop ? (
-							<span className="message-skill message-skill--ultraloop">
-								<Icon name="orbit" size="xs" />
-								{t("modeUltraloop")}
-							</span>
-						) : null}
-						{pluginInstall ? (
-							<span className="message-skill message-skill--plugin" title={pluginInstall.name}>
-								<Icon name="puzzle" size="xs" />
-								{pluginInstall.name}
-							</span>
-						) : null}
-						<MarkdownView
-							ref={bodyRef}
-							className="message-md"
-							html={html}
-							onCopyCode={(code) => void copyText(code)}
-							onFileReference={(path) => void openFileReference(cwd, path)}
-						/>
-					</div>
-				) : (
-					<MarkdownView
-						ref={bodyRef}
-						className="message-body"
-						html={html}
-						onCopyCode={(code) => void copyText(code)}
-						onFileReference={(path) => void openFileReference(cwd, path)}
-					/>
-				)
+				<MarkdownView
+					ref={bodyRef}
+					className="message-body"
+					html={invokedHtml}
+					onCopyCode={(code) => void copyText(code)}
+					onFileReference={(path) => void openFileReference(cwd, path)}
+				/>
 			) : null}
 			{role === "user" && item.timestamp ? <MessageMeta model={model} timestamp={item.timestamp} /> : null}
 		</article>
