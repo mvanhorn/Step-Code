@@ -157,7 +157,7 @@ export const MessageItem = memo(function MessageItem({
 								})
 							}
 						>
-							<Icon name="squarePen" size="2xs" />
+							<Icon name="squarePen" size="xs" />
 						</button>
 					) : null}
 				</div>
