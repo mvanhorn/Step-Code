@@ -742,7 +742,10 @@ test(
       `unexpected skill location: ${skills.location}`,
     )
 
-    // The plugin page lists the built-in marketplace and says so when nothing is installed.
+    // The plugin page lists the built-in marketplace. A fresh install is not
+    // empty any more: the host's MCP warmup pre-installs the built-in StepPage
+    // plugin, so the check is that nothing *else* leaked in from the developer's
+    // own plugin root.
     const plugins = await browser.run(`
 		$("[data-settings-page='plugins']").click();
 		await until(() => $("[data-settings-page='plugins']").getAttribute("aria-current") === "page", "plugins page");
@@ -753,12 +756,16 @@ test(
 		const catalog = await (await fetch("/api/v1/settings/plugins")).json();
 		return {
 			marketplaces: catalog.marketplaces.map((entry) => entry.name),
-			installed: catalog.installed.length,
+			installed: catalog.installed.map((plugin) => ({ id: plugin.id, name: plugin.name })),
 			builtinKind: $("[data-marketplace='builtin']").textContent.includes("内置"),
 		};
 	`)
     assert.ok(plugins.marketplaces.includes("builtin"), "the built-in marketplace is listed")
-    assert.equal(plugins.installed, 0)
+    assert.deepEqual(
+      plugins.installed.map((plugin) => plugin.id),
+      ["steppage"],
+      "only the pre-installed built-in plugin is present in a fresh agent directory",
+    )
     assert.equal(plugins.builtinKind, true)
   },
 )
