@@ -32,7 +32,6 @@ import { getState, type ModeId, setUi, useAppStore } from "../../state/store";
 import type { SessionSnapshot, TreeEntry } from "../../state/types";
 import { Icon, IconButton, MarkdownView, Tooltip } from "../../ui";
 import { openFeedback } from "../conversation";
-import { rewritePrompt } from "../conversation/actions";
 import { askSideQuestion } from "../files";
 import { MicButton } from "../voice";
 import { AttachmentList } from "./Attachments";
@@ -233,23 +232,6 @@ export function Composer({ workspaceControl, branchControl }: ComposerProps) {
 		[syncHasText],
 	);
 	const stopMode = status === "running" && !hasText;
-	/*
-	 * Rewriting in place: while a message is under edit, this composer instance
-	 * (rendered at that message's position) starts from its text and submits by
-	 * forking to before it and sending the reworked message.
-	 */
-	const editingPrompt = useAppStore((state) => state.ui.editingPrompt);
-	const editLoaded = useRef<string | null>(null);
-	useEffect(() => {
-		if (!editingPrompt || editLoaded.current === editingPrompt.entryId) return;
-		editLoaded.current = editingPrompt.entryId;
-		const editor = prompt.current;
-		if (!editor) return;
-		setPromptText(editor, editingPrompt.text);
-		setHasText(Boolean(editingPrompt.text.trim()));
-		editor.focus();
-	}, [editingPrompt]);
-	const cancelEdit = () => setUi({ editingPrompt: null });
 
 	const menu = (name: ComposerMenu) => ({
 		open: openMenu === name,
@@ -434,11 +416,7 @@ export function Composer({ workspaceControl, branchControl }: ComposerProps) {
 			const draft = snapshotPrompt(editor);
 			setPromptText(editor, "");
 			setHasText(false);
-			const editing = getState().ui.editingPrompt;
-			const sent = editing
-				? await rewritePrompt(editing.before, outgoing, files)
-				: await sendMessage(outgoing, files, steer);
-			if (!sent) {
+			if (!(await sendMessage(outgoing, files, steer))) {
 				restorePrompt(editor, draft);
 				syncHasText();
 			} else {
@@ -570,14 +548,6 @@ export function Composer({ workspaceControl, branchControl }: ComposerProps) {
 			</div>
 			<PlanStrip />
 			<QueueDock />
-			{editingPrompt ? (
-				<div className="edit-prompt-banner">
-					<span>{t("editPromptTitle")}</span>
-					<button type="button" onClick={cancelEdit}>
-						{t("promptCancel")}
-					</button>
-				</div>
-			) : null}
 			{/* The staged mode paints the card through `data-mode` (accent border, glow and sweep in composer.css). */}
 			<div className="composer-card" data-mode={activeMode ?? undefined}>
 				<AttachmentList />

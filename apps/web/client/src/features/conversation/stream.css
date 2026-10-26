@@ -1811,3 +1811,41 @@ button.compaction-head:focus-visible {
 .message-skill .tool-glyph {
 	color: inherit;
 }
+
+/*
+ * Editing the latest prompt happens on the bubble itself: the bubble swaps
+ * for a textarea in its own shape, with a compact control row underneath.
+ */
+.prompt-edit {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 5px;
+	max-width: min(100%, 68ch);
+	margin-left: auto;
+}
+.prompt-edit textarea {
+	width: 100%;
+	min-height: 2.8em;
+	box-sizing: border-box;
+	padding: 10px 14px;
+	border: 1px solid var(--focus-border);
+	border-radius: var(--radius-bubble) var(--radius-bubble) var(--radius-inline-code) var(--radius-bubble);
+	background: var(--surface-soft);
+	color: var(--ink);
+	font: inherit;
+	font-size: 14px;
+	line-height: 1.65;
+	resize: vertical;
+}
+.prompt-edit textarea:focus {
+	outline: none;
+}
+.prompt-edit-controls {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+}
+.prompt-edit-spacer {
+	flex: 1;
+}
