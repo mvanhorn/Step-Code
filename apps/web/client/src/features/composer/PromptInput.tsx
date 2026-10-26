@@ -49,6 +49,10 @@ const MODEL_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "imag
 
 export interface PromptInputProps {
 	readonly promptRef: RefObject<HTMLDivElement | null>;
+	/** DOM id of the editor; the bottom composer's is `prompt`. */
+	readonly id?: string;
+	/** Ignore the shared prompt-focus signal (the in-place edit editor manages its own). */
+	readonly ignoreFocusRequest?: boolean;
 	readonly disabled: boolean;
 	/** Enter without Shift, outside an IME composition. */
 	readonly onSubmit: () => void;
@@ -76,6 +80,8 @@ export interface PromptInputProps {
 /** Uncontrolled: the composer reads and resets the content through the ref on send. */
 export function PromptInput({
 	promptRef,
+	id = "prompt",
+	ignoreFocusRequest = false,
 	disabled,
 	onSubmit,
 	onSteer,
@@ -91,8 +97,8 @@ export function PromptInput({
 	const ime = useImeGuard();
 	const focusRequest = useAppStore((state) => state.ui.promptFocusRequest);
 	useEffect(() => {
-		if (focusRequest) promptRef.current?.focus();
-	}, [focusRequest, promptRef]);
+		if (focusRequest && !ignoreFocusRequest) promptRef.current?.focus();
+	}, [focusRequest, promptRef, ignoreFocusRequest]);
 	// Rewrite: a message's text comes back into the prompt for editing.
 	const draftRequest = useAppStore((state) => state.ui.promptDraftRequest);
 	useEffect(() => {
@@ -320,7 +326,7 @@ export function PromptInput({
 			<FileDropOverlay open={dropActive} />
 			{/* biome-ignore lint/a11y/useSemanticElements: a textarea cannot hold the inline file chips; this is a contenteditable textbox. */}
 			<div
-				id="prompt"
+				id={id}
 				ref={promptRef}
 				className="prompt-editor"
 				role="textbox"

@@ -244,9 +244,11 @@ export function Composer({ workspaceControl, branchControl, variant = "full" }: 
 		editLoaded.current = true;
 		const editor = prompt.current;
 		if (!editor) return;
+		// Focus before filling: setPromptText parks the caret at the end only when
+		// the editor already holds focus, so a fill-then-focus leaves it at the start.
+		editor.focus();
 		setPromptText(editor, editingPrompt.text);
 		setHasText(Boolean(editingPrompt.text.trim()));
-		editor.focus();
 	}, [edit, editingPrompt]);
 
 	const menu = (name: ComposerMenu) => ({
@@ -407,24 +409,19 @@ export function Composer({ workspaceControl, branchControl, variant = "full" }: 
 			}
 			/*
 			 * Staged chips shape the outgoing message: one command pick may lead
-			 * it (the kernel runs a single slash command per message, and only
-			 * when it starts with `/`), and note picks plus session-context
-			 * blocks ride at the tail (ZCode's prompt-tail pattern).
+			 * it, and note picks plus session-context blocks ride at the tail.
+			 * The lead chips' own commands ride IN the text: every chip carries
+			 * its exact command line, so stacked commands keep their order.
 			 */
 			const lead = stagedPicks.find((pick) => pick.prefix);
-			// A mode applies to this message only: it leads the text and is dropped
-			// once the message is accepted, never toggled off by a second command.
-			const mode = activeMode ? modePrefix(activeMode) : "";
 			const tail = [
 				...stagedPicks.filter((pick) => pick.note).map((pick) => pick.note),
 				...contextPackages.map((item) => item.block),
 			].join("\n\n");
+			// Lead chips serialize their own commands into `text` in staged order,
+			// so a stacked input (plan + skill + prompt) keeps its built order.
 			const command = lead ? `${lead.prefix} ` : "";
-			// `/plan` has to come first or the kernel never runs it: a leading
-			// `/skill:` would swallow it as an argument. The plan command expands a
-			// skill that follows it.
-			const head = activeMode === "plan" ? `${mode}${command}` : `${command}${mode}`;
-			const outgoing = `${head}${text}${tail ? `\n\n${tail}` : ""}`;
+			const outgoing = `${command}${text}${tail ? `\n\n${tail}` : ""}`;
 			setQuery(null);
 			setPathQuery(null);
 			lastPathQuery.current = null;
@@ -559,17 +556,20 @@ export function Composer({ workspaceControl, branchControl, variant = "full" }: 
 	};
 
 	return (
-		<form className="composer" id="composer" ref={form} onSubmit={(event) => onFormSubmit(event)}>
-			<SlashMenu handle={slash} query={query} promptRef={prompt} onPick={pickSlash} />
-			<FileMenu handle={files} cwd={cwd} query={pathQuery} promptRef={prompt} onPick={pickFile} />
-			{edit ? (
-				<div className="edit-prompt-banner">
-					<span>{t("editPromptTitle")}</span>
-					<button type="button" onClick={() => setUi({ editingPrompt: null })}>
-						{t("promptCancel")}
-					</button>
-				</div>
-			) : (
+		<form
+			className={edit ? "composer composer--edit" : "composer"}
+			id={edit ? "editComposer" : "composer"}
+			ref={form}
+			onSubmit={(event) => onFormSubmit(event)}
+		>
+			{/* The edit instance keeps the menus out: its store flags are shared with the bottom one. */}
+			{edit ? null : (
+				<>
+					<SlashMenu handle={slash} query={query} promptRef={prompt} onPick={pickSlash} />
+					<FileMenu handle={files} cwd={cwd} query={pathQuery} promptRef={prompt} onPick={pickFile} />
+				</>
+			)}
+			{edit ? null : (
 				<>
 					<div className="composer-pickers" id="composerPickers">
 						{workspaceControl}
@@ -637,6 +637,8 @@ export function Composer({ workspaceControl, branchControl, variant = "full" }: 
 				<div className="prompt-deck" data-preview={previewOpen ? "" : undefined}>
 					<PromptInput
 						promptRef={prompt}
+						id={edit ? "editPrompt" : "prompt"}
+						ignoreFocusRequest={edit}
 						disabled={waiting}
 						onSubmit={() => form.current?.requestSubmit()}
 						onSteer={steer}
@@ -651,12 +653,12 @@ export function Composer({ workspaceControl, branchControl, variant = "full" }: 
 						onValueInput={onValueInput}
 						onCaretChange={syncFileQuery}
 						onCompositionChange={onCompositionChange}
-						onMenuKey={(key) => files.current?.key(key) || slash.current?.key(key) || false}
-						onTogglePreview={togglePreview}
+						onMenuKey={edit ? undefined : (key) => files.current?.key(key) || slash.current?.key(key) || false}
+						onTogglePreview={edit ? undefined : togglePreview}
 						stageFilesRef={stageFiles}
 					/>
 					{/* The rendered draft covers the editor, which stays mounted so the send path still reads it. */}
-					{previewOpen ? (
+					{!edit && previewOpen ? (
 						<MarkdownView
 							ref={previewRef}
 							className="prompt-preview message-body"
@@ -680,18 +682,25 @@ export function Composer({ workspaceControl, branchControl, variant = "full" }: 
 						onFiles={(picked) => stageFiles.current?.(picked)}
 					/>
 					{edit ? null : <PolicyMenu {...menu("policy")} />}
-					<Tooltip content={`${previewOpen ? t("markdownEdit") : t("markdownPreview")} (Cmd/Ctrl+Shift+M)`}>
-						<IconButton
-							icon={previewOpen ? "pencil" : "eye"}
-							iconSize="sm"
-							className="prompt-preview-toggle"
-							aria-label={previewOpen ? t("markdownEdit") : t("markdownPreview")}
-							aria-pressed={previewOpen}
-							disabled={!hasText}
-							onClick={togglePreview}
-						/>
-					</Tooltip>
+					{edit ? null : (
+						<Tooltip content={`${previewOpen ? t("markdownEdit") : t("markdownPreview")} (Cmd/Ctrl+Shift+M)`}>
+							<IconButton
+								icon={previewOpen ? "pencil" : "eye"}
+								iconSize="sm"
+								className="prompt-preview-toggle"
+								aria-label={previewOpen ? t("markdownEdit") : t("markdownPreview")}
+								aria-pressed={previewOpen}
+								disabled={!hasText}
+								onClick={togglePreview}
+							/>
+						</Tooltip>
+					)}
 					<div className="composer-right">
+						{edit ? (
+							<button type="button" className="control-select" onClick={() => setUi({ editingPrompt: null })}>
+								{t("promptCancel")}
+							</button>
+						) : null}
 						{edit ? null : (
 							<>
 								<MicButton onTranscript={insertVoiceTranscript} />

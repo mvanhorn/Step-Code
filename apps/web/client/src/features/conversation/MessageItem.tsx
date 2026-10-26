@@ -132,12 +132,19 @@ export const MessageItem = memo(function MessageItem({
 			{quoted ? <QuotedContext quote={quoted.quote} /> : null}
 			{role === "user" && item.content ? (
 				<div className="prompt-actions">
-					<button type="button" title={t("copy")} aria-label={t("copy")} onClick={() => void copyText(content)}>
-						<Icon name="copy" size="2xs" />
+					<button
+						type="button"
+						className="message-action"
+						title={t("copy")}
+						aria-label={t("copy")}
+						onClick={() => void copyText(content)}
+					>
+						<Icon {...LEGACY_ICONS.copy} />
 					</button>
 					{rewritableBefore !== undefined ? (
 						<button
 							type="button"
+							className="message-action"
 							title={t("promptRewrite")}
 							aria-label={t("promptRewrite")}
 							onClick={() =>
@@ -150,7 +157,7 @@ export const MessageItem = memo(function MessageItem({
 								})
 							}
 						>
-							<Icon name="squarePen" size="2xs" />
+							<Icon name="squarePen" size="xs" />
 						</button>
 					) : null}
 				</div>
