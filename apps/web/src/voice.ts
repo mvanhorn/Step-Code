@@ -67,6 +67,16 @@ export const MAX_VOICE_SESSION_MS = 10 * 60 * 1000;
 export const MAX_VOICE_SESSION_BYTES = 64 * 1024 * 1024;
 
 /**
+ * The WAV header carries the capture rate, and only the client knows it: the
+ * browser may hand back a context at another rate than the one requested, and a
+ * header that disagrees with the samples makes the recogniser hear the wrong
+ * thing rather than fail. Values outside this range are not a sample rate any
+ * microphone produced, so a bad value falls back instead of corrupting the file.
+ */
+export const MIN_VOICE_SAMPLE_RATE = 8000;
+export const MAX_VOICE_SAMPLE_RATE = 192000;
+
+/**
  * The ASR service: one multipart upload, the complete text back. Verified
  * against the live service on 2026-10-25 (Step Plan login token, 24 kHz mono
  * WAV, ~470 ms for a 3.5 s clip).
@@ -173,10 +183,23 @@ function wrapWav(pcm: Buffer, sampleRate: number): Buffer {
 	return Buffer.concat([header, pcm]);
 }
 
-/** One dictation: buffered chunks and the clock the limits are checked against. */
+/**
+ * The client's sample rate, or the capture default when it is absent or not a
+ * rate a microphone could have produced. Only used for the WAV header.
+ */
+function readSampleRate(value: unknown): number {
+	if (typeof value !== "number" || !Number.isFinite(value)) return CAPTURE_SAMPLE_RATE;
+	const rate = Math.round(value);
+	if (rate < MIN_VOICE_SAMPLE_RATE || rate > MAX_VOICE_SAMPLE_RATE) return CAPTURE_SAMPLE_RATE;
+	return rate;
+}
+
+/** One dictation: buffered chunks, the capture rate, and the clock the limits are checked against. */
 interface ActiveVoiceSession {
 	readonly id: string;
 	readonly startedAt: number;
+	/** The client's real `AudioContext.sampleRate`; the WAV header must state it. */
+	readonly sampleRate: number;
 	readonly chunks: Buffer[];
 	bytes: number;
 }
@@ -240,10 +263,26 @@ export class VoiceRelay {
 		return { available: true, channel: credential.channel, keySource: credential.keySource };
 	}
 
-	/** Open the buffering session; 409 when one is already active. */
-	start(): { sessionId: string } {
+	/**
+	 * Open the buffering session; 409 when one is already active.
+	 *
+	 * `sampleRate` is the client's real capture rate. A session left behind by a
+	 * client that vanished — a closed tab, a killed process — can never be
+	 * cancelled, and the size and duration limits are only consulted when audio
+	 * arrives, so nothing else would ever end it. A session past its own duration
+	 * limit is therefore treated as gone rather than refusing the next start
+	 * forever.
+	 */
+	start(input: { sampleRate?: unknown } = {}): { sessionId: string } {
+		if (this.session && this.now() - this.session.startedAt > this.maxSessionMs) this.session = undefined;
 		if (this.session) throw new VoiceError("A voice session is already active", 409, "session-active");
-		this.session = { id: randomUUID(), startedAt: this.now(), chunks: [], bytes: 0 };
+		this.session = {
+			id: randomUUID(),
+			startedAt: this.now(),
+			sampleRate: readSampleRate(input.sampleRate),
+			chunks: [],
+			bytes: 0,
+		};
 		return { sessionId: this.session.id };
 	}
 
@@ -278,7 +317,7 @@ export class VoiceRelay {
 		if (!credential) throw new VoiceError("Voice credential is no longer available", 409, "no-credential");
 		const pcm = Buffer.concat(session.chunks);
 		if (pcm.length === 0) return { text: "" };
-		return this.transcribe(credential, wrapWav(pcm, CAPTURE_SAMPLE_RATE));
+		return this.transcribe(credential, wrapWav(pcm, session.sampleRate));
 	}
 
 	/** Discard the session without transcribing (the cancel action). */

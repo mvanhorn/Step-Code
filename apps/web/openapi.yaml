@@ -141,8 +141,22 @@ paths:
     post:
       description: |
         Open the one buffering session (a second start while one runs answers
-        409). Chunks are buffered until the stop, which transcribes the whole
-        recording.
+        409; one that outlived its duration limit is dropped first, so a client
+        that vanished cannot lock the endpoint). Chunks are buffered until the
+        stop, which transcribes the whole recording.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sampleRate:
+                  type: number
+                  description: >-
+                    The client's real `AudioContext.sampleRate`, used for the WAV header. A browser may refuse the
+                    requested rate, and a header that disagrees with the samples corrupts the transcript. Omitted or
+                    implausible values fall back to 24000.
       responses:
         "200":
           description: Session started
@@ -158,9 +172,9 @@ paths:
   /api/v1/voice/audio:
     post:
       description: |
-        Buffer one base64 PCM16 chunk (100 ms slices, 24 kHz mono) for the
-        active session. At most 512 KiB decoded per chunk and 10 minutes of
-        audio per session.
+        Buffer one base64 PCM16 chunk (100 ms slices, mono, at the rate the
+        session was started with). At most 512 KiB decoded per chunk and 10
+        minutes of audio per session.
       requestBody:
         required: true
         content:

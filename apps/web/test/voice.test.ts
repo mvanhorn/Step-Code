@@ -282,3 +282,54 @@ test("a finished session accepts a fresh start", async () => {
 	relay.append(chunk());
 	assert.deepEqual(await relay.stop(), { text: "一次" });
 });
+
+test("the WAV header states the rate the client reported", async () => {
+	// The browser may hand back an AudioContext at another rate than the one it
+	// was asked for. A header that keeps claiming 24 kHz would make the service
+	// hear the wrong pitch rather than fail, so the started session carries it.
+	const fake = fakeAsr({ text: "ok" });
+	const relay = relayWith(fake.fetch);
+	relay.start({ sampleRate: 48000 });
+	relay.append(chunk(9600));
+	await relay.stop();
+	const wav = await uploadedWav(fake.calls[0].body);
+	assert.equal(wav.readUInt32LE(24), 48000, "sample rate");
+	assert.equal(wav.readUInt32LE(28), 96000, "byte rate follows the sample rate");
+});
+
+test("a missing or implausible sample rate falls back to the capture default", async () => {
+	for (const sampleRate of [undefined, null, "44100", Number.NaN, 0, -1, 1, 1_000_000]) {
+		const fake = fakeAsr({ text: "ok" });
+		const relay = relayWith(fake.fetch);
+		relay.start({ sampleRate });
+		relay.append(chunk());
+		await relay.stop();
+		const wav = await uploadedWav(fake.calls[0].body);
+		assert.equal(wav.readUInt32LE(24), 24000, `rate for ${String(sampleRate)}`);
+	}
+});
+
+test("a session whose client vanished does not refuse the next start forever", async () => {
+	// The duration limit is only consulted when audio arrives, so a client that
+	// closed or crashed mid-recording would otherwise hold the relay open for the
+	// process's lifetime: every later click answered 409.
+	let now = 1_000;
+	const relay = relayWith(fakeAsr({ text: "ok" }).fetch, testCredential, () => now);
+	relay.start();
+	// Nothing arrives: the microphone permission dialog was never answered.
+	now += 10 * 60 * 1000 + 1;
+	assert.ok(relay.start(), "an expired session must not block a new one");
+	assert.equal(relay.status().available, true);
+	assert.equal((await relay.stop()).text, "", "the stale session contributed no audio");
+});
+
+test("a session inside its window still refuses a second start", () => {
+	let now = 1_000;
+	const relay = relayWith(fakeAsr({}).fetch, testCredential, () => now);
+	relay.start();
+	now += 1_000;
+	assert.throws(
+		() => relay.start(),
+		(error: unknown) => error instanceof VoiceError && error.code === "session-active" && error.status === 409,
+	);
+});
