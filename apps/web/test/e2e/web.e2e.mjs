@@ -2323,6 +2323,113 @@ test("the conversation locator rail jumps to a query and follows the viewport", 
   assert.equal(located.jump, "跳转到第 1 条提问")
 })
 
+test("a content hit in the middle of a long session jumps to that message", { skip }, async () => {
+  // The first search case matched the session's LAST message, so "scrolled to the
+  // entry" and "scrolled to the end" were indistinguishable. This one puts the
+  // match in the middle, with plenty of turns after it.
+  const sessionId = "e2e-search-middle"
+  const now = new Date().toISOString()
+  const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }
+  const user = (id, parent, text) => ({ type: "message", id, parentId: parent, timestamp: now, message: { role: "user", content: text, timestamp: Date.now() } })
+  const reply = (id, parent, text) => ({
+    type: "message", id, parentId: parent, timestamp: now,
+    message: { role: "assistant", content: [{ type: "text", text }], api: "openai-completions", provider: "e2e", model: "e2e", usage, stopReason: "stop", timestamp: Date.now() },
+  })
+  const call = (id, parent, toolId) => ({
+    type: "message", id, parentId: parent, timestamp: now,
+    message: { role: "assistant", content: [{ type: "toolCall", id: toolId, name: "run_command", arguments: { command: "cat config/quokka.toml" } }], api: "openai-completions", provider: "e2e", model: "e2e", usage, stopReason: "toolUse", timestamp: Date.now() },
+  })
+  const result = (id, parent, toolId) => ({
+    type: "message", id, parentId: parent, timestamp: now,
+    message: { role: "toolResult", toolCallId: toolId, toolName: "run_command", content: [{ type: "text", text: "quokkaquarantine = \"/srv/quokka\"" }], isError: false, timestamp: Date.now() },
+  })
+  const lines = [{ type: "session", version: 3, id: sessionId, timestamp: now, cwd: workspace }]
+  // 12 turns of filler, with a message target at turn 3 and a tool-output target at turn 8.
+  for (let turn = 1; turn <= 12; turn += 1) {
+    const answer = turn === 3 ? "The wombatregistry lives in config/quokka.toml." : `Filler answer number ${turn}, with enough words to take up vertical space in the transcript.`
+    const parent = turn === 1 ? null : `e2e-m${turn - 1}-a`
+    lines.push(user(`e2e-m${turn}-u`, parent, `question ${turn}: please explain something at length`))
+    if (turn === 8) {
+      lines.push(call(`e2e-m${turn}-tool`, `e2e-m${turn}-u`, `tool-${turn}`), result(`e2e-m${turn}-toolr`, `e2e-m${turn}-tool`, `tool-${turn}`), reply(`e2e-m${turn}-a`, `e2e-m${turn}-toolr`, answer))
+    } else {
+      lines.push(reply(`e2e-m${turn}-a`, `e2e-m${turn}-u`, answer))
+    }
+  }
+  const dir = join(base, "agent", "sessions", "--e2e-search-middle--")
+  await mkdir(dir, { recursive: true })
+  await writeFile(join(dir, `${sessionId}.jsonl`), lines.map((line) => JSON.stringify(line)).join("\n") + "\n")
+
+  const jumped = await browser.run(`
+    $("#searchPlaceholder").click();
+    await until(() => !$("#searchModal").hidden, "search modal");
+    const input = $("#globalSearchInput");
+    input.value = "wombatregistry";
+    input.dispatchEvent(new Event("input"));
+    const result = await until(() => $$(".search-result").find((row) => row.dataset.entryId === "e2e-m3-a"), "middle hit");
+    // The match must be findable at a glance: a real wash, not a faint tint.
+    const mark = result.querySelector("mark");
+    const painted = getComputedStyle(mark);
+    const highlight = { background: painted.backgroundColor, color: painted.color, weight: painted.fontWeight };
+    result.click();
+    await until(() => $("#searchModal").hidden, "modal to close");
+    await until(() => $('#streamInner [data-entry-id="e2e-m3-a"]'), "target message");
+    // Let the scroll settle.
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    const stream = $("#stream");
+    const message = $('#streamInner [data-entry-id="e2e-m3-a"]');
+    const streamBox = stream.getBoundingClientRect();
+    const box = message.getBoundingClientRect();
+    const atEnd = stream.scrollHeight - stream.scrollTop - stream.clientHeight < 8;
+    return {
+      inViewport: box.bottom > streamBox.top && box.top < streamBox.bottom,
+      atEnd,
+      matchedLast: $('#streamInner [data-entry-id="e2e-m12-a"]').getBoundingClientRect().top <= streamBox.top + 4,
+      highlight,
+    };
+  `)
+  assert.deepEqual(
+    { inViewport: jumped.inViewport, atEnd: jumped.atEnd, matchedLast: jumped.matchedLast },
+    { inViewport: true, atEnd: false, matchedLast: false },
+  )
+  // A find-in-page wash, not the browser default and not the surface itself.
+  assert.notEqual(jumped.highlight.background, "rgba(0, 0, 0, 0)")
+  assert.match(jumped.highlight.background, /^rgb\(255, 226, 122\)$/, `match background: ${jumped.highlight.background}`)
+  // 600 in a plain row, 700 on the Enter target: either way it is bolder than the snippet.
+  assert.ok(Number(jumped.highlight.weight) >= 600, `match weight: ${jumped.highlight.weight}`)
+
+  // A hit on a message the user rewound or retried away: the file keeps those
+  // rows, the page renders only the live branch. The jump must say so instead of
+  // silently landing at the end of the conversation.
+  const abandonedId = "e2e-abandoned-session"
+  const abandoned = [
+    { type: "session", version: 3, id: abandonedId, timestamp: now, cwd: workspace },
+    user("a1", null, "first question"),
+    reply("a2", "a1", "The wombatcryptid answer that was later retried."),
+    user("a3", "a1", "first question, retried"),
+    reply("a4", "a3", "The second, kept answer."),
+  ]
+  await writeFile(join(dir, `${abandonedId}.jsonl`), abandoned.map((line) => JSON.stringify(line)).join("\n") + "\n")
+
+  const abandonedJump = await browser.run(`
+    $("#searchPlaceholder").click();
+    await until(() => !$("#searchModal").hidden, "search modal");
+    const input = $("#globalSearchInput");
+    input.value = "wombatcryptid";
+    input.dispatchEvent(new Event("input"));
+    const row = await until(() => $$(".search-result").find((item) => item.dataset.entryId === "a2"), "abandoned hit");
+    row.click();
+    await until(() => $("#searchModal").hidden, "modal to close");
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    return {
+      landed: Boolean($('#streamInner [data-entry-id="a4"]')),
+      told: $("#errorToast").hidden === false,
+      toast: $("#errorToast").hidden ? "" : $("#errorToast").textContent,
+    };
+  `)
+  assert.equal(abandonedJump.landed, true, "the session opened")
+  assert.equal(abandonedJump.told, true, "a hit outside the live branch was not reported")
+})
+
 test("a subagent or workflow call opens its child agents' transcripts read-only over the conversation", { skip }, async () => {
   const now = new Date().toISOString()
   const stamp = now.replace(/[:.]/g, "-")
