@@ -390,22 +390,6 @@
 .prompt-actions:focus-within {
 	opacity: 1;
 }
-.prompt-actions button {
-	display: grid;
-	place-items: center;
-	width: 24px;
-	height: 22px;
-	padding: 0;
-	border: 0;
-	border-radius: var(--radius-control);
-	background: transparent;
-	color: var(--ink-3);
-	cursor: pointer;
-}
-.prompt-actions button:hover {
-	background: var(--surface-soft);
-	color: var(--ink);
-}
 .message-meta {
 	display: inline-flex;
 	align-items: center;
@@ -433,22 +417,6 @@
 .message:hover .prompt-actions,
 .prompt-actions:focus-within {
 	opacity: 1;
-}
-.prompt-actions button {
-	display: grid;
-	place-items: center;
-	width: 24px;
-	height: 22px;
-	padding: 0;
-	border: 0;
-	border-radius: var(--radius-control);
-	background: transparent;
-	color: var(--ink-3);
-	cursor: pointer;
-}
-.prompt-actions button:hover {
-	background: var(--surface-soft);
-	color: var(--ink);
 }
 .message-meta-time {
 	font-variant-numeric: tabular-nums;
