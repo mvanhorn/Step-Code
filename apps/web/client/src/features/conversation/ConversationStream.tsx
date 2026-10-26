@@ -3,12 +3,13 @@ import { useLocale, useT } from "../../i18n";
 import { collectTurnChanges } from "../../lib/turn-changes";
 import { showToast } from "../../state/session";
 import { setUi, useAppStore } from "../../state/store";
-import type { SteeringMessage, TimelineItem } from "../../state/types";
+import type { MessageTimelineItem, SteeringMessage, TimelineItem } from "../../state/types";
 import { Icon } from "../../ui";
 import { Composer } from "../composer";
 import { ClarificationPanel } from "./ClarificationPanel";
 import { CommandRow } from "./CommandRow";
 import { CompactionRow, CompactionRunningRow } from "./CompactionRow";
+import { GoalRoundRow } from "./GoalRoundRow";
 import { MessageActions, MessageItem } from "./MessageItem";
 import { NoticeRow } from "./NoticeRow";
 import { PlanReviewCard } from "./PlanReviewCard";
@@ -23,9 +24,8 @@ import { RetryRow } from "./RetryRow";
 import { ThinkingDisclosure } from "./ThinkingDisclosure";
 import { ThinkingIndicator } from "./ThinkingIndicator";
 import { ApprovalCard, ToolRow } from "./TimelineRows";
-import { TurnArtifacts } from "./TurnArtifacts";
 import { TurnChangesCard } from "./TurnChangesCard";
-import { turnArtifacts } from "./turn-artifacts";
+import { type TurnArtifact, turnArtifacts } from "./turn-artifacts";
 import { collectTurnFooters } from "./turn-footers";
 
 /**
@@ -113,6 +113,21 @@ export function ConversationStream() {
 		() => new Map([...footerAfter].map(([index, footer]) => [index, turnArtifacts(items, footer, cwd)])),
 		[footerAfter, items, cwd],
 	);
+	/*
+	 * Each turn's deliverables attach to the bubble that closed it, as the
+	 * answer handing its files over, instead of a strip after the whole turn.
+	 */
+	const attachmentsFor = useMemo(() => {
+		const perMessage = new Map<MessageTimelineItem, readonly TurnArtifact[]>();
+		let closing: MessageTimelineItem | null = null;
+		items.forEach((item, index) => {
+			if (item.kind === "message" && item.role === "user") closing = null;
+			if (item.kind === "message" && item.role === "assistant") closing = item;
+			const artifacts = footerAfter.get(index) ? artifactsAfter.get(index) : undefined;
+			if (artifacts?.length && closing) perMessage.set(closing, artifacts);
+		});
+		return perMessage;
+	}, [footerAfter, artifactsAfter, items]);
 
 	// A new session or a sent message: follow the bottom again.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the session id and the pending messages are the triggers.
@@ -182,6 +197,12 @@ export function ConversationStream() {
 	}, [items, running, breaks]);
 	// Rewriting swaps the message for the compact edit composer, in place.
 	const editingPrompt = useAppStore((state) => state.ui.editingPrompt);
+	// A turn that starts under an open editor (a goal round fires at any idle
+	// boundary) leaves its fork stale; close it instead of keeping a dead
+	// composer parked mid-flow.
+	useEffect(() => {
+		if (running && editingPrompt) setUi({ editingPrompt: null });
+	}, [running, editingPrompt]);
 	// Only the latest prompt is rewritable: fork to the entry before it.
 	// A command echo is a prompt too: the newest of either kind is rewritable.
 	let lastUserIndex = -1;
@@ -200,6 +221,14 @@ export function ConversationStream() {
 			break;
 		}
 	}
+	/*
+	 * Rewriting forks the session back before the latest prompt — only
+	 * coherent once its turn has settled. While a turn runs, the latest prompt
+	 * is a steering message parked mid-flow (a goal round keeps turns busy for
+	 * minutes), and swapping it for an edit composer there reads as an input
+	 * box intruding into the transcript.
+	 */
+	const rewriteClosed = running;
 	return (
 		<div
 			className="stream"
@@ -231,8 +260,13 @@ export function ConversationStream() {
 										) : (
 											<MessageItem
 												item={row.item}
+												attachments={
+													row.item.role === "assistant" ? attachmentsFor.get(row.item) : undefined
+												}
 												rewritableBefore={
-													items[lastUserIndex] === row.item ? (rewriteBefore ?? "") : undefined
+													!rewriteClosed && items[lastUserIndex] === row.item
+														? (rewriteBefore ?? "")
+														: undefined
 												}
 											/>
 										)
@@ -254,16 +288,11 @@ export function ConversationStream() {
 										/>
 									) : row.item.kind === "compaction" ? (
 										<CompactionRow item={row.item} />
+									) : row.item.kind === "goal-round" ? (
+										<GoalRoundRow item={row.item} />
 									) : (
 										<ApprovalCard approval={row.item.approval} />
 									)}
-									{footer ? (
-										<TurnArtifacts
-											key={`outputs-${sessionId}-${footer.turnId}`}
-											artifacts={artifactsAfter.get(row.lastIndex) ?? []}
-											cwd={cwd}
-										/>
-									) : null}
 									{card ? (
 										<TurnChangesCard turn={card} reverted={Boolean(revertedTurns?.includes(card.turnId))} />
 									) : null}

@@ -267,8 +267,9 @@ When to add or change one:
   and supported structured successful write/edit outputs; inline basenames
   require an unambiguous observed output. References use the existing
   workspace file API and containment checks, never browser `file:` navigation.
-  Delivery buttons toggle only their own visible Files preview, retaining
-  tabs and trigger focus; other files or panels switch to the requested file.
+  Attachment rows (under the closing reply of a turn) toggle only their own
+  visible Files preview, retaining tabs and trigger focus; other files or
+  panels switch to the requested file.
   Markdown opens rendered; preview links resolve relative to that document.
 - Workspace navigation metadata is separate from sessions: `web-workspaces.json` stores registered `workspaces`
   and explicit `removedWorkspaces`. Removed entries are returned with `hidden: true`; clients must not recreate

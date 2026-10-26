@@ -89,3 +89,25 @@ test("other custom entries and empty echoes stay out of the timeline", () => {
 	assert.equal(items[0]?.kind, "command");
 	assert.equal(items[1]?.kind, "message");
 });
+
+test("a goal continuation becomes a round separator, numbered from the entry", () => {
+	const items = timelineFromEntries([
+		{
+			id: "c1",
+			type: "custom_message",
+			customType: "step-goal",
+			goalRound: 2,
+			timestamp: "2026-10-26T08:00:00.000Z",
+		},
+	]);
+	assert.deepEqual(items, [
+		{ itemId: "goal-round-c1", kind: "goal-round", round: 2, timestamp: "2026-10-26T08:00:00.000Z" },
+	]);
+	// A continuation without a usable number still counts its own position:
+	// the first separator is the second round (round 1 is the user's own turn).
+	const fallback = timelineFromEntries([{ id: "c2", type: "custom_message", customType: "step-goal" }]);
+	assert.deepEqual(fallback, [{ itemId: "goal-round-c2", kind: "goal-round", round: 2 }]);
+	// A malformed number must not invent an earlier round.
+	const malformed = timelineFromEntries([{ id: "c3", type: "custom_message", customType: "step-goal", goalRound: 0 }]);
+	assert.deepEqual(malformed, [{ itemId: "goal-round-c3", kind: "goal-round", round: 2 }]);
+});

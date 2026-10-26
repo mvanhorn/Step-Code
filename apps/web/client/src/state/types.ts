@@ -228,18 +228,20 @@ export interface SessionSnapshot extends SessionSummary {
 	readonly steeringMessages?: readonly SteeringMessage[];
 	/** The kernel retrying a failed model request right now (runtime.ts `RetryTracker`). */
 	readonly retry?: SessionRetry;
-	/** The session's goal, drawn as the strip above the composer (runtime.ts `projectGoal`). */
+	/** The session's goal, steered from the summary board (runtime.ts `projectGoal`). */
 	readonly goal?: GoalState;
 	/** Plan mode state (runtime.ts `projectPlanMode`). */
 	readonly planMode?: PlanModeState;
 }
 
-/** The goal strip's data (runtime.ts `projectGoal`). */
+/** The summary board's goal section data (runtime.ts `projectGoal`). */
 export interface GoalState {
 	readonly id: string;
 	readonly objective: string;
 	readonly status: "active" | "paused" | "blocked" | "usage_limited" | "budget_limited" | "complete";
 	readonly tokensUsed: number;
+	/** Active-only elapsed seconds at the last projection; the client ticks from it while active. */
+	readonly timeUsedSeconds: number;
 	readonly tokenBudget?: number;
 	/** Completed agent runs; progress, not a stop condition. */
 	readonly rounds: number;
@@ -558,7 +560,22 @@ export type TimelineItem =
 	| ApprovalTimelineItem
 	| RetryTimelineItem
 	| CommandTimelineItem
-	| CompactionTimelineItem;
+	| CompactionTimelineItem
+	| GoalRoundTimelineItem;
+
+/**
+ * A goal round separator: the hidden continuation message that starts the
+ * goal's next round, drawn as a quiet divider so a multi-round run reads as
+ * rounds instead of one undifferentiated stream. It comes from the session
+ * entry, so it survives a reload like any other transcript row.
+ */
+export interface GoalRoundTimelineItem {
+	readonly itemId: string;
+	readonly kind: "goal-round";
+	/** The round this separator starts, 1-based (round 1 is the user's own turn). */
+	readonly round: number;
+	readonly timestamp?: string;
+}
 
 /**
  * A kernel slash command the user sent, echoed by the host: the command runs

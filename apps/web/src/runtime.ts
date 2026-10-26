@@ -574,6 +574,20 @@ function modelsMatch(left: { provider: string; id: string }, right: { provider: 
 	return left.provider === right.provider && left.id === right.id;
 }
 
+/**
+ * The round a goal continuation message starts (the extension's
+ * `details.iteration` counts completed runs), for the flow's round separator.
+ * Validated like the subagent notification: a malformed number must not
+ * invent a round.
+ */
+function goalRoundOf(entry: SessionEntry): number | undefined {
+	if (entry.type !== "custom_message" || entry.customType !== "step-goal") return undefined;
+	const iteration = (entry.details as { iteration?: unknown } | undefined)?.iteration;
+	return typeof iteration === "number" && Number.isSafeInteger(iteration) && iteration >= 0
+		? iteration + 1
+		: undefined;
+}
+
 export function projectEntry(entry: SessionEntry): Record<string, unknown> {
 	// Only assistant turns carry usage; other message kinds have none to report.
 	const usage = entry.type === "message" && entry.message.role === "assistant" ? entry.message.usage : undefined;
@@ -581,6 +595,7 @@ export function projectEntry(entry: SessionEntry): Record<string, unknown> {
 		entry.type === "custom_message" ? projectSubagentNotification(entry.customType, entry.details) : undefined;
 	// The command echo's text rides the custom entry's data.
 	const echo = commandEchoOf(entry);
+	const goalRound = goalRoundOf(entry);
 	return {
 		id: entry.id,
 		type: entry.type,
@@ -589,6 +604,7 @@ export function projectEntry(entry: SessionEntry): Record<string, unknown> {
 		...(usage ? { usage } : {}),
 		...(entry.type === "custom_message" ? { content: entry.content, customType: entry.customType } : {}),
 		...(notification ? { details: notification } : {}),
+		...(goalRound === undefined ? {} : { goalRound }),
 		...(echo === undefined ? {} : { customType: COMMAND_ECHO_TYPE, command: echo }),
 		// A compaction row shows what it replaced: the summary, the prompt volume
 		// before it, and the entry that stays canonical after it.
@@ -622,7 +638,7 @@ export function projectEntries(entries: readonly SessionEntry[]): Record<string,
 	});
 }
 
-/** The goal strip's data, or undefined when the session has no goal to show. */
+/** The summary board's goal section data, or undefined when the session has no goal to show. */
 export function projectGoal(goal: StepGoalRecord | undefined): Record<string, unknown> | undefined {
 	if (!goal) return undefined;
 	return {
@@ -630,6 +646,8 @@ export function projectGoal(goal: StepGoalRecord | undefined): Record<string, un
 		objective: goal.objective,
 		status: goal.status,
 		tokensUsed: goal.tokensUsed,
+		// Active-only elapsed time; the client ticks from it between refreshes.
+		timeUsedSeconds: goal.timeUsedSeconds,
 		...(goal.tokenBudget === undefined ? {} : { tokenBudget: goal.tokenBudget }),
 		// Completed runs, not a stop condition: the client shows it as progress.
 		rounds: goal.iteration,
