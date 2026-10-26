@@ -85,7 +85,8 @@
 	display: none;
 }
 
-.session-row {
+.session-row,
+.draft-row {
 	position: relative;
 	display: grid;
 	grid-template-columns: minmax(0, 1fr) auto;
@@ -98,21 +99,25 @@
 	cursor: pointer;
 	transition: background-color var(--fast);
 }
-.session-row:hover {
+.session-row:hover,
+.draft-row:hover {
 	background: var(--hover);
 }
 /* Selection is a flat fill: no ring, shadow or spine competing with the row's own rounded edge. */
-.session-row.active {
+.session-row.active,
+.draft-row.active {
 	background: var(--selected);
 }
 /* While the market or cron covers the pane, the sidebar entry for it is the one selection. */
 .sidebar:has(.sidebar-action[aria-current="page"]) .session-row.active {
 	background: none;
 }
-.session-row.active .session-title {
+.session-row.active .session-title,
+.draft-row.active .session-title {
 	color: var(--ink);
 	font-weight: 500;
 }
+
 /* On the selection fill the muted time drops under 4.5:1 in the dark theme; one step up keeps it legible. */
 .session-row.active .session-meta {
 	color: var(--ink-2);

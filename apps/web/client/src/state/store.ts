@@ -226,6 +226,11 @@ export interface UiState {
 	readonly midView: "cron" | "market" | null;
 	/** Session whose snapshot is loading after a pick: its row highlights and the stream shows progress at once. */
 	readonly openingSession: string | null;
+	/**
+	 * Workspace of a conversation the user just started with a "new conversation" control, listed as a
+	 * placeholder sidebar row until its session exists (it is created on the first send). Null otherwise.
+	 */
+	readonly draftRow: string | null;
 	/** Open menu of the changes view: `turn`, `more`, or `file:<shown path>`. */
 	readonly changesMenu: string | null;
 	/** The composer's slash menu: matching commands, or the MCP server list picked from it. */
@@ -462,6 +467,7 @@ export function createInitialState(): AppState {
 			promptFocusRequest: 0,
 			midView: null,
 			openingSession: null,
+			draftRow: null,
 			changesMenu: null,
 			slashMenu: null,
 			fileCompletionOpen: false,

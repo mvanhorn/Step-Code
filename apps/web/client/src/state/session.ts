@@ -1353,7 +1353,9 @@ export async function refreshWorkspaces(): Promise<void> {
 /** Open a session and follow its stream (legacy `openSession`, 3122-3130). */
 export async function openSession(id: string): Promise<void> {
 	choseSession = true;
-	setUi({ midView: null, childView: null, openingSession: id });
+	// The draft this page left behind is gone: it was never a session, so its
+	// placeholder row must not survive under the workspace it named.
+	setUi({ midView: null, childView: null, openingSession: id, draftRow: null });
 	setState({ pendingTurn: null });
 	try {
 		const snapshot = await api<SessionSnapshot>(`/api/v1/sessions/${id}`);
@@ -1376,8 +1378,10 @@ export function requestPromptFocus(): void {
 /**
  * Leave the current session and start an unsaved draft in `cwd` (legacy
  * `startDraft`, 3132-3151). The session is created on the first send.
+ * `listed` marks a conversation the user asked for, so the sidebar shows a
+ * placeholder row for it right away instead of only after the first send.
  */
-export function startDraft(cwd: string = getState().bootstrapCwd): void {
+export function startDraft(cwd: string = getState().bootstrapCwd, options: { readonly listed?: boolean } = {}): void {
 	choseSession = true;
 	closeStream();
 	const draftCwd = cwd || getState().bootstrapCwd;
@@ -1400,7 +1404,7 @@ export function startDraft(cwd: string = getState().bootstrapCwd): void {
 	});
 	// A new conversation replaces whatever covers the pane (cron / plugin market, a child agent),
 	// and a session still loading from an earlier pick.
-	setUi({ midView: null, childView: null, openingSession: null });
+	setUi({ midView: null, childView: null, openingSession: null, draftRow: options.listed ? draftCwd : null });
 	requestPromptFocus();
 	void loadDraftModels(draftCwd);
 }
@@ -1506,6 +1510,8 @@ export async function createSessionIfNeeded(firstMessage?: string): Promise<Sess
 			...(firstMessage ? { firstMessage } : {}),
 		}),
 	}));
+	// The real row replaces the draft placeholder.
+	setUi({ draftRow: null });
 	renderSnapshot(snapshot);
 	connectStream(snapshot.id);
 	void refreshSessions().catch(() => {});
