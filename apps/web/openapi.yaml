@@ -815,6 +815,30 @@ paths:
         "200": { description: Image bytes }
         "413": { description: Image exceeds the preview limit }
         "415": { description: File is not an image }
+  /api/v1/workspace/open:
+    post:
+      description: >-
+        Show a known workspace folder in the system file manager (Finder on macOS, File Explorer on Windows, the
+        default handler elsewhere). Answers once the launcher has started.
+      parameters:
+        - { name: cwd, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: "ok: true" }
+        "403": { description: cwd is not a known workspace }
+        "500": { description: The file manager could not be started }
+  /api/v1/workspace/site:
+    post:
+      description: >-
+        Mint the rendered-preview URL of one workspace file (HTML with its relative CSS, scripts and images). The
+        URL points at a separate loopback origin that serves only that workspace, under an unguessable per-workspace
+        token, GET/HEAD only, without directory listings; the embedded browser or the system browser loads it.
+      parameters:
+        - { name: cwd, in: query, required: true, schema: { type: string } }
+        - { name: path, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: "url: http://127.0.0.1:<preview port>/<token>/<workspace-relative path>" }
+        "400": { description: Path is outside the workspace or is not a file }
+        "403": { description: cwd is not a known workspace }
   /api/v1/workspace/search:
     get:
       parameters:

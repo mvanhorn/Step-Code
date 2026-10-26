@@ -55,6 +55,8 @@ apps/web/
     terminal-cleanup.ts  owned process discovery: POSIX session/group/tty, Windows identity-validated descendants
     terminal-native.ts   node-pty native build probe and macOS spawn-helper exec-bit repair
     terminal-routes.ts, terminal-policy.ts  authenticated HTTP/SSE and shell/environment/input policy
+    site-preview.ts      token-scoped loopback static origin for rendered workspace pages
+    open-folder.ts       show a known workspace folder in Finder / File Explorer (no shell)
     directory-picker.ts  server-side folder chooser
     settings.ts          settings back end: MCP servers, plugins/marketplaces, skills
     model-providers.ts   model settings back end: models.json declarations, auth.json keys, model discovery
@@ -156,7 +158,7 @@ keep only the classes passed in. Read the component's doc comment before using i
 | `IconButton` | Square icon-only buttons (`icon`, `iconSize`) | Always has `.icon-button`; pass `aria-label`; wrap in `Tooltip` for a hint |
 | `Icon` | Sprite icons: `<Icon name size>`; `LEGACY_ICONS` holds preset name+size pairs | Sizes `2xs xs sm md lg menu`. New icons: add a `<symbol id="i-<name>">` to `IconSprite` and the name to `ICON_NAMES` |
 | `IconSprite` | The `<symbol>` sheet every `Icon` references | Rendered once in `App.tsx`; do not render again |
-| `Tooltip` | Hover / keyboard-focus hints: `<Tooltip content={text or element}>{trigger}</Tooltip>` | Placement top, centered, shifts only at viewport edges. One child that forwards `style`, `ref` and `aria-describedby`; the hint is its next sibling (no wrapper). Empty `content` = no hint. Can itself be a `Popover` trigger |
+| `Tooltip` | Hover / keyboard-focus hints: `<Tooltip content={text or element}>{trigger}</Tooltip>` | Placement top, centered, shifts only at viewport edges. One child that forwards `style`, `ref` and `aria-describedby`; the hint is its next sibling (no wrapper). Empty `content` = no hint. Rendered in the top layer (manual popover), so a neighbouring panel never covers it. Can itself be a `Popover` trigger |
 | `Modal` | Dialogs: backdrop + `section[role=dialog][aria-modal]`, toggled by `open` | `id` / `overlayClassName` on the overlay, `className` / `dialogProps` on the dialog, `labelledBy`. Escape belongs to the shell's chain unless `closeOnEscape` |
 | `Popover` | A panel or menu opened from a trigger (dropdowns, pickers, overflow menus): `<Popover content={panel} open onClose>{trigger}</Popover>` | The child is the trigger (forwards `ref` and `style`; may be a `Tooltip`); other div props go to the panel. The panel renders only while open, portaled to `body`, `--popover-gap` (4px) from the trigger: `placement` `bottom-start` (default) / `bottom-end` / `top-start` / `top-end`, or `bottom` / `top` centred on the trigger (shifted at a viewport edge), flipped when there is no room. `dismissOn`, `closeOnEscape` (refocuses the trigger) |
 | `Menu`, `MenuItem`, `MenuDivider` | Rows inside a `Popover` | `MenuItem`: `icon`, `trailing`, `danger`; pass `role="menu"` / `"menuitem"` where it is a real menu |
@@ -270,10 +272,19 @@ When to add or change one:
   and supported structured successful write/edit outputs; inline basenames
   require an unambiguous observed output. References use the existing
   workspace file API and containment checks, never browser `file:` navigation.
-  Attachment rows (under the closing reply of a turn) toggle only their own
+  Delivery cards (under the closing reply of a turn) toggle only their own
   visible Files preview, retaining tabs and trigger focus; other files or
-  panels switch to the requested file.
+  panels switch to the requested file. Browser-renderable pages open in the
+  embedded browser on click, with source and system-browser actions; both
+  browsers load them from `src/site-preview.ts`, a separate token-scoped
+  loopback origin, never the Host's. Keep that origin separate and the Host's
+  `Sec-Fetch-Site` same-site/cross-site refusal in `WebAuth.authorize`.
   Markdown opens rendered; preview links resolve relative to that document.
+  Preview file tabs belong to the session that opened them
+  (`features/files/session-scope.ts`): switching sessions stashes them in page
+  memory and restores only the entered session's tabs, a new draft starts
+  empty, and a draft's tabs carry into the session its first send creates.
+  Never leave another session's file on screen beside a conversation.
 - Workspace navigation metadata is separate from sessions: `web-workspaces.json` stores registered `workspaces`
   and explicit `removedWorkspaces`. Removed entries are returned with `hidden: true`; clients must not recreate
   their project groups from session cwd values. Re-adding restores the group; removal never deletes chats or files.

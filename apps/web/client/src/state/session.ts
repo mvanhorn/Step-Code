@@ -126,6 +126,22 @@ export function installSideAnswerTabs(actions: {
 }
 
 /**
+ * What scopes file preview tabs to their session (`features/files/session-scope.ts`).
+ * Installed by the files feature for the same reason as the side-answer actions.
+ */
+let switchPreviewSession: (previousId: string | undefined, nextId: string | undefined) => void = () => {};
+let forgetPreviewSession: (sessionId: string) => void = () => {};
+
+/** Called once by `features/files/session-scope.ts`. */
+export function installPreviewSessionScope(actions: {
+	switch: (previousId: string | undefined, nextId: string | undefined) => void;
+	forget: (sessionId: string) => void;
+}): void {
+	switchPreviewSession = actions.switch;
+	forgetPreviewSession = actions.forget;
+}
+
+/**
  * File one `/btw` answer: keep it on the session (so the rail can list it) and
  * open it as its own tab, the way asking the question is what the user wanted.
  * The conversation, its entries and the model's context are untouched.
@@ -651,8 +667,10 @@ function approvalItems(snapshot: SessionSnapshot): TimelineItem[] {
 /**
  * Make `snapshot` the current session (legacy `renderSnapshot`, 2992-3011).
  * Everything the legacy function painted is derived from these fields.
+ * `adoptDraft` marks the session a draft just became: what the draft opened in
+ * the rail (files, a waiting side answer) is that session's, so it stays.
  */
-export function renderSnapshot(snapshot: SessionSnapshot): void {
+export function renderSnapshot(snapshot: SessionSnapshot, options: { readonly adoptDraft?: boolean } = {}): void {
 	const pending = new Map((snapshot.pendingClarifications ?? []).map((request) => [request.id, request]));
 	for (const request of liveClarifications.values()) {
 		if (request.sessionId === snapshot.id) pending.set(request.id, request);
@@ -693,10 +711,14 @@ export function renderSnapshot(snapshot: SessionSnapshot): void {
 			compacting: snapshot.compacting === true,
 		};
 	});
-	// Side answers belong to one session, so tabs from the previous one are dropped
-	// before this session's are restored. A reloaded page then shows the history
-	// again; an open file tab stays in front.
-	if (previousSessionId !== snapshot.id) dropSideAnswerTabs();
+	// File tabs and side answers belong to one session, so the previous session's
+	// are put away before this session's are restored; another session's file
+	// must never sit beside this conversation as if it were its output. A
+	// reloaded page then shows the side-answer history again.
+	if (previousSessionId !== snapshot.id && !options.adoptDraft) {
+		switchPreviewSession(previousSessionId, snapshot.id);
+		dropSideAnswerTabs();
+	}
 	syncSideAnswerTabs(restorableSideAnswers(snapshot.sideAnswers ?? []));
 }
 
@@ -1294,6 +1316,8 @@ export async function runSessionAction(action: SessionAction, session: SessionSu
 			forgetUnlistedSession(session.id);
 			const state = getState();
 			if (state.current?.id === session.id) startDraft(state.bootstrapCwd);
+			// After leaving it: leaving a session stashes its tabs.
+			forgetPreviewSession(session.id);
 		}
 		await refreshSessions();
 	} catch (error) {
@@ -1400,6 +1424,12 @@ export function requestPromptFocus(): void {
 export function startDraft(cwd: string = getState().bootstrapCwd, options: { readonly listed?: boolean } = {}): void {
 	choseSession = true;
 	closeStream();
+	// A new conversation shows none of the session it leaves in the rail.
+	const leaving = getState().current?.id;
+	if (leaving) {
+		switchPreviewSession(leaving, undefined);
+		dropSideAnswerTabs();
+	}
 	const draftCwd = cwd || getState().bootstrapCwd;
 	setState((state) => {
 		const current = state.current;
@@ -1528,7 +1558,7 @@ export async function createSessionIfNeeded(firstMessage?: string): Promise<Sess
 	}));
 	// The real row replaces the draft placeholder.
 	setUi({ draftRow: null });
-	renderSnapshot(snapshot);
+	renderSnapshot(snapshot, { adoptDraft: true });
 	connectStream(snapshot.id);
 	void refreshSessions().catch(() => {});
 	return snapshot;

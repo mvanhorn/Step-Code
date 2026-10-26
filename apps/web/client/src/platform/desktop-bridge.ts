@@ -18,6 +18,18 @@ export interface StepcodeDesktopBridge {
 	openExternal(url: string): Promise<void>;
 	/** Reveal a file or folder in Finder / Explorer / the file manager. */
 	revealPath(path: string): Promise<void>;
+	/**
+	 * The system's default web browser, as `openExternal` would launch it: its display name and a PNG data URL of
+	 * its icon (empty when the OS has none). Resolves to null where the OS cannot tell (Linux).
+	 */
+	defaultBrowser(): Promise<DesktopBrowserInfo | null>;
+}
+
+/** Display identity of the system's default browser. */
+export interface DesktopBrowserInfo {
+	readonly name: string;
+	/** `data:image/png;base64,...`, or "" without an icon. */
+	readonly icon: string;
 }
 
 declare global {

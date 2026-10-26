@@ -301,6 +301,14 @@ export async function toggleDeliveryFile(cwd: string, path: string): Promise<voi
 	await openFile(cwd, path, /\.mdx?$/i.test(path));
 }
 
+/**
+ * The rendered-preview URL of a workspace file: a separate loopback origin the Host serves the workspace from, so
+ * a delivered page loads its relative CSS, scripts and images in the embedded or the system browser.
+ */
+export async function workspaceSiteUrl(cwd: string, path: string): Promise<string> {
+	return (await api<{ url: string }>(workspaceApi(cwd, "/site", { path }), { method: "POST" })).url;
+}
+
 /* ── Turn changes ────────────────────────────────────────────────────────── */
 
 /**
