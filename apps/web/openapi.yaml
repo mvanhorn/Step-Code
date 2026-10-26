@@ -815,6 +815,17 @@ paths:
         "200": { description: Image bytes }
         "413": { description: Image exceeds the preview limit }
         "415": { description: File is not an image }
+  /api/v1/workspace/open:
+    post:
+      description: >-
+        Show a known workspace folder in the system file manager (Finder on macOS, File Explorer on Windows, the
+        default handler elsewhere). Answers once the launcher has started.
+      parameters:
+        - { name: cwd, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: "ok: true" }
+        "403": { description: cwd is not a known workspace }
+        "500": { description: The file manager could not be started }
   /api/v1/workspace/site:
     post:
       description: >-

@@ -443,6 +443,12 @@ the existing file API is called. Paths outside the workspace are rejected;
 the Host remains responsible for realpath and symlink checks. There are no
 automatic historical content reads or new Office/PDF renderers.
 
+The conversation header ends with a button that shows the workspace folder
+in the system file manager: Finder (with its icon) on macOS, File Explorer
+(a folder icon) on Windows, the default handler elsewhere. The Host launches it
+through `POST /api/v1/workspace/open` for a known workspace only, without a
+shell (`apps/web/src/open-folder.ts`), so Web and Desktop behave the same.
+
 Each finished turn (one user message up to the next, including a message with
 images only) that changed files gets a card under its last row: "Edited N
 files", the summed `+added -removed` lines, and the files (three, then "show N

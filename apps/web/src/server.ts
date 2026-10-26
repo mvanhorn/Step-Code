@@ -50,6 +50,7 @@ import {
 	saveModelProvider,
 	testProviderModel,
 } from "./model-providers.ts";
+import { openFolder } from "./open-folder.ts";
 import {
 	classifyAttachment,
 	defaultWorkspace,
@@ -785,6 +786,17 @@ const server = createServer(async (request, response) => {
 				return json(response, 200, await readLocalFile(inputPath));
 			} catch (caught) {
 				return error(response, 400, caught instanceof Error ? caught.message : String(caught));
+			}
+		}
+		// Show the workspace folder in Finder / File Explorer: only a folder this Host already works in.
+		if (parts[2] === "workspace" && parts[3] === "open" && parts.length === 4 && method === "POST") {
+			const cwd = await knownWorkspace(url.searchParams.get("cwd"));
+			if (!cwd) return error(response, 403, "Folder is not a known workspace");
+			try {
+				await openFolder(cwd);
+				return json(response, 200, { ok: true });
+			} catch (caught) {
+				return error(response, 500, caught instanceof Error ? caught.message : String(caught));
 			}
 		}
 		if (parts[2] === "workspace" && parts[3] === "site" && parts.length === 4 && method === "POST") {

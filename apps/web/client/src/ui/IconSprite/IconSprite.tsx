@@ -34,6 +34,8 @@ export const MISSING_FROM_LIBRARY = [
 	"browserSafari",
 	"browserEdge",
 	"browserFirefox",
+	"finder",
+	"folderWindows",
 ] as const;
 
 /*
@@ -54,6 +56,7 @@ export const MISSING_FROM_LIBRARY = [
  * - code: 源码（尖括号 + 斜杠，交付卡片的"查看源码"）。线性风格，与 mic 同粗细
  * - browserChrome / browserSafari / browserEdge / browserFirefox: 系统浏览器标识（"在 X 中打开"），
  *   多色简化品牌图形，颜色固定、不随主题变化
+ * - finder: macOS 访达（双色笑脸），folderWindows: Windows 文件资源管理器黄色文件夹；"打开工作区目录"按钮用
  */
 
 export const ICON_NAMES = [
@@ -165,6 +168,8 @@ export const ICON_NAMES = [
 	"browserSafari",
 	"browserEdge",
 	"browserFirefox",
+	"finder",
+	"folderWindows",
 ] as const;
 
 export type IconName = (typeof ICON_NAMES)[number];
@@ -357,6 +362,40 @@ export function IconSprite() {
 					fill="#FF980E"
 					opacity=".9"
 				/>
+			</symbol>
+			<symbol id="i-finder" viewBox="0 0 24 24" fill="none">
+				<rect x="3" y="3" width="18" height="18" rx="4.5" fill="#E9F4FF" />
+				<path
+					d="M7.5 3h5.3c-.8 3.3-1.3 6.6-1.3 9.8h1.8c-.1 2.8.1 5.5.6 8.2H7.5A4.5 4.5 0 0 1 3 16.5v-9A4.5 4.5 0 0 1 7.5 3Z"
+					fill="#1F8EF1"
+				/>
+				<path
+					d="M8.3 7.8v2.2M16 7.8v2.2M7.1 15.4c3.2 2.3 6.6 2.3 9.8 0"
+					stroke="#123A63"
+					strokeWidth="1.3"
+					strokeLinecap="round"
+				/>
+				<rect
+					x="3.25"
+					y="3.25"
+					width="17.5"
+					height="17.5"
+					rx="4.25"
+					stroke="#000"
+					strokeOpacity=".08"
+					strokeWidth=".5"
+				/>
+			</symbol>
+			<symbol id="i-folderWindows" viewBox="0 0 24 24" fill="none">
+				<path
+					d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4.8l1.7 1.8h8.5A1.5 1.5 0 0 1 21 9.3v8.2a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5Z"
+					fill="#E3A21A"
+				/>
+				<path
+					d="M3 10.3A1.3 1.3 0 0 1 4.3 9h15.4a1.3 1.3 0 0 1 1.3 1.3v7.2a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5Z"
+					fill="#FFC83D"
+				/>
+				<path d="M3 11h18" stroke="#fff" strokeOpacity=".35" strokeWidth=".6" />
 			</symbol>
 			<symbol id="i-mic" viewBox="0 0 24 24" fill="none">
 				<path

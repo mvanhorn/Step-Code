@@ -60,6 +60,17 @@
 	color: var(--ink-3);
 	font-size: 12px;
 }
+/* Finder / File Explorer: the bar's last control, after the status (or at the end on its own). */
+.session-header .session-header-open-folder {
+	flex: none;
+	width: 28px;
+	height: 28px;
+	margin-left: auto;
+	border-radius: var(--radius-control);
+}
+.session-header-status ~ .session-header-open-folder {
+	margin-left: 6px;
+}
 /* A docked panel narrows the bar: the title keeps its room, and the project chip (also in the sidebar) goes. */
 .session-header {
 	container-type: inline-size;
