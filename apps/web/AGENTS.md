@@ -274,6 +274,11 @@ When to add or change one:
   visible Files preview, retaining tabs and trigger focus; other files or
   panels switch to the requested file.
   Markdown opens rendered; preview links resolve relative to that document.
+  Preview file tabs belong to the session that opened them
+  (`features/files/session-scope.ts`): switching sessions stashes them in page
+  memory and restores only the entered session's tabs, a new draft starts
+  empty, and a draft's tabs carry into the session its first send creates.
+  Never leave another session's file on screen beside a conversation.
 - Workspace navigation metadata is separate from sessions: `web-workspaces.json` stores registered `workspaces`
   and explicit `removedWorkspaces`. Removed entries are returned with `hidden: true`; clients must not recreate
   their project groups from session cwd values. Re-adding restores the group; removal never deletes chats or files.
