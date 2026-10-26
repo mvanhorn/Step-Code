@@ -303,3 +303,62 @@
 		animation: none;
 	}
 }
+
+/*
+ * `.subagent-usage`: what the run cost.
+ *
+ * A bordered block like the dispatch header above it, so the figures read as
+ * part of that run rather than as page furniture. Tabular numerals keep the
+ * columns aligned as the numbers change while a lane is still running.
+ */
+.subagent-usage {
+	display: grid;
+	gap: 7px;
+	margin-bottom: 12px;
+	padding: 9px 11px;
+	border: 1px solid var(--line);
+	border-radius: var(--radius-control);
+	background: var(--surface-soft);
+	font-variant-numeric: tabular-nums;
+}
+.subagent-usage-head {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 10px;
+}
+.subagent-usage-head h3 {
+	color: var(--ink-2);
+	font-size: 11px;
+	font-weight: 500;
+	letter-spacing: 0.02em;
+	text-transform: uppercase;
+}
+.subagent-usage-run {
+	color: var(--ink-2);
+	font-size: 12px;
+}
+.subagent-usage-figures {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px 14px;
+	color: var(--ink-2);
+	font-size: 12px;
+}
+.subagent-usage-aggregate {
+	padding-top: 6px;
+	border-top: 1px solid var(--line);
+	color: var(--ink-3);
+}
+.subagent-usage-rates {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px 16px;
+	color: var(--ink-2);
+	font-size: 12px;
+}
+.subagent-usage-rates strong {
+	color: var(--ink);
+	font-size: 13px;
+	font-weight: 600;
+}

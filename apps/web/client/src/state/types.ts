@@ -460,6 +460,17 @@ export interface ChildAgentLink {
 
 export type SubagentStatus = "queued" | "running" | "completed" | "failed" | "aborted" | "skipped" | "unknown";
 
+/** Token usage one subagent run reported, already summed by the kernel. */
+export interface SubagentUsage {
+	readonly records: number;
+	readonly input: number;
+	readonly output: number;
+	readonly cacheRead: number;
+	readonly cacheWrite: number;
+	readonly total: number;
+	readonly cost?: number;
+}
+
 export interface SubagentTask {
 	readonly agent: string;
 	readonly task: string;
@@ -468,6 +479,8 @@ export interface SubagentTask {
 	readonly backgroundAgentId?: string;
 	readonly model?: string;
 	readonly turns?: number;
+	/** Absent when the run reported no usage, or the details predate the field. */
+	readonly usage?: SubagentUsage;
 	readonly error?: string;
 }
 

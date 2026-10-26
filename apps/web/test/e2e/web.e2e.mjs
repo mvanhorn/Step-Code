@@ -2454,7 +2454,17 @@ test("a subagent or workflow call opens its child agents' transcripts read-only 
     { type: "session", version: 3, id: parentId, timestamp: now, cwd: workspace },
     user("p1", null, "delegate the wombat audit"),
     call("p2", "p1", "t1", "subagent"),
-    result("p3", "p2", "t1", "subagent", { mode: "single", results: [{ agent: "explore", task: "audit wombat", sessionId: subagentId }] }),
+    result("p3", "p2", "t1", "subagent", {
+      mode: "single",
+      results: [{
+        agent: "explore",
+        task: "audit wombat",
+        sessionId: subagentId,
+        model: "e2e",
+        // 8000 cache reads of 9100 sent context = 87.9%, and 8000/9300 total = 86.0%.
+        usage: { input: 1000, output: 200, cacheRead: 8000, cacheWrite: 100, cost: 0.02, contextTokens: 9300, turns: 3 },
+      }],
+    }),
     call("p4", "p3", "t2", "workflow"),
     result("p5", "p4", "t2", "workflow", { schemaVersion: 1, runId: run, name: "e2e" }),
     reply("p6", "p5", "All delegated."),
@@ -2481,11 +2491,23 @@ test("a subagent or workflow call opens its child agents' transcripts read-only 
     link.click();
     const view = $("#childAgentView");
     await until(() => !view.hidden && view.textContent.includes("Wombat audit finished."), "child transcript");
+    const usageStrip = $("#subagentUsage");
     const single = {
       listedChildren,
       readOnlyBadge: Boolean(view.querySelector(".child-agent-badge")),
       actions: view.querySelectorAll(".message-actions, textarea, input").length,
       activeRow: $(".session-row.active")?.dataset.sessionId,
+      // The task is the child's first user message; the header must not print it again.
+      taskCopies: (view.textContent.match(/audit wombat/g) ?? []).length,
+      headerTask: Boolean(view.querySelector(".subagent-task-detail .subagent-task")),
+      usage: usageStrip
+        ? {
+            input: usageStrip.querySelector("[data-usage='input']")?.textContent ?? "",
+            cacheRead: usageStrip.querySelector("[data-usage='cache-read']")?.textContent ?? "",
+            contextRate: usageStrip.querySelector("[data-usage='context-rate']")?.textContent ?? "",
+            totalRate: usageStrip.querySelector("[data-usage='total-rate']")?.textContent ?? "",
+          }
+        : null,
     };
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     await until(() => view.hidden, "child view closed by Escape");
@@ -2508,7 +2530,16 @@ test("a subagent or workflow call opens its child agents' transcripts read-only 
     await until(() => view.hidden, "rail closes the panel");
     return { ...single, tabs: agentTabs, tabHints, railOpened };
   `)
-  assert.deepEqual(seen, {
+  assert.equal(seen.taskCopies, 1, `the task was printed ${seen.taskCopies} times`)
+  assert.equal(seen.headerTask, false, "the header repeats the task the transcript already shows")
+  assert.deepEqual(seen.usage, {
+    input: "输入 1k",
+    cacheRead: "缓存读 8k",
+    contextRate: "上下文命中率 87.9%",
+    totalRate: "总 Token 命中率 86.0%",
+  })
+  const { usage: _usage, taskCopies: _taskCopies, headerTask: _headerTask, ...rest } = seen
+  assert.deepEqual(rest, {
     listedChildren: 0,
     readOnlyBadge: true,
     actions: 0,
