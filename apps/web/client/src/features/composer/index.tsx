@@ -32,6 +32,7 @@ import { getState, type ModeId, setUi, useAppStore } from "../../state/store";
 import type { SessionSnapshot, TreeEntry } from "../../state/types";
 import { Icon, IconButton, MarkdownView, Tooltip } from "../../ui";
 import { openFeedback } from "../conversation";
+import { rewritePrompt } from "../conversation/actions";
 import { askSideQuestion } from "../files";
 import { MicButton } from "../voice";
 import { AttachmentList } from "./Attachments";
@@ -93,12 +94,14 @@ export interface ComposerProps {
 	 * workspace pill. Passed in for the same reason as `workspaceControl`.
 	 */
 	readonly branchControl?: ReactNode;
+	/** `edit`: the stripped-down instance that rewrites a message in place. */
+	readonly variant?: "full" | "edit";
 }
 
 /** The three listbox popovers; only one is open at a time (legacy `setupPopover` `open()`). */
 type ComposerMenu = "policy" | "plus" | "model";
 
-export function Composer({ workspaceControl, branchControl }: ComposerProps) {
+export function Composer({ workspaceControl, branchControl, variant = "full" }: ComposerProps) {
 	const t = useT();
 	const form = useRef<HTMLFormElement | null>(null);
 	const prompt = useRef<HTMLDivElement | null>(null);
@@ -232,6 +235,19 @@ export function Composer({ workspaceControl, branchControl }: ComposerProps) {
 		[syncHasText],
 	);
 	const stopMode = status === "running" && !hasText;
+	const edit = variant === "edit";
+	/* Rewriting: the edit instance starts from the message's text and submits a fork. */
+	const editingPrompt = useAppStore((state) => state.ui.editingPrompt);
+	const editLoaded = useRef(false);
+	useEffect(() => {
+		if (!edit || !editingPrompt || editLoaded.current) return;
+		editLoaded.current = true;
+		const editor = prompt.current;
+		if (!editor) return;
+		setPromptText(editor, editingPrompt.text);
+		setHasText(Boolean(editingPrompt.text.trim()));
+		editor.focus();
+	}, [edit, editingPrompt]);
 
 	const menu = (name: ComposerMenu) => ({
 		open: openMenu === name,
@@ -416,7 +432,11 @@ export function Composer({ workspaceControl, branchControl }: ComposerProps) {
 			const draft = snapshotPrompt(editor);
 			setPromptText(editor, "");
 			setHasText(false);
-			if (!(await sendMessage(outgoing, files, steer))) {
+			const sent =
+				edit && editingPrompt
+					? await rewritePrompt(editingPrompt.before, outgoing, files)
+					: await sendMessage(outgoing, files, steer);
+			if (!sent) {
 				restorePrompt(editor, draft);
 				syncHasText();
 			} else {
@@ -542,12 +562,23 @@ export function Composer({ workspaceControl, branchControl }: ComposerProps) {
 		<form className="composer" id="composer" ref={form} onSubmit={(event) => onFormSubmit(event)}>
 			<SlashMenu handle={slash} query={query} promptRef={prompt} onPick={pickSlash} />
 			<FileMenu handle={files} cwd={cwd} query={pathQuery} promptRef={prompt} onPick={pickFile} />
-			<div className="composer-pickers" id="composerPickers">
-				{workspaceControl}
-				{branchControl}
-			</div>
-			<PlanStrip />
-			<QueueDock />
+			{edit ? (
+				<div className="edit-prompt-banner">
+					<span>{t("editPromptTitle")}</span>
+					<button type="button" onClick={() => setUi({ editingPrompt: null })}>
+						{t("promptCancel")}
+					</button>
+				</div>
+			) : (
+				<>
+					<div className="composer-pickers" id="composerPickers">
+						{workspaceControl}
+						{branchControl}
+					</div>
+					<PlanStrip />
+					<QueueDock />
+				</>
+			)}
 			{/* The staged mode paints the card through `data-mode` (accent border, glow and sweep in composer.css). */}
 			<div className="composer-card" data-mode={activeMode ?? undefined}>
 				<AttachmentList />
@@ -648,7 +679,7 @@ export function Composer({ workspaceControl, branchControl }: ComposerProps) {
 						onPickSession={(id) => void pickSession(id)}
 						onFiles={(picked) => stageFiles.current?.(picked)}
 					/>
-					<PolicyMenu {...menu("policy")} />
+					{edit ? null : <PolicyMenu {...menu("policy")} />}
 					<Tooltip content={`${previewOpen ? t("markdownEdit") : t("markdownPreview")} (Cmd/Ctrl+Shift+M)`}>
 						<IconButton
 							icon={previewOpen ? "pencil" : "eye"}
@@ -661,8 +692,12 @@ export function Composer({ workspaceControl, branchControl }: ComposerProps) {
 						/>
 					</Tooltip>
 					<div className="composer-right">
-						<MicButton onTranscript={insertVoiceTranscript} />
-						<ModelMenu {...menu("model")} />
+						{edit ? null : (
+							<>
+								<MicButton onTranscript={insertVoiceTranscript} />
+								<ModelMenu {...menu("model")} />
+							</>
+						)}
 						{stopMode ? (
 							<button
 								className="send-button send-button--stop"

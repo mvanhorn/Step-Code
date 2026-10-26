@@ -14,11 +14,10 @@ import {
 import { copyText } from "../../state/session";
 import { setUi, useAppStore } from "../../state/store";
 import type { MessageTimelineItem } from "../../state/types";
-import { Icon, IconButton, LEGACY_ICONS, MarkdownView } from "../../ui";
-import { addAttachments } from "../composer/actions";
+import { Icon, LEGACY_ICONS, MarkdownView } from "../../ui";
 import { openFileReference } from "../files/actions";
 import { highlightFence } from "../files/index";
-import { forkAtEntry, rewritePrompt } from "./actions";
+import { forkAtEntry } from "./actions";
 import { openFeedback, type Sentiment } from "./feedback";
 import { clockTime } from "./message-meta";
 import { useFadeIn, useSmoothText } from "./streaming";
@@ -58,8 +57,6 @@ export const MessageItem = memo(function MessageItem({
 	readonly rewritableBefore?: string;
 }) {
 	const t = useT();
-	const [rewriteDraft, setRewriteDraft] = useState<string | null>(null);
-	const attachInput = useRef<HTMLInputElement | null>(null);
 	const role = item.role === "user" ? "user" : "assistant";
 	const currentCwd = useAppStore((state) => state.current?.cwd ?? "");
 	const cwd = fileCwd ?? currentCwd;
@@ -123,68 +120,7 @@ export const MessageItem = memo(function MessageItem({
 		<article className={`message ${role}`} data-content={item.content || ""} data-entry-id={item.entryId}>
 			{/* A user message can be images only; it still opens a turn, so it gets a row. */}
 			{images.length ? <MessageImages images={images} /> : null}
-			{role === "user" && rewriteDraft !== null ? (
-				<div className="prompt-edit">
-					<textarea
-						value={rewriteDraft}
-						aria-label={t("promptRewrite")}
-						onChange={(event) => setRewriteDraft(event.target.value)}
-						onKeyDown={(event) => {
-							if (event.key === "Escape") {
-								event.preventDefault();
-								setRewriteDraft(null);
-							}
-							if (event.key === "Enter" && !event.shiftKey) {
-								event.preventDefault();
-								void rewritePrompt(rewritableBefore || undefined, rewriteDraft);
-								setRewriteDraft(null);
-							}
-						}}
-					/>
-					<div className="prompt-edit-controls">
-						<input
-							type="file"
-							multiple
-							hidden
-							ref={attachInput}
-							onChange={(event) => {
-								const picked = [...(event.target.files ?? [])];
-								event.target.value = "";
-								if (picked.length) void addAttachments(picked);
-							}}
-						/>
-						<IconButton
-							icon="paperclip"
-							title={t("attach")}
-							aria-label={t("attach")}
-							onClick={() => attachInput.current?.click()}
-						/>
-						<IconButton
-							icon="prompt"
-							title={t("promptInsertCommand")}
-							aria-label={t("promptInsertCommand")}
-							onClick={() => setRewriteDraft((draft) => (draft ?? "").replace(/^\s*/u, "/"))}
-						/>
-						<span className="prompt-edit-spacer" />
-						<IconButton
-							icon="close-sm"
-							title={t("promptCancel")}
-							aria-label={t("promptCancel")}
-							onClick={() => setRewriteDraft(null)}
-						/>
-						<IconButton
-							icon="send"
-							title={t("promptSave")}
-							aria-label={t("promptSave")}
-							disabled={!rewriteDraft.trim()}
-							onClick={() => {
-								void rewritePrompt(rewritableBefore || undefined, rewriteDraft);
-								setRewriteDraft(null);
-							}}
-						/>
-					</div>
-				</div>
-			) : content ? (
+			{content ? (
 				<MarkdownView
 					ref={bodyRef}
 					className="message-body"
@@ -204,7 +140,15 @@ export const MessageItem = memo(function MessageItem({
 							type="button"
 							title={t("promptRewrite")}
 							aria-label={t("promptRewrite")}
-							onClick={() => setRewriteDraft(item.content)}
+							onClick={() =>
+								setUi({
+									editingPrompt: {
+										entryId: item.entryId ?? "",
+										before: rewritableBefore || undefined,
+										text: item.content,
+									},
+								})
+							}
 						>
 							<Icon name="squarePen" size="2xs" />
 						</button>

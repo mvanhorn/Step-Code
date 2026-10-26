@@ -5,6 +5,7 @@ import { showToast } from "../../state/session";
 import { setUi, useAppStore } from "../../state/store";
 import type { SteeringMessage, TimelineItem } from "../../state/types";
 import { Icon } from "../../ui";
+import { Composer } from "../composer";
 import { ClarificationPanel } from "./ClarificationPanel";
 import { CommandRow } from "./CommandRow";
 import { CompactionRow, CompactionRunningRow } from "./CompactionRow";
@@ -179,6 +180,8 @@ export function ConversationStream() {
 		previousRows.current = next;
 		return next;
 	}, [items, running, breaks]);
+	// Rewriting swaps the message for the compact edit composer, in place.
+	const editingPrompt = useAppStore((state) => state.ui.editingPrompt);
 	// Only the latest prompt is rewritable: fork to the entry before it.
 	let lastUserIndex = -1;
 	for (let index = items.length - 1; index >= 0; index -= 1) {
@@ -220,12 +223,18 @@ export function ConversationStream() {
 											revealEntryId={reveal?.sessionId === sessionId ? reveal.entryId : undefined}
 										/>
 									) : row.item.kind === "message" ? (
-										<MessageItem
-											item={row.item}
-											rewritableBefore={
-												items[lastUserIndex] === row.item ? (rewriteBefore ?? "") : undefined
-											}
-										/>
+										editingPrompt?.entryId === row.item.entryId ? (
+											<div className="edit-prompt-slot">
+												<Composer variant="edit" />
+											</div>
+										) : (
+											<MessageItem
+												item={row.item}
+												rewritableBefore={
+													items[lastUserIndex] === row.item ? (rewriteBefore ?? "") : undefined
+												}
+											/>
+										)
 									) : row.item.kind === "tool" ? (
 										<>
 											<ToolRow item={row.item} />
