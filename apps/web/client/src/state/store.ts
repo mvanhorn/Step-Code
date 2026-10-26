@@ -220,6 +220,8 @@ export interface UiState {
 	readonly loginRequired: boolean;
 	/** Incremented to ask the composer to focus `#prompt` (legacy `$("#prompt").focus()`). */
 	readonly promptFocusRequest: number;
+	/** The user message being rewritten in place: its entry, the fork point, and its text. */
+	readonly editingPrompt: { readonly entryId: string; readonly before?: string; readonly text: string } | null;
 	/** A message's text loaded back into the prompt for rewriting; `seq` re-fires for the same text. */
 	readonly promptDraftRequest?: { readonly text: string; readonly seq: number };
 	/** Mid-pane view covering the conversation: `#cronView` or `#marketView` (`.market-view.open`). */
@@ -465,6 +467,7 @@ export function createInitialState(): AppState {
 			logoutConfirm: null,
 			loginRequired: false,
 			promptFocusRequest: 0,
+			editingPrompt: null,
 			midView: null,
 			openingSession: null,
 			draftRow: null,

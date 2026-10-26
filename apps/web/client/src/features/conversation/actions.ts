@@ -8,6 +8,7 @@ import { closeRightPanel, openRightPanel } from "../../state/right-panel";
 import { forgetApproval, openSession, refreshSessions, renderSnapshot, showError } from "../../state/session";
 import { getState, setUi } from "../../state/store";
 import type { TurnRevertResult } from "../../state/types";
+import type { PromptFile } from "../composer/prompt-editor";
 
 export type ApprovalVerdict = "deny" | "approve" | "approve_for_session";
 
@@ -149,7 +150,11 @@ export async function revertTurn(turnId: string): Promise<boolean> {
  * the edited text — the model answers the reworked prompt on a fresh branch.
  * `before` is the entry the fork ends on (undefined forks from the head).
  */
-export async function rewritePrompt(before: string | undefined, text: string): Promise<void> {
+export async function rewritePrompt(
+	before: string | undefined,
+	text: string,
+	files?: readonly PromptFile[],
+): Promise<void> {
 	const current = getState().current;
 	if (!current || !text.trim()) return;
 	try {
@@ -158,7 +163,7 @@ export async function rewritePrompt(before: string | undefined, text: string): P
 		});
 		await openSession(result.sessionId);
 		const { sendMessage } = await import("../composer/actions");
-		await sendMessage(text);
+		await sendMessage(text, files);
 	} catch (error) {
 		showError(errorMessage(error));
 	}
