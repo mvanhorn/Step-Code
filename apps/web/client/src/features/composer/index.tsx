@@ -559,17 +559,20 @@ export function Composer({ workspaceControl, branchControl, variant = "full" }: 
 	};
 
 	return (
-		<form className="composer" id="composer" ref={form} onSubmit={(event) => onFormSubmit(event)}>
-			<SlashMenu handle={slash} query={query} promptRef={prompt} onPick={pickSlash} />
-			<FileMenu handle={files} cwd={cwd} query={pathQuery} promptRef={prompt} onPick={pickFile} />
-			{edit ? (
-				<div className="edit-prompt-banner">
-					<span>{t("editPromptTitle")}</span>
-					<button type="button" onClick={() => setUi({ editingPrompt: null })}>
-						{t("promptCancel")}
-					</button>
-				</div>
-			) : (
+		<form
+			className={edit ? "composer composer--edit" : "composer"}
+			id={edit ? "editComposer" : "composer"}
+			ref={form}
+			onSubmit={(event) => onFormSubmit(event)}
+		>
+			{/* The edit instance keeps the menus out: its store flags are shared with the bottom one. */}
+			{edit ? null : (
+				<>
+					<SlashMenu handle={slash} query={query} promptRef={prompt} onPick={pickSlash} />
+					<FileMenu handle={files} cwd={cwd} query={pathQuery} promptRef={prompt} onPick={pickFile} />
+				</>
+			)}
+			{edit ? null : (
 				<>
 					<div className="composer-pickers" id="composerPickers">
 						{workspaceControl}
@@ -637,6 +640,8 @@ export function Composer({ workspaceControl, branchControl, variant = "full" }: 
 				<div className="prompt-deck" data-preview={previewOpen ? "" : undefined}>
 					<PromptInput
 						promptRef={prompt}
+						id={edit ? "editPrompt" : "prompt"}
+						ignoreFocusRequest={edit}
 						disabled={waiting}
 						onSubmit={() => form.current?.requestSubmit()}
 						onSteer={steer}
@@ -651,12 +656,12 @@ export function Composer({ workspaceControl, branchControl, variant = "full" }: 
 						onValueInput={onValueInput}
 						onCaretChange={syncFileQuery}
 						onCompositionChange={onCompositionChange}
-						onMenuKey={(key) => files.current?.key(key) || slash.current?.key(key) || false}
-						onTogglePreview={togglePreview}
+						onMenuKey={edit ? undefined : (key) => files.current?.key(key) || slash.current?.key(key) || false}
+						onTogglePreview={edit ? undefined : togglePreview}
 						stageFilesRef={stageFiles}
 					/>
 					{/* The rendered draft covers the editor, which stays mounted so the send path still reads it. */}
-					{previewOpen ? (
+					{!edit && previewOpen ? (
 						<MarkdownView
 							ref={previewRef}
 							className="prompt-preview message-body"
@@ -680,18 +685,25 @@ export function Composer({ workspaceControl, branchControl, variant = "full" }: 
 						onFiles={(picked) => stageFiles.current?.(picked)}
 					/>
 					{edit ? null : <PolicyMenu {...menu("policy")} />}
-					<Tooltip content={`${previewOpen ? t("markdownEdit") : t("markdownPreview")} (Cmd/Ctrl+Shift+M)`}>
-						<IconButton
-							icon={previewOpen ? "pencil" : "eye"}
-							iconSize="sm"
-							className="prompt-preview-toggle"
-							aria-label={previewOpen ? t("markdownEdit") : t("markdownPreview")}
-							aria-pressed={previewOpen}
-							disabled={!hasText}
-							onClick={togglePreview}
-						/>
-					</Tooltip>
+					{edit ? null : (
+						<Tooltip content={`${previewOpen ? t("markdownEdit") : t("markdownPreview")} (Cmd/Ctrl+Shift+M)`}>
+							<IconButton
+								icon={previewOpen ? "pencil" : "eye"}
+								iconSize="sm"
+								className="prompt-preview-toggle"
+								aria-label={previewOpen ? t("markdownEdit") : t("markdownPreview")}
+								aria-pressed={previewOpen}
+								disabled={!hasText}
+								onClick={togglePreview}
+							/>
+						</Tooltip>
+					)}
 					<div className="composer-right">
+						{edit ? (
+							<button type="button" className="control-select" onClick={() => setUi({ editingPrompt: null })}>
+								{t("promptCancel")}
+							</button>
+						) : null}
 						{edit ? null : (
 							<>
 								<MicButton onTranscript={insertVoiceTranscript} />

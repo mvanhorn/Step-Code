@@ -1577,3 +1577,23 @@ form:has(#prompt:empty):not(:has(.attachment-chip)) #sendButton:not(:disabled) {
   color: var(--ink-3);
   text-align: right;
 }
+
+/*
+ * The in-place edit composer: a smaller sibling of the bottom one — narrower,
+ * tighter padding, a shorter editor — right where the message sits.
+ */
+.composer--edit {
+	max-width: min(100%, 560px);
+	margin-left: auto;
+}
+.composer--edit .composer-card {
+	padding: 10px 12px 8px;
+	border-radius: var(--radius-surface);
+}
+.composer--edit .prompt-editor {
+	min-height: 40px;
+	max-height: 200px;
+}
+.composer--edit .composer-controls {
+	margin-top: 6px;
+}

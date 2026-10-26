@@ -42,7 +42,6 @@ import { IconSprite } from "./ui";
  *   #workspaceMenu, #sessionMenu, #tagPicker: rendered by their sidebar trigger, in a portal on body, only while open
  */
 export function App() {
-	const editingActive = useAppStore((state) => state.ui.editingPrompt !== null);
 	const appRef = useRef<HTMLDivElement>(null);
 	const [summarySpace, setSummarySpace] = useState(false);
 	const layout = useAppStore(
@@ -107,10 +106,7 @@ export function App() {
 					<ConversationStream />
 					<StreamNav />
 					<div className="composer-zone">
-						{/* While a message is rewritten in place, the edit composer lives there. */}
-						{editingActive ? null : (
-							<Composer workspaceControl={<WorkspaceControl />} branchControl={<BranchControl />} />
-						)}
+						<Composer workspaceControl={<WorkspaceControl />} branchControl={<BranchControl />} />
 					</div>
 					<TerminalDock />
 					<ErrorToast />
