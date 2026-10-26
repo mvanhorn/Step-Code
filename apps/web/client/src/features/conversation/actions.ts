@@ -143,3 +143,23 @@ export async function revertTurn(turnId: string): Promise<boolean> {
 		return false;
 	}
 }
+
+/**
+ * Rewrite the latest prompt: fork the session to just before it, then send
+ * the edited text — the model answers the reworked prompt on a fresh branch.
+ * `before` is the entry the fork ends on (undefined forks from the head).
+ */
+export async function rewritePrompt(before: string | undefined, text: string): Promise<void> {
+	const current = getState().current;
+	if (!current || !text.trim()) return;
+	try {
+		const result = await apiSend<{ sessionId: string }>(`/api/v1/sessions/${current.id}/fork`, "POST", {
+			...(before ? { entryId: before } : {}),
+		});
+		await openSession(result.sessionId);
+		const { sendMessage } = await import("../composer/actions");
+		await sendMessage(text);
+	} catch (error) {
+		showError(errorMessage(error));
+	}
+}

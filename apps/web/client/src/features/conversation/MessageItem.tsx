@@ -15,7 +15,7 @@ import type { MessageTimelineItem } from "../../state/types";
 import { Icon, LEGACY_ICONS, MarkdownView } from "../../ui";
 import { openFileReference } from "../files/actions";
 import { highlightFence } from "../files/index";
-import { forkAtEntry } from "./actions";
+import { forkAtEntry, rewritePrompt } from "./actions";
 import { openFeedback, type Sentiment } from "./feedback";
 import { clockTime } from "./message-meta";
 import { useFadeIn, useSmoothText } from "./streaming";
@@ -37,6 +37,7 @@ export const MessageItem = memo(function MessageItem({
 	files: pendingFiles,
 	fileCwd,
 	model,
+	rewritableBefore,
 }: {
 	readonly item: MessageTimelineItem;
 	/** The pending bubble's files: the host has not echoed the message (and its file blocks) yet. */
@@ -48,8 +49,14 @@ export const MessageItem = memo(function MessageItem({
 	 * model per message, so the caller passes the one the session ran on.
 	 */
 	readonly model?: string;
+	/**
+	 * Present only on the latest user message: the entry a rewrite forks to
+	 * ("" forks from the head). Its presence makes the bubble editable in place.
+	 */
+	readonly rewritableBefore?: string;
 }) {
 	const t = useT();
+	const [rewriteDraft, setRewriteDraft] = useState<string | null>(null);
 	const role = item.role === "user" ? "user" : "assistant";
 	const currentCwd = useAppStore((state) => state.current?.cwd ?? "");
 	const cwd = fileCwd ?? currentCwd;
@@ -113,7 +120,34 @@ export const MessageItem = memo(function MessageItem({
 		<article className={`message ${role}`} data-content={item.content || ""} data-entry-id={item.entryId}>
 			{/* A user message can be images only; it still opens a turn, so it gets a row. */}
 			{images.length ? <MessageImages images={images} /> : null}
-			{content ? (
+			{role === "user" && rewriteDraft !== null ? (
+				<div className="prompt-edit">
+					<textarea
+						value={rewriteDraft}
+						aria-label={t("promptRewrite")}
+						onChange={(event) => setRewriteDraft(event.target.value)}
+						onKeyDown={(event) => {
+							if (event.key === "Escape") {
+								event.preventDefault();
+								setRewriteDraft(null);
+							}
+							if (event.key === "Enter" && !event.shiftKey) {
+								event.preventDefault();
+								void rewritePrompt(rewritableBefore || undefined, rewriteDraft);
+								setRewriteDraft(null);
+							}
+						}}
+					/>
+					<div className="prompt-edit-actions">
+						<button type="button" onClick={() => void rewritePrompt(rewritableBefore || undefined, rewriteDraft)}>
+							{t("promptSave")}
+						</button>
+						<button type="button" onClick={() => setRewriteDraft(null)}>
+							{t("promptCancel")}
+						</button>
+					</div>
+				</div>
+			) : content ? (
 				<MarkdownView
 					ref={bodyRef}
 					className="message-body"
@@ -122,19 +156,21 @@ export const MessageItem = memo(function MessageItem({
 					onFileReference={(path) => void openFileReference(cwd, path)}
 				/>
 			) : null}
-			{role === "user" && item.content ? (
+			{role === "user" && item.content && rewriteDraft === null ? (
 				<div className="prompt-actions">
 					<button type="button" title={t("copy")} aria-label={t("copy")} onClick={() => void copyText(content)}>
 						<Icon name="copy" size="2xs" />
 					</button>
-					<button
-						type="button"
-						title={t("promptRewrite")}
-						aria-label={t("promptRewrite")}
-						onClick={() => setUi({ promptDraftRequest: { text: item.content, seq: Date.now() } })}
-					>
-						<Icon name="squarePen" size="2xs" />
-					</button>
+					{rewritableBefore !== undefined ? (
+						<button
+							type="button"
+							title={t("promptRewrite")}
+							aria-label={t("promptRewrite")}
+							onClick={() => setRewriteDraft(item.content)}
+						>
+							<Icon name="squarePen" size="2xs" />
+						</button>
+					) : null}
 				</div>
 			) : null}
 			{role === "user" && item.timestamp ? <MessageMeta model={model} timestamp={item.timestamp} /> : null}

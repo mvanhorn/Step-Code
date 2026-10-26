@@ -167,6 +167,23 @@ export function ConversationStream() {
 		previousRows.current = next;
 		return next;
 	}, [items, running, breaks]);
+	// Only the latest prompt is rewritable: fork to the entry before it.
+	let lastUserIndex = -1;
+	for (let index = items.length - 1; index >= 0; index -= 1) {
+		const entry = items[index];
+		if (entry.kind === "message" && entry.role === "user") {
+			lastUserIndex = index;
+			break;
+		}
+	}
+	let rewriteBefore: string | undefined;
+	for (let index = lastUserIndex - 1; index >= 0; index -= 1) {
+		const entry = items[index];
+		if (entry.kind === "message" && entry.entryId) {
+			rewriteBefore = entry.entryId;
+			break;
+		}
+	}
 	return (
 		<div
 			className="stream"
@@ -191,7 +208,13 @@ export function ConversationStream() {
 											revealEntryId={reveal?.sessionId === sessionId ? reveal.entryId : undefined}
 										/>
 									) : row.item.kind === "message" ? (
-										<MessageItem item={row.item} model={modelId} />
+										<MessageItem
+											item={row.item}
+											model={modelId}
+											rewritableBefore={
+												items[lastUserIndex] === row.item ? (rewriteBefore ?? "") : undefined
+											}
+										/>
 									) : row.item.kind === "tool" ? (
 										<>
 											<ToolRow item={row.item} />
