@@ -240,6 +240,11 @@ export interface UiState {
 	/** `#fileCompletionMenu`: workspace @path candidates; Escape closes it without interrupting a turn. */
 	readonly fileCompletionOpen: boolean;
 	/**
+	 * A page another feature asked the embedded browser to show (a delivered HTML file's preview URL). `seq`
+	 * re-fires the same URL; the browser panel handles each request once, after its connection is ready.
+	 */
+	readonly browserOpenRequest: { readonly url: string; readonly seq: number } | null;
+	/**
 	 * A search hit to scroll to once its session is shown; cleared when done.
 	 * `behavior`/`block` let a caller ask for a smooth scroll or a top-aligned
 	 * one (the stream locator); the instant centred jump stays as it was.
@@ -474,6 +479,7 @@ export function createInitialState(): AppState {
 			changesMenu: null,
 			slashMenu: null,
 			fileCompletionOpen: false,
+			browserOpenRequest: null,
 			revealEntry: null,
 			childView: null,
 			imagePreview: null,
