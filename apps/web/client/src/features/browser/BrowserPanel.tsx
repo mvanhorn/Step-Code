@@ -3,6 +3,7 @@ import { useT } from "../../i18n";
 import { ApiError, errorMessage } from "../../lib/api";
 import { writeClipboard } from "../../lib/clipboard";
 import { isMacPlatform } from "../../lib/format";
+import { useAppStore } from "../../state/store";
 import type { EmbeddedBrowserFrame, EmbeddedBrowserSnapshot } from "../../state/types";
 import { Button, Icon, IconButton, type IconName, Tooltip } from "../../ui";
 import {
@@ -48,6 +49,10 @@ export function BrowserPanel({ open }: { open: boolean }) {
 	const clicks = useRef({ at: 0, x: 0, y: 0, button: 0, count: 1 });
 	const active = snapshot.tabs.find((tab) => tab.id === snapshot.activeId);
 	const activeId = active?.id;
+	const openRequest = useAppStore((state) => state.ui.browserOpenRequest);
+	const handledRequest = useRef(0);
+	const tabs = useRef(snapshot.tabs);
+	tabs.current = snapshot.tabs;
 	useEffect(() => {
 		setAddress(active?.url === "about:blank" ? "" : (active?.url ?? ""));
 	}, [active?.url]);
@@ -134,6 +139,18 @@ export function BrowserPanel({ open }: { open: boolean }) {
 			connection.current = null;
 		};
 	}, [open, retry]);
+	// Another feature asked for a page (a delivered file's preview): reuse a tab already on it, reloaded so a
+	// rewritten file shows its new content, or open a new one. Each request is handled once, once connected.
+	useEffect(() => {
+		if (!open || !ready || !openRequest || openRequest.seq <= handledRequest.current) return;
+		handledRequest.current = openRequest.seq;
+		setError("");
+		const existing = tabs.current.find((tab) => tab.url === openRequest.url);
+		if (existing) {
+			connection.current?.send(`/tabs/${existing.id}/select`);
+			connection.current?.send(`/tabs/${existing.id}/action`, { action: "reload" });
+		} else connection.current?.send("/tabs", { url: openRequest.url });
+	}, [open, ready, openRequest]);
 	useEffect(() => {
 		const element = surface.current;
 		if (!open || !ready || !element) return;

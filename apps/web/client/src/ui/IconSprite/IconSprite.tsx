@@ -29,6 +29,11 @@ export const MISSING_FROM_LIBRARY = [
 	"user",
 	"stepcode",
 	"mic",
+	"code",
+	"browserChrome",
+	"browserSafari",
+	"browserEdge",
+	"browserFirefox",
 ] as const;
 
 /*
@@ -46,6 +51,9 @@ export const MISSING_FROM_LIBRARY = [
  * - user: 账号入口（Lucide user-round，与相邻线性图标同粗细）
  * - stepcode: StepCode 品牌标识（/brand-mark.png 位图原样使用，深底上反色为白）
  * - mic: 麦克风（语音听写按钮）。线性风格与相邻图标对齐；库里暂无同粗细对应款
+ * - code: 源码（尖括号 + 斜杠，交付卡片的"查看源码"）。线性风格，与 mic 同粗细
+ * - browserChrome / browserSafari / browserEdge / browserFirefox: 系统浏览器标识（"在 X 中打开"），
+ *   多色简化品牌图形，颜色固定、不随主题变化
  */
 
 export const ICON_NAMES = [
@@ -152,6 +160,11 @@ export const ICON_NAMES = [
 	"timer",
 	"database",
 	"mic",
+	"code",
+	"browserChrome",
+	"browserSafari",
+	"browserEdge",
+	"browserFirefox",
 ] as const;
 
 export type IconName = (typeof ICON_NAMES)[number];
@@ -264,6 +277,85 @@ export function IconSprite() {
 					strokeWidth="1.8"
 					strokeLinecap="round"
 					strokeLinejoin="round"
+				/>
+			</symbol>
+			<symbol
+				id="i-code"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				strokeWidth="1.8"
+				strokeLinecap="round"
+				strokeLinejoin="round"
+			>
+				<path d="M8.5 7.5 4 12l4.5 4.5M15.5 7.5 20 12l-4.5 4.5M13.4 5.5l-2.8 13" />
+			</symbol>
+			{/* Brand marks: fixed colors (not currentColor), so they read the same in both themes. */}
+			<symbol id="i-browserChrome" viewBox="0 0 24 24" fill="none">
+				<path d="M12 12 3.34 7A10 10 0 0 1 20.66 7Z" fill="#EA4335" />
+				<path d="M12 12 20.66 7A10 10 0 0 1 12 22Z" fill="#FBBC04" />
+				<path d="M12 12 12 22A10 10 0 0 1 3.34 7Z" fill="#34A853" />
+				<circle cx="12" cy="12" r="4.7" fill="#fff" />
+				<circle cx="12" cy="12" r="3.7" fill="#1A73E8" />
+			</symbol>
+			<symbol id="i-browserSafari" viewBox="0 0 24 24" fill="none">
+				<circle cx="12" cy="12" r="10" fill="#1B8CF5" />
+				<circle cx="12" cy="12" r="8.4" fill="#fff" />
+				<circle cx="12" cy="12" r="7.6" fill="#2D9BFF" />
+				<path
+					d="M12 4.9v1.4M12 17.7v1.4M4.9 12h1.4M17.7 12h1.4"
+					stroke="#fff"
+					strokeWidth=".7"
+					strokeLinecap="round"
+					opacity=".85"
+				/>
+				<path d="M17.3 6.7 13.3 13.3 10.7 10.7Z" fill="#FF3B30" />
+				<path d="M6.7 17.3 10.7 10.7 13.3 13.3Z" fill="#fff" />
+			</symbol>
+			<symbol id="i-browserEdge" viewBox="0 0 24 24" fill="none">
+				<defs>
+					<linearGradient id="i-browserEdge-a" x1="4" y1="18" x2="20" y2="6" gradientUnits="userSpaceOnUse">
+						<stop stopColor="#0C59A4" />
+						<stop offset="1" stopColor="#1B9DE2" />
+					</linearGradient>
+					<linearGradient id="i-browserEdge-b" x1="3" y1="10" x2="15" y2="21" gradientUnits="userSpaceOnUse">
+						<stop stopColor="#1B9DE2" />
+						<stop offset=".55" stopColor="#3BC16B" />
+						<stop offset="1" stopColor="#6FD65A" />
+					</linearGradient>
+				</defs>
+				<path
+					d="M21.6 15.2c-.4.2-.8.4-1.3.5-1.4.5-2.9.8-4.4.8-5.1 0-9.5-3.5-9.5-7.9 0-1.3.8-2.4 1.9-3C4.6 5.8 2.4 9.1 2.4 12.1c0 4.9 4.4 9.6 10.8 9.6 3.6 0 6.8-2.6 8.4-6.5Z"
+					fill="url(#i-browserEdge-a)"
+				/>
+				<path
+					d="M10.1 20.7c-1-.6-1.8-1.4-2.4-2.3-2.3-3.2-1.7-7.7 1.6-10.1.3-.2.6-.4.9-.5.2-.1.5-.2.7-.3-.4 0-.8.1-1.2.2C6.2 8.2 3.6 10.8 2.6 14.1c-.1.4-.2.9-.2 1.3.8 2.6 2.5 4.4 4.7 5.4 1 .4 2 .2 3 0Z"
+					fill="url(#i-browserEdge-b)"
+				/>
+				<path
+					d="M14 13.9c-.1.1-.4.3-.4.6 0 .3.2.5.5.7 1.5 1 4.2.9 4.2.9a6.1 6.1 0 0 0 3.1-.8 6.2 6.2 0 0 0 3.1-5.4C24.5 7.1 23.1 4.5 21.7 3.3 19.6 1.4 16.2.4 12.3.4 7.4.4 3.3 3.3 2.6 7.5c0 0 .9-2.4 4.4-3.6 3.5-1.2 7.5-.4 9.6 1.4 2.2 1.8 2.9 4.3 2.9 5.7 0 1.8-1.6 3-2.9 3.3-.9.2-1.8-.1-2-.4Z"
+					fill="#3DB6F2"
+					transform="translate(-.6 1.1) scale(.95)"
+				/>
+			</symbol>
+			<symbol id="i-browserFirefox" viewBox="0 0 24 24" fill="none">
+				<defs>
+					<radialGradient id="i-browserFirefox-a" cx="16" cy="5" r="18" gradientUnits="userSpaceOnUse">
+						<stop stopColor="#FFE226" />
+						<stop offset=".45" stopColor="#FF7139" />
+						<stop offset="1" stopColor="#E31587" />
+					</radialGradient>
+				</defs>
+				<circle cx="12" cy="12" r="10" fill="url(#i-browserFirefox-a)" />
+				<circle cx="11.4" cy="12.8" r="6" fill="#7542E5" />
+				<path
+					d="M5.4 12.8a6 6 0 0 0 11.9 1.1c-1.4 1.6-3.6 2.4-5.9 2-2.7-.5-4.6-2.7-4.9-5.3-.6.6-1 1.4-1.1 2.2Z"
+					fill="#592ACB"
+				/>
+				<path
+					d="M12 2c3.8 0 7 2.3 8.4 5.6-1.9-1.7-4.6-2.4-7.2-1.6C10.6 6.8 8.8 9 8.6 11.6 7.1 9.5 7.3 6.4 9.2 4.4 10 3.6 11 2.6 12 2Z"
+					fill="#FF980E"
+					opacity=".9"
 				/>
 			</symbol>
 			<symbol id="i-mic" viewBox="0 0 24 24" fill="none">

@@ -406,26 +406,42 @@ Task summaries live in the DFSC-style floating Summary board instead of the orig
 floating banner. Task completion comes from canonical task state, not completed
 `task_create` / `task_update` calls.
 
-A settled turn's deliverables render as an attachment area under the
-answer that closed it — no label, no count, an eye glyph per row saying the
-click previews the file. The recognized kinds are supported document,
-image, website, spreadsheet, presentation, audio and video references.
-Recognition combines explicit local Markdown links with successful structured
-write/edit paths. Code-styled basenames qualify only when they identify an
-unambiguous observed output; fenced examples, failed tools, reads and shell
-prose do not prove delivery. The area initially shows three entries and can
-expand. These are references or observed writes, not proof that files still
-exist; opening a missing file shows the existing preview error.
+A settled turn's deliverables render as file cards under the answer that
+closed it: a type tile, the file name, and its Markdown link label (or kind and
+folder) as the description, one full-width card or a two-column grid. The
+recognized kinds are supported document, image, website, spreadsheet,
+presentation, audio and video references. Recognition combines explicit local
+Markdown links with successful structured write/edit paths. Code-styled
+basenames qualify only when they identify an unambiguous observed output;
+fenced examples, failed tools, reads and shell prose do not prove delivery.
+The grid initially shows four cards and can expand. These are references or
+observed writes, not proof that files still exist; opening a missing file
+shows the existing preview error.
 
-Assistant local links and attachment rows open the same workspace-bound
-Files inspector. Repeating an attachment row closes its selected preview
+A page the embedded browser can render (`.html`, `.htm`, `.xhtml`, `.svg`)
+opens there when its card is clicked. Its action pill shows the source in the
+Files inspector and opens the page in the system browser, named and shown
+with its icon: on Desktop the system default browser with its OS icon (macOS
+and Windows), in Web a new tab of the browser showing the page, detected from
+its user agent and Client Hints (Chrome, Safari, Edge and Firefox get bundled
+brand marks; other or unknown browsers a generic glyph). PDF
+cards keep the system-browser action only, because headless Chromium does not
+render PDF. Both browsers load the page from the Host's site preview
+(`POST /api/v1/workspace/site`, `apps/web/src/site-preview.ts`): a separate
+loopback origin that serves one known workspace under an unguessable token,
+GET/HEAD only, with workspace containment and no directory listings, so a
+page's relative CSS, scripts and images load. Agent-written HTML never runs on
+the client's origin, and the Host refuses `Sec-Fetch-Site: same-site` and
+`cross-site` requests, so a previewed page cannot use the page cookie.
+
+Assistant local links and other cards open the same workspace-bound Files
+inspector. Repeating a card (or its source action) closes its selected preview
 while preserving tabs and trigger focus; selecting another file switches the
 preview. Markdown opens rendered, and links inside it resolve relative to the
 document. Windows paths, encoded file URLs and line suffixes normalize before
 the existing file API is called. Paths outside the workspace are rejected;
 the Host remains responsible for realpath and symlink checks. There are no
-automatic historical content reads, native-app actions, or new Office/PDF
-renderers. HTML delivery recognition alone does not enable live HTML preview.
+automatic historical content reads or new Office/PDF renderers.
 
 Each finished turn (one user message up to the next, including a message with
 images only) that changed files gets a card under its last row: "Edited N
