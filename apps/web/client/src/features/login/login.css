@@ -105,10 +105,6 @@
 	height: 22px;
 	flex: none;
 }
-/* On the filled button the arc takes the button's ink so it does not vanish into the fill. */
-.login-button.primary .login-button-mark {
-	--mark-arc: currentColor;
-}
 
 .login-badge {
 	padding: 1px 9px;

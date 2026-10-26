@@ -129,11 +129,6 @@
 .main:has(.empty-state):not(:has(.stream[data-opening])) > .composer-zone {
 	flex: 1 1 auto;
 }
-@property --mark-draw {
-	syntax: "<number>";
-	inherits: true;
-	initial-value: 1;
-}
 /* The mark leads the question on one line, centred on the column, just above the composer. */
 .empty-state {
 	display: flex;
@@ -173,9 +168,6 @@
 	.empty-mark {
 		animation: empty-mark-settle 520ms var(--ease-out) both;
 	}
-	.empty-mark > .icon {
-		animation: empty-mark-draw 640ms var(--ease-out) 260ms both;
-	}
 	.empty-title {
 		animation: empty-rise 560ms var(--ease-out) both;
 		animation-delay: 40ms;
@@ -185,14 +177,6 @@
 	from {
 		opacity: 0;
 		transform: translateY(6px) scale(0.94);
-	}
-}
-@keyframes empty-mark-draw {
-	from {
-		--mark-draw: 0;
-	}
-	to {
-		--mark-draw: 1;
 	}
 }
 @keyframes empty-rise {

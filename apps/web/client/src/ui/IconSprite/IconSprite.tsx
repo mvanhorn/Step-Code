@@ -44,7 +44,7 @@ export const MISSING_FROM_LIBRARY = [
  * - plug: 插头（当前未被使用）
  * - layers3: 三层图层（当前未被使用）
  * - user: 账号入口（Lucide user-round，与相邻线性图标同粗细）
- * - stepcode: StepCode 品牌标识（紫色圆弧 + 琥珀色提示符），双色，由 --mark-arc / --mark-chevron 着色
+ * - stepcode: StepCode 品牌标识（/brand-mark.png 位图原样使用，深底上反色为白）
  * - mic: 麦克风（语音听写按钮）。线性风格与相邻图标对齐；库里暂无同粗细对应款
  */
 
@@ -183,29 +183,12 @@ export function IconSprite() {
 				<path d="M20 21a8 8 0 0 0-16 0" />
 			</symbol>
 			{/*
-			 * The StepCode mark (the sign-in logo): two colours, so it does not use
-			 * currentColor. `--mark-arc` / `--mark-chevron` recolour it, and
-			 * `--mark-draw` (0..1, registered in stream.css) draws the arrow in.
+			 * The StepCode mark (the sign-in logo): the supplied brand asset,
+			 * `/brand-mark.png`, used as-is. It is a pure-black shape on
+			 * transparency, so it inverts to white on the dark brand tile.
 			 */}
-			<symbol id="i-stepcode" viewBox="0 0 48 48" fill="none">
-				<path
-					d="M34.6 13.4A15 15 0 1 0 34.6 34.6"
-					strokeWidth="7"
-					strokeLinecap="round"
-					style={{ stroke: "var(--mark-arc, #7c5cff)" }}
-				/>
-				<path
-					d="M20.5 17.8 31 24 20.5 30.2Z"
-					pathLength={1}
-					strokeWidth="6.5"
-					strokeLinecap="round"
-					strokeLinejoin="round"
-					style={{
-						stroke: "var(--mark-chevron, #ffc940)",
-						strokeDasharray: 1,
-						strokeDashoffset: "calc(1 - var(--mark-draw, 1))",
-					}}
-				/>
+			<symbol id="i-stepcode" viewBox="0 0 339 339">
+				<image href="/brand-mark.png" width="339" height="339" style={{ filter: "invert(1)" }} />
 			</symbol>
 			{/* icon-library.html: ExternalLink */}
 			<symbol id="i-accountExternal" viewBox="0 0 24 24" fill="none">
