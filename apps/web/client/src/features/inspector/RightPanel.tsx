@@ -20,6 +20,8 @@ import { useActiveTab } from "../files/PreviewBody";
 import { toggleTerminalDock } from "../terminal/actions";
 import { ContextPanel } from "./ContextPanel";
 import { GoalPanel } from "./GoalPanel";
+import { latestAgentRecord } from "./model";
+import { openAgentRecord } from "./open-agent";
 import { SummaryBoard } from "./SummaryBoard";
 import { SummaryHeader } from "./SummaryHeader";
 
@@ -92,12 +94,24 @@ export function RightPanel() {
 	const activitySeen = useRef<{ sessionId?: string; turn?: string }>({});
 	const childParentId = useAppStore((state) => state.ui.childView?.parentId);
 	const status = useAppStore((state) => state.current?.status);
+	const items = useAppStore((state) => state.timelineItems);
 	const [result, setResult] = useState<{ id: string; data?: SessionInspector; error?: string }>();
 	const [revision, setRevision] = useState(0);
 	const widthOpen = useAppStore((state) => state.ui.rightPanelMenu);
 	const ref = useRef<HTMLElement>(null);
 	const showStats = panel === "summary" || panel === "context";
 	const summary = panel === "summary";
+	/**
+	 * The rail button opens this panel without naming an agent, and the panel used
+	 * to render nothing until a Summary row was clicked — which read as "this
+	 * conversation has no subagent" while the board listed several. Select a
+	 * default whenever the panel is open with no view of *this* session.
+	 */
+	useEffect(() => {
+		if (panel !== "subagent" || !currentId || childParentId === currentId) return;
+		const latest = latestAgentRecord(items);
+		if (latest) openAgentRecord(latest);
+	}, [panel, currentId, childParentId, items]);
 	useEffect(() => {
 		if (activitySeen.current.sessionId !== currentId) activitySeen.current = { sessionId: currentId };
 		if (!activityTurn || activitySeen.current.turn === activityTurn) return;

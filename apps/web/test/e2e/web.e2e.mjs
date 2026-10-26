@@ -1466,7 +1466,9 @@ test("clarification close cancels the pending tool and a single freeform answer 
     const active = $(".session-row.active").dataset.sessionId;
     await fetch("/api/v1/sessions/" + active + "/messages", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "clarification fixture again" }) });
     await until(() => !$(".clarification-panel").hidden, "new questions");
-    $("[aria-label='关闭问题']").click();
+    // Closing the round lives with the footer text actions since the panel lost
+    // its card header, so the affordance is a button id, not an icon label.
+    $("#clarificationClose").click();
     await until(() => $(".clarification-panel").hidden, "cancelled card");
     await until(async () => (await (await fetch("/api/v1/sessions/" + active)).json()).status === "completed", "cancelled turn settles");
     await fetch("/api/v1/sessions/" + active + "/messages", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "freeform-only" }) });
@@ -2382,7 +2384,15 @@ test("a subagent or workflow call opens its child agents' transcripts read-only 
     await until(() => view.textContent.includes("Second agent answer."), "second workflow agent");
     $("#childAgentBack").click();
     await until(() => view.hidden, "child view closed");
-    return { ...single, tabs: agentTabs, tabHints };
+
+    // The rail opens this panel on its own: without selecting an agent, the
+    // button used to show an empty panel while the summary listed several.
+    $('[data-right-panel="subagent"]').click();
+    const rail = await until(() => !view.hidden && (view.textContent.includes("First agent answer.") || view.textContent.includes("Wombat audit finished.")), "child transcript from the rail");
+    const railOpened = { visible: !view.hidden, text: view.textContent.includes("First agent answer.") || view.textContent.includes("Wombat audit finished.") };
+    $('[data-right-panel="subagent"]').click();
+    await until(() => view.hidden, "rail closes the panel");
+    return { ...single, tabs: agentTabs, tabHints, railOpened };
   `)
   assert.deepEqual(seen, {
     listedChildren: 0,
@@ -2391,6 +2401,7 @@ test("a subagent or workflow call opens its child agents' transcripts read-only 
     activeRow: parentId,
     tabs: ["#1first workflow agent", "#2second workflow agent"],
     tabHints: ["first workflow agent", "second workflow agent"],
+    railOpened: { visible: true, text: true },
   })
 
   const refused = await browser.run(`

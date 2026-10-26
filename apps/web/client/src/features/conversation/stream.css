@@ -157,20 +157,18 @@
  * instead of the raw command — the same hues the composer's pick chips use:
  * the wrench (skills) is light blue, the puzzle (plugins) light purple.
  */
+/* An svg has no text baseline: without help its bottom edge rests ON the
+ * baseline, which reads low. Lift it onto the x-height instead. */
 .message-skill {
 	--message-kind-accent: var(--ink-2);
 	display: inline-flex;
-	align-items: center;
+	/* Baseline, not box center: the label rides the prompt text's baseline. */
+	align-items: baseline;
 	gap: 5px;
 	max-width: 100%;
-	margin-bottom: 6px;
-	padding: 3px 9px;
-	border: 1px solid color-mix(in srgb, var(--message-kind-accent) 35%, var(--line));
-	border-radius: var(--radius-pill);
-	background: color-mix(in srgb, var(--message-kind-accent) 10%, var(--surface));
 	color: var(--message-kind-accent);
-	font-size: 12px;
-	font-weight: 500;
+	font-size: 13px;
+	font-weight: 600;
 }
 .message-skill--skill {
 	--message-kind-accent: #3b82f6;
@@ -192,6 +190,10 @@
 }
 .message-skill--command {
 	--message-kind-accent: var(--command-accent);
+}
+.message-skill .icon {
+	position: relative;
+	top: 0.16em;
 }
 /*
  * A command echo's badge sits inside the user bubble, inline before the text
@@ -434,8 +436,7 @@
 /* The Markdown body is block-level, so the badge floats to stay on the first
  * text line, in front of the words — the input box's chip position. */
 .message-body--invoked > .message-skill {
-	float: left;
-	margin: 1px 7px 1px 0;
+	margin: 0 6px 0 0;
 }
 .message .message-md {
 	min-width: 0;
