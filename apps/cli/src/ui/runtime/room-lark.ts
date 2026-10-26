@@ -8,11 +8,22 @@
 
 import type { ExtensionContext } from "@step-harness/coding-agent";
 import { LarkApi, type LarkCredentials, LarkRegistration, LarkTransport } from "@step-harness/lark-adapter";
-import { createLarkPairingView } from "../view/dialogs/lark-pairing.ts";
+import { createLarkPairingView, type LarkPairingCopy } from "../view/dialogs/lark-pairing.ts";
 import type { RoomInbound, RoomTransport } from "./room-connection.ts";
 
 /** Kept apart from `/connect`'s widget so the two consent flows never overwrite each other. */
 const PAIRING_WIDGET = "room-pairing";
+
+/**
+ * The room flow creates and keeps a bot, which `/connect`'s copy does not describe: it says the
+ * credentials live only in memory, while a room bot's are written to `lark/room-agent.json` so the
+ * next `/room` reuses the same application instead of creating another one.
+ */
+const ROOM_PAIRING_COPY: LarkPairingCopy = {
+	heading: "room · 扫码或打开下面的链接，创建一个给会议室用的机器人：",
+	storage: "凭据保存在本机的 lark/room-agent.json（仅本人可读），下次 /room 复用同一个机器人。",
+	cancel: "已授权后中途按 Esc 不会删除刚创建的应用，可在飞书后台清理。",
+};
 
 /** Device-code consent: the person scans a QR, the credentials arrive in memory and nowhere else. */
 export async function authorizeRoomBot(
@@ -22,7 +33,7 @@ export async function authorizeRoomBot(
 	const registration = new LarkRegistration({ version: "room" });
 	try {
 		const code = await registration.begin(controller.signal);
-		const pairing = await createLarkPairingView(code, () => process.stdout.rows || 40);
+		const pairing = await createLarkPairingView(code, () => process.stdout.rows || 40, ROOM_PAIRING_COPY);
 		context.ui.setWidget(PAIRING_WIDGET, () => pairing);
 		context.ui.notify(`room · 扫码或打开链接创建机器人：${code.verificationUrl}`, "info");
 		const result = await registration.waitForAuthorization(code, controller.signal);

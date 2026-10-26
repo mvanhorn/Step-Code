@@ -2,8 +2,26 @@ import type { LarkPairingCode } from "@step-harness/lark-adapter";
 import { type Component, Text, truncateToWidth, visibleWidth } from "@step-harness/pi-tui";
 import QRCode from "qrcode";
 
+/** What the two consent flows say differently: `/connect` binds an existing bot, `/room` creates one. */
+export interface LarkPairingCopy {
+	heading: string;
+	/** What happens to the credentials. `/connect` keeps them in memory only; a room bot persists. */
+	storage: string;
+	cancel: string;
+}
+
+const CONNECT_COPY: LarkPairingCopy = {
+	heading: "connect · 扫码或打开下面的链接，选择要绑定的机器人（可复用已有的）：",
+	storage: "凭据只保存在当前进程内存中，断开后本 CLI 不再使用。",
+	cancel: "使用 /connect off 取消。",
+};
+
 /** Keep the QR intact; wrapping or clipping its rows makes it unscannable. */
-export async function createLarkPairingView(code: LarkPairingCode, getRows: () => number): Promise<Component> {
+export async function createLarkPairingView(
+	code: LarkPairingCode,
+	getRows: () => number,
+	copy: LarkPairingCopy = CONNECT_COPY,
+): Promise<Component> {
 	let qr: string[] = [];
 	try {
 		qr = (await QRCode.toString(code.verificationUrl, { type: "terminal", small: true, errorCorrectionLevel: "L" }))
@@ -16,14 +34,14 @@ export async function createLarkPairingView(code: LarkPairingCode, getRows: () =
 	const userCode = new URL(code.verificationUrl).searchParams.get("user_code");
 	const lifetime =
 		code.expiresInSeconds >= 60 ? `${Math.floor(code.expiresInSeconds / 60)} 分钟` : `${code.expiresInSeconds} 秒`;
-	const heading = new Text("connect · 扫码或打开下面的链接，选择要绑定的机器人（可复用已有的）：", 1, 0);
+	const heading = new Text(copy.heading, 1, 0);
 	const details = new Text(
 		[
 			code.verificationUrl,
 			"",
 			`${userCode ? `验证码 ${userCode}，` : "链接"}${lifetime}内有效。`,
-			"凭据只保存在当前进程内存中，断开后本 CLI 不再使用。",
-			"使用 /connect off 取消。",
+			copy.storage,
+			copy.cancel,
 		].join("\n"),
 		1,
 		0,
