@@ -179,9 +179,8 @@ function QuotedContext({ quote }: { readonly quote: SessionContextQuote }) {
 				title={label}
 				onClick={() => setOpen((value) => !value)}
 			>
-				<Icon name="layers" size="xs" />
+				<Icon name="layers" size="2xs" />
 				<span className="message-quote-title">{label}</span>
-				<Icon className="message-quote-twisty" name="disclosure" size="2xs" />
 			</button>
 			{open ? <pre className="message-quote-body">{quote.transcript}</pre> : null}
 		</div>
