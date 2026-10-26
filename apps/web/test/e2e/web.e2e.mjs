@@ -816,6 +816,40 @@ test(
     assert.equal(listed.keyed, true)
     assert.equal(listed.addRow, true, "the add row sits at the bottom of the list")
 
+    // The catalog row exposes the max-output cap: a model saved without one reads
+    // back blank, a typed one is written to models.json and read back by the form.
+    const maxOutput = await browser.run(`
+		const openEditor = async () => {
+			$("[data-model-provider='e2e-gw'] button[aria-label='编辑']").click();
+			return until(() => $("[data-model-row='e2e-model-large'] [data-model-field='maxTokens']"), "the max-output field");
+		};
+		const first = await openEditor();
+		const before = {
+			value: first.value,
+			placeholder: first.placeholder,
+			title: first.closest("label").querySelector("span").textContent,
+		};
+		// React's onChange listens for a bubbling input event; a plain value assignment would be missed.
+		Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(first, "64000");
+		first.dispatchEvent(new Event("input", { bubbles: true }));
+		await until(() => first.value === "64000", "the typed max-output value");
+		$("#settingsModelEditor button[type='submit']").click();
+		await until(() => !$("#settingsModelEditor"), "the editor to close after saving");
+		const saved = (await (await fetch("/api/v1/settings/models")).json()).providers
+			.find((entry) => entry.id === "e2e-gw").models
+			.find((entry) => entry.id === "e2e-model-large").maxTokens;
+		const again = await openEditor();
+		const reopened = again.value;
+		$("#settingsModelEditor .settings-form-footer button[type='button']").click();
+		await until(() => !$("#settingsModelEditor"), "the editor to close after cancelling");
+		return { before, saved, reopened };
+	`)
+    assert.equal(maxOutput.before.value, "", "a model saved without a cap keeps the field empty")
+    assert.equal(maxOutput.before.title, "最大输出")
+    assert.match(maxOutput.before.placeholder, /16384/u, "the placeholder names the kernel default")
+    assert.equal(maxOutput.saved, 64000, "the typed cap reaches models.json")
+    assert.equal(maxOutput.reopened, "64000", "the stored cap comes back into the form")
+
     // Discovery asks the provider's endpoint, and the endpoint's refusal is reported.
     const discovered = await browser.run(`
 		const post = (body) => fetch("/api/v1/settings/models/discover", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
