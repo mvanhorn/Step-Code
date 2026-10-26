@@ -52,7 +52,7 @@ import {
 import { FileMenu, type FileMenuHandle } from "./FileMenu";
 import { type FileQuery, fileCompletionText, sameFileQuery } from "./file-completion";
 import { ModelMenu } from "./ModelMenu";
-import { MODES } from "./modes";
+import { MODES, modeFromCommand } from "./modes";
 import { PerformanceBar } from "./PerformanceBar";
 import { PlanStrip } from "./PlanStrip";
 import { PlusMenu } from "./PlusMenu";
@@ -597,8 +597,21 @@ export function Composer({ workspaceControl, branchControl, variant = "full" }: 
 					<QueueDock />
 				</>
 			)}
-			{/* The staged mode paints the card through `data-mode` (accent border, glow and sweep in composer.css). */}
-			<div className="composer-card" data-mode={activeMode ?? undefined}>
+			{/*
+			 * The staged mode paints the card through `data-mode` (accent border, glow
+			 * and sweep in composer.css). While rewriting, the edited line's own mode
+			 * theme carries over, so a goal rewrite keeps the goal look.
+			 */}
+			<div
+				className="composer-card"
+				data-mode={
+					(edit
+						? (modeFromCommand(
+								(/^\/([A-Za-z0-9][\w.:-]*)/u.exec(editingPrompt?.text ?? "")?.[1] ?? "").replace(/:$/u, ""),
+							) ?? activeMode)
+						: activeMode) ?? undefined
+				}
+			>
 				<AttachmentList />
 				{contextPackages.length || stagedPicks.length ? (
 					<div className="attachment-list" id="contextChipList">
