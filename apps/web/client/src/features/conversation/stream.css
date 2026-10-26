@@ -1,4 +1,100 @@
 /* Conversation stream: legacy styles.css 685-704, 706-707 (.message-body itself is shared, styles/global.css). */
+/* The conversation's fixed title bar (SessionHeader.tsx). */
+.session-header {
+	display: flex;
+	flex: none;
+	align-items: center;
+	gap: 8px;
+	height: var(--session-header-h);
+	/* 12px end: the status ends on the summary card's right edge below it. */
+	padding: 0 12px 0 var(--gutter);
+	border-bottom: 1px solid var(--line);
+	background: var(--canvas);
+	position: relative;
+	z-index: 3;
+}
+/* The floating show-sidebar button sits over the bar's start. */
+.app.sidebar-hidden .session-header {
+	padding-left: 60px;
+}
+.session-header-title {
+	/* A long first message must not squeeze the project and branch chips: the title gives way first. */
+	flex: 0 1 auto;
+	min-width: 0;
+	max-width: min(28em, 55%);
+	margin: 0 6px 0 0;
+	overflow: hidden;
+	color: var(--ink);
+	font-size: 14px;
+	font-weight: 600;
+	line-height: 20px;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.session-header-chip {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	gap: 5px;
+	max-width: 240px;
+	height: 22px;
+	padding: 0 8px;
+	border-radius: var(--radius-chip);
+	background: var(--surface-soft);
+	color: var(--ink-2);
+	font-size: 12px;
+	font-weight: 500;
+}
+.session-header-chip .icon {
+	flex: none;
+	color: var(--ink-3);
+}
+.session-header-status {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	gap: 6px;
+	/* Never closer than 16px to the chips, however narrow the bar gets. */
+	margin-left: auto;
+	padding-left: 16px;
+	color: var(--ink-3);
+	font-size: 12px;
+}
+/* A docked panel narrows the bar: the title keeps its room, and the project chip (also in the sidebar) goes. */
+.session-header {
+	container-type: inline-size;
+}
+@container (max-width: 760px) {
+	.session-header-chip {
+		display: none;
+	}
+}
+.session-header-status i {
+	width: 6px;
+	height: 6px;
+	border: 1px solid currentColor;
+	border-radius: 50%;
+}
+.session-header-status[data-status="running"] {
+	color: var(--ink-2);
+}
+.session-header-status[data-status="running"] i {
+	border-color: var(--ink);
+	background: var(--ink);
+	animation: pulse 1.4s ease-in-out infinite;
+}
+.session-header-status[data-status="waiting"] {
+	color: var(--ink);
+}
+.session-header-status[data-status="waiting"] i {
+	background: currentColor;
+}
+.session-header-status[data-status="failed"] {
+	color: var(--danger);
+}
+.session-header-status[data-status="failed"] i {
+	background: currentColor;
+}
 .stream {
 	flex: 1;
 	min-height: 0;
