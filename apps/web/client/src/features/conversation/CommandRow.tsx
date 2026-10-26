@@ -9,8 +9,9 @@
  */
 
 import { useT } from "../../i18n";
+import { copyText } from "../../state/session";
 import type { CommandTimelineItem } from "../../state/types";
-import { Icon } from "../../ui";
+import { Icon, LEGACY_ICONS } from "../../ui";
 import { commandLeadIcon, MODES, modeFromCommand } from "../composer";
 
 export function CommandRow({ item }: { readonly item: CommandTimelineItem }) {
@@ -38,6 +39,18 @@ export function CommandRow({ item }: { readonly item: CommandTimelineItem }) {
 			<div className="message-body">
 				{badge}
 				{args}
+			</div>
+			{/* The same action row an ordinary user bubble carries: copy what was sent. */}
+			<div className="prompt-actions">
+				<button
+					type="button"
+					className="message-action"
+					title={t("copy")}
+					aria-label={t("copy")}
+					onClick={() => void copyText(item.command)}
+				>
+					<Icon {...LEGACY_ICONS.copy} />
+				</button>
 			</div>
 		</article>
 	);
