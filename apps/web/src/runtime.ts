@@ -99,6 +99,8 @@ import { projectSubagentNotification } from "./subagent-notification.ts";
 import { TextInputBroker, type TextInputEvent, textInput } from "./text-input.ts";
 import { savedThinkingTimings, THINKING_TIMING_TYPE, ThinkingClock, type ThinkingTimings } from "./thinking-timing.ts";
 import {
+	type FileAtTurn,
+	fileAtTurnEnd,
 	revertedTurnIds,
 	type SkippedChange,
 	TURN_REVERT_TYPE,
@@ -1972,6 +1974,11 @@ export class WebSession {
 	 * turn): otherwise it still believes its edits are on disk. The same entry
 	 * marks the turn as reverted, so the state follows the session branch.
 	 */
+	/** `path` as the turn `turnId` left it, for a rendered preview of that turn's delivery. */
+	fileAtTurn(turnId: string, path: string): Promise<FileAtTurn> {
+		return fileAtTurnEnd(this.session.sessionManager.getBranch(), turnId, path, this.cwd);
+	}
+
 	async revertTurn(turnId: string): Promise<{ paths: string[]; skipped: readonly SkippedChange[] }> {
 		if (this.status === "running" || this.status === "waiting")
 			throw new TurnRevertError("busy", "Stop the running turn first");

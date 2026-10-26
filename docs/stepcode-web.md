@@ -419,8 +419,17 @@ observed writes, not proof that files still exist; opening a missing file
 shows the existing preview error.
 
 A page the embedded browser can render (`.html`, `.htm`, `.xhtml`, `.svg`)
-opens there when its card is clicked. Its action pill shows the source in the
-Files inspector and opens the page in the system browser, named and shown
+opens there when its card is clicked. When the card's turn changed the file,
+the card shows that turn's `+added -removed` lines, its first action opens the
+turn's diff in the changes view unfolded at the file (the same records as the
+"Edited N files" card), and the page opens as that turn left it: the Host
+reverses later turns' patches to the file (`POST
+/api/v1/sessions/{id}/turns/{turnId}/site`) and serves the result from memory
+beside the file, so successive edits of one page each show their own version.
+When a later change cannot be reversed (no patch, a recreated file, or an edit
+outside the session) the current file opens with a notice. A card whose turn
+only referenced the file keeps a source action instead. The pill also opens
+the page in the system browser, named and shown
 with its icon: on Desktop the system default browser with its OS icon (macOS
 and Windows), in Web a new tab of the browser showing the page, detected from
 its user agent and Client Hints (Chrome, Safari, Edge and Firefox get bundled
@@ -435,7 +444,7 @@ the client's origin, and the Host refuses `Sec-Fetch-Site: same-site` and
 `cross-site` requests, so a previewed page cannot use the page cookie.
 
 Assistant local links and other cards open the same workspace-bound Files
-inspector. Repeating a card (or its source action) closes its selected preview
+inspector. Repeating a card (or its source or changes action) closes its selected preview
 while preserving tabs and trigger focus; selecting another file switches the
 preview. Markdown opens rendered, and links inside it resolve relative to the
 document. Windows paths, encoded file URLs and line suffixes normalize before

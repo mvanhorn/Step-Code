@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
@@ -22,10 +22,18 @@ import { containedWorkspacePath } from "./files.ts";
  * Without the token nothing is served. Only GET and HEAD, no directory listings,
  * and every path goes through the same containment check as the file preview,
  * so a symlink cannot leave the workspace.
+ *
+ * An earlier version of a file (what a past turn delivered, rebuilt by the
+ * caller) is served from memory at the file's own URL plus `?rev=<id>`, so its
+ * relative assets still resolve beside it; they load as they are on disk now.
  */
 
 /** Workspaces with a live token. The oldest is forgotten beyond this bound. */
 const MAX_SITES = 64;
+/** Earlier versions of files held in memory; the oldest is forgotten beyond this bound. */
+const MAX_VERSIONS = 32;
+/** Largest earlier version held in memory, the file preview's own text limit. */
+const MAX_VERSION_BYTES = 1_000_000;
 
 const SITE_TYPES: Readonly<Record<string, string>> = {
 	".html": "text/html; charset=utf-8",
@@ -110,9 +118,18 @@ function refuse(response: ServerResponse, status: number, text: string): void {
 	response.end(text);
 }
 
+interface FileVersion {
+	readonly root: string;
+	/** Workspace-relative path with `/` separators. */
+	readonly path: string;
+	readonly body: Buffer;
+}
+
 export class SitePreviewServer {
 	/** token -> real workspace root. */
 	private readonly sites = new Map<string, string>();
+	/** rev id -> an earlier version of one file. */
+	private readonly versions = new Map<string, FileVersion>();
 	/** real workspace root -> token. */
 	private readonly tokens = new Map<string, string>();
 	private readonly sockets = new Set<Socket>();
@@ -125,9 +142,44 @@ export class SitePreviewServer {
 	 * `cwd` is a workspace this Host knows; the file must exist inside it.
 	 */
 	async url(cwd: string, inputPath: string): Promise<string> {
+		const { root, path } = await this.contained(cwd, inputPath);
+		return this.siteUrl(root, path);
+	}
+
+	/**
+	 * The preview URL of an earlier version of a workspace file whose current
+	 * copy still exists. The id is derived from the content, so the same version
+	 * keeps one URL and an embedded browser tab already on it is reused.
+	 */
+	async versionUrl(cwd: string, inputPath: string, text: string): Promise<string> {
+		const { root, path } = await this.contained(cwd, inputPath);
+		const body = Buffer.from(text, "utf8");
+		if (body.length > MAX_VERSION_BYTES) throw new Error("This version is too large to preview");
+		const id = createHash("sha256")
+			.update(root)
+			.update("\0")
+			.update(path)
+			.update("\0")
+			.update(body)
+			.digest("base64url");
+		const rev = id.slice(0, 24);
+		this.versions.delete(rev);
+		if (this.versions.size >= MAX_VERSIONS) {
+			const oldest = this.versions.keys().next().value;
+			if (oldest !== undefined) this.versions.delete(oldest);
+		}
+		this.versions.set(rev, { root, path, body });
+		return `${await this.siteUrl(root, path)}?rev=${rev}`;
+	}
+
+	private async contained(cwd: string, inputPath: string): Promise<{ root: string; path: string }> {
 		const root = await realpath(cwd);
 		const target = await containedWorkspacePath(root, inputPath);
 		if (!(await stat(target)).isFile()) throw new Error("Path is not a file");
+		return { root, path: relative(root, target).split(sep).join("/") };
+	}
+
+	private async siteUrl(root: string, path: string): Promise<string> {
 		const port = await this.listen();
 		let token = this.tokens.get(root);
 		if (!token) {
@@ -142,7 +194,6 @@ export class SitePreviewServer {
 			this.tokens.set(root, token);
 			this.sites.set(token, root);
 		}
-		const path = relative(root, target).split(sep).join("/");
 		return `http://127.0.0.1:${port}/${token}/${encodeSitePath(path)}`;
 	}
 
@@ -185,9 +236,25 @@ export class SitePreviewServer {
 			response.setHeader("allow", "GET, HEAD");
 			return refuse(response, 405, "Method not allowed");
 		}
-		const parsed = parseSitePath(new URL(request.url ?? "/", "http://127.0.0.1").pathname);
+		const url = new URL(request.url ?? "/", "http://127.0.0.1");
+		const parsed = parseSitePath(url.pathname);
 		const root = parsed && this.sites.get(parsed.token);
 		if (!parsed || !root) return refuse(response, 404, "Not found");
+		const rev = url.searchParams.get("rev");
+		if (rev !== null) {
+			const version = this.versions.get(rev);
+			if (!version || version.root !== root || version.path !== parsed.segments.join("/"))
+				return refuse(response, 404, "Not found");
+			response.writeHead(200, {
+				"content-type": siteContentType(version.path),
+				"content-length": String(version.body.length),
+				"cache-control": "no-store",
+				"x-content-type-options": "nosniff",
+				"referrer-policy": "no-referrer",
+			});
+			response.end(method === "HEAD" ? undefined : version.body);
+			return;
+		}
 		let target: string;
 		try {
 			target = await containedWorkspacePath(root, parsed.segments.join("/"));

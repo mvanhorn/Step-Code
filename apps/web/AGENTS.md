@@ -274,8 +274,12 @@ When to add or change one:
   workspace file API and containment checks, never browser `file:` navigation.
   Delivery cards (under the closing reply of a turn) toggle only their own
   visible Files preview, retaining tabs and trigger focus; other files or
-  panels switch to the requested file. Browser-renderable pages open in the
-  embedded browser on click, with source and system-browser actions; both
+  panels switch to the requested file. A card whose turn changed the file
+  opens that turn's diff (`collectTurnChanges`, not a second change model)
+  and renders the page as that turn left it (`fileAtTurnEnd` reverses later
+  patches; never write while rebuilding); otherwise it keeps a source action.
+  Browser-renderable pages open in the
+  embedded browser on click, with a system-browser action; both
   browsers load them from `src/site-preview.ts`, a separate token-scoped
   loopback origin, never the Host's. Keep that origin separate and the Host's
   `Sec-Fetch-Site` same-site/cross-site refusal in `WebAuth.authorize`.

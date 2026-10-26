@@ -1811,6 +1811,21 @@ paths:
       responses:
         "200": { description: Deleted }
         "404": { description: No such provider }
+  /api/v1/sessions/{id}/turns/{turnId}/site:
+    post:
+      description: >-
+        Mint the rendered-preview URL of a file as the turn left it: the file on disk with every later turn's patches
+        to it reversed (reverted turns skipped). The latest version is the plain site URL; an earlier one is served
+        from memory at the file's URL plus `?rev=<id>`, so relative assets still resolve. `exact` is false when a later
+        change cannot be reversed (no patch, recreated file, or edited outside the session); the URL then shows the
+        current file.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: turnId, in: path, required: true, schema: { type: string } }
+        - { name: path, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: "url, exact" }
+        "400": { description: Path is outside the workspace, is not a file, or the version is too large }
   /api/v1/sessions/{id}/turns/{turnId}/revert:
     post:
       description: >-

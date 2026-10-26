@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { createEditToolDefinition, createWriteToolDefinition, type SessionEntry } from "@step-harness/coding-agent";
 import {
+	fileAtTurnEnd,
 	revertedTurnIds,
 	reversePatch,
 	revertTurnChanges,
@@ -536,4 +537,40 @@ test("reverted turns are read from the revert entries, and the notice names the 
 	]);
 	assert.match(notice, /"rename the title"/);
 	assert.match(notice, /a\.txt, b\.txt\./);
+});
+
+test("each turn's delivery is rebuilt as that turn left the file", async () => {
+	await withRoot(async (root) => {
+		const s = session(root);
+		ask(s, "u1");
+		await write(s, "w1", "index.html", "<p>one</p>\n");
+		ask(s, "u2");
+		await edit(s, "e2", "index.html", "one", "two");
+		ask(s, "u3");
+		await edit(s, "e3", "index.html", "two", "three");
+		assert.deepEqual(await fileAtTurnEnd(s.entries, "u1", "index.html", root), { text: "<p>one</p>\n", exact: true });
+		assert.deepEqual(await fileAtTurnEnd(s.entries, "u2", "index.html", root), { text: "<p>two</p>\n", exact: true });
+		// The latest turn's version is the file on disk.
+		assert.deepEqual(await fileAtTurnEnd(s.entries, "u3", "index.html", root), { exact: true });
+		// A reverted later turn is already gone from disk and is not reversed again.
+		assert.equal(await undo(s, "u3"), "ok");
+		assert.deepEqual(await fileAtTurnEnd(s.entries, "u2", "index.html", root), { exact: true });
+		assert.deepEqual(await fileAtTurnEnd(s.entries, "u1", "index.html", root), { text: "<p>one</p>\n", exact: true });
+		// Nothing was written while rebuilding.
+		assert.equal(await content(join(root, "index.html")), "<p>two</p>\n");
+	});
+});
+
+test("a turn's version is inexact when a later change cannot be reversed", async () => {
+	await withRoot(async (root) => {
+		const s = session(root);
+		ask(s, "u1");
+		await write(s, "w1", "index.html", "<p>one</p>\n");
+		ask(s, "u2");
+		await edit(s, "e2", "index.html", "one", "two");
+		// Edited outside the session: the later patch no longer applies.
+		await writeFile(join(root, "index.html"), "<p>elsewhere</p>\n");
+		assert.deepEqual(await fileAtTurnEnd(s.entries, "u1", "index.html", root), { exact: false });
+		assert.deepEqual(await fileAtTurnEnd(s.entries, "missing-turn", "index.html", root), { exact: false });
+	});
 });

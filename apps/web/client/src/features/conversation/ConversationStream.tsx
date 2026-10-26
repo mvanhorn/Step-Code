@@ -25,7 +25,7 @@ import { ThinkingDisclosure } from "./ThinkingDisclosure";
 import { ThinkingIndicator } from "./ThinkingIndicator";
 import { ApprovalCard, ToolRow } from "./TimelineRows";
 import { TurnChangesCard } from "./TurnChangesCard";
-import { type TurnArtifact, turnArtifacts } from "./turn-artifacts";
+import { type TurnArtifact, turnArtifacts, withTurnChanges } from "./turn-artifacts";
 import { collectTurnFooters } from "./turn-footers";
 
 /**
@@ -109,10 +109,16 @@ export function ConversationStream() {
 		() => new Map(collectTurnFooters(items, status, pendingTurn !== null).map((turn) => [turn.lastIndex, turn])),
 		[items, status, pendingTurn],
 	);
-	const artifactsAfter = useMemo(
-		() => new Map([...footerAfter].map(([index, footer]) => [index, turnArtifacts(items, footer, cwd)])),
-		[footerAfter, items, cwd],
-	);
+	// Each delivery carries its own turn's change, so its card opens that turn's diff, not the file as it is now.
+	const artifactsAfter = useMemo(() => {
+		const changesByTurn = new Map(turns.map((turn) => [turn.turnId, turn]));
+		return new Map(
+			[...footerAfter].map(([index, footer]) => [
+				index,
+				withTurnChanges(turnArtifacts(items, footer, cwd), changesByTurn.get(footer.turnId), cwd),
+			]),
+		);
+	}, [footerAfter, items, cwd, turns]);
 	/*
 	 * Each turn's deliverables attach to the bubble that closed it, as the
 	 * answer handing its files over, instead of a strip after the whole turn.

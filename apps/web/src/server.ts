@@ -1025,6 +1025,21 @@ const server = createServer(async (request, response) => {
 			if (parts[4] === "skills" && parts.length === 5 && method === "GET") {
 				return json(response, 200, { skills: session.skills() });
 			}
+			// A delivered page as its turn left it: later turns' patches reversed, served beside the
+			// workspace on the site preview origin. Falls back to the current file when that is not exact.
+			if (parts[4] === "turns" && parts[5] && parts[6] === "site" && parts.length === 7 && method === "POST") {
+				const path = url.searchParams.get("path") ?? "";
+				try {
+					const version = await session.fileAtTurn(decodeURIComponent(parts[5]), path);
+					const target =
+						version.text === undefined
+							? await sitePreview.url(session.cwd, path)
+							: await sitePreview.versionUrl(session.cwd, path, version.text);
+					return json(response, 200, { url: target, exact: version.exact });
+				} catch (caught) {
+					return error(response, 400, caught instanceof Error ? caught.message : String(caught));
+				}
+			}
 			if (parts[4] === "turns" && parts[5] && parts[6] === "revert" && parts.length === 7 && method === "POST") {
 				try {
 					const { paths, skipped } = await session.revertTurn(decodeURIComponent(parts[5]));

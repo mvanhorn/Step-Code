@@ -469,6 +469,67 @@ async function laterTurnsUnblock(
  * passes the checks while the first is still writing files. Which turns are
  * reverted is read from the branch (`revertedTurnIds`).
  */
+/** What a file held when a turn ended, for a rendered preview of that turn's delivery. */
+export interface FileAtTurn {
+	/** The reconstructed text; absent when the file on disk is still that version. */
+	readonly text?: string;
+	/** False when a later change cannot be reversed: the caller shows the current file instead. */
+	readonly exact: boolean;
+}
+
+/**
+ * Rebuild `path` as the turn `turnId` left it: the file on disk with every
+ * later turn's patches to it reversed, newest first. Reverted turns are
+ * skipped, since their edits are already gone from disk. A later change with
+ * no patch, a later `write` that created the file anew, or a patch that no
+ * longer applies (a command or another program edited the file) makes the
+ * result inexact. Nothing is written.
+ */
+export async function fileAtTurnEnd(
+	entries: readonly SessionEntry[],
+	turnId: string,
+	path: string,
+	cwd: string,
+): Promise<FileAtTurn> {
+	const start = entries.findIndex((entry) => entry.id === turnId && isUserMessage(entry));
+	if (start < 0) return { exact: false };
+	const key = await fileKey(resolveToCwd(path, cwd));
+	const reverted = new Set(revertedTurnIds(entries));
+	const later = entries
+		.slice(start + 1)
+		.filter((entry) => isUserMessage(entry) && !reverted.has(entry.id))
+		.map((entry) => turnChanges(entries, entry.id));
+	const sameFile = async (other: string) => (await fileKey(resolveToCwd(other, cwd))) === key;
+	const patches: TurnChange[] = [];
+	for (const turn of later) {
+		for (const change of turn.skipped) if (await sameFile(change.path)) return { exact: false };
+		for (const change of turn.changes) if (await sameFile(change.path)) patches.push(change);
+	}
+	if (!patches.length) return { exact: true };
+	const raw = await readCurrent(resolveToCwd(path, cwd));
+	if (raw === undefined) return { exact: false };
+	const bom = raw.startsWith("\uFEFF");
+	const text = bom ? raw.slice(1) : raw;
+	let content = normalizeToLF(text);
+	let lineEnding = detectLineEnding(text);
+	let hasBom = bom;
+	for (const change of patches.reverse()) {
+		// Before a later write created the file, this turn's version is not on record.
+		if (change.created) return { exact: false };
+		try {
+			content = reversePatch(content, change.patch);
+		} catch {
+			return { exact: false };
+		}
+		if (change.previous) {
+			lineEnding = change.previous.lineEnding;
+			hasBom = change.previous.bom;
+		}
+	}
+	const restored = restoreLineEndings(content, lineEnding);
+	return { text: hasBom ? `\uFEFF${restored}` : restored, exact: true };
+}
+
 export class TurnReverter {
 	private busy = false;
 

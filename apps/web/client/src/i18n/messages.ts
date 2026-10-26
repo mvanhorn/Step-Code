@@ -508,6 +508,8 @@ const zhCN = {
 	deliveryPreview: "预览",
 	deliveryPreviewInBrowser: "在内置浏览器中预览",
 	deliveryViewSource: "查看源码",
+	deliveryViewChanges: "查看本次变更",
+	deliveryVersionInexact: "这次修改之后文件又被改动过，无法还原当时的版本，显示的是当前文件。",
 	deliveryOpenIn: "在 {browser} 中打开",
 	deliveryOpenInBrowser: "在浏览器中打开",
 	openWorkspaceInFinder: "在访达中打开工作区",
@@ -1449,6 +1451,9 @@ const enUS: Record<MessageKey, string> = {
 	deliveryPreview: "Preview",
 	deliveryPreviewInBrowser: "Preview in the built-in browser",
 	deliveryViewSource: "View source",
+	deliveryViewChanges: "View this change",
+	deliveryVersionInexact:
+		"The file changed again in a way that cannot be undone, so this shows the current file instead of that version.",
 	deliveryOpenIn: "Open in {browser}",
 	deliveryOpenInBrowser: "Open in browser",
 	openWorkspaceInFinder: "Open workspace in Finder",

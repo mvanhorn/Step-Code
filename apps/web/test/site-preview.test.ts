@@ -86,3 +86,29 @@ test("nothing outside the workspace or without the token is served", async () =>
 		await cleanup();
 	}
 });
+
+test("an earlier version is served from memory beside the file, with one URL per version", async () => {
+	const { root, server, cleanup } = await site();
+	try {
+		const current = await server.url(root, "game/index.html");
+		const earlier = await server.versionUrl(root, "game/index.html", "<h1>Earlier</h1>");
+		assert.match(earlier, /\/game\/index\.html\?rev=[\w-]{24}$/);
+		assert.equal(new URL(earlier).pathname, new URL(current).pathname);
+		assert.equal(await server.versionUrl(root, "game/index.html", "<h1>Earlier</h1>"), earlier);
+		assert.notEqual(await server.versionUrl(root, "game/index.html", "<h1>Other</h1>"), earlier);
+		const response = await fetch(earlier);
+		assert.equal(response.headers.get("content-type"), "text/html; charset=utf-8");
+		assert.equal(response.headers.get("cache-control"), "no-store");
+		assert.equal(await response.text(), "<h1>Earlier</h1>");
+		// Relative assets still come from disk; the plain URL still serves the current file.
+		assert.equal(await (await fetch(new URL("assets/app.css", earlier))).text(), "h1 { color: red }");
+		assert.match(await (await fetch(current)).text(), /Snake/);
+		// A version id names one file only.
+		const rev = new URL(earlier).search;
+		const elsewhere = new URL(await server.url(root, "中文 页面.html"));
+		assert.equal((await fetch(`${elsewhere.origin}${elsewhere.pathname}${rev}`)).status, 404);
+		assert.equal((await fetch(`${new URL(current).origin}${new URL(current).pathname}?rev=unknown`)).status, 404);
+	} finally {
+		await cleanup();
+	}
+});

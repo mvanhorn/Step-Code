@@ -6,10 +6,10 @@ import type { ArtifactKind } from "../../lib/file-references";
 import { basename } from "../../lib/format";
 import { activeRightPanel } from "../../state/right-panel";
 import { showError } from "../../state/session";
-import { useAppStore } from "../../state/store";
-import { Icon, IconButton, type IconName, Tooltip } from "../../ui";
+import { shallowEqual, useAppStore } from "../../state/store";
+import { DiffStat, Icon, IconButton, type IconName, Tooltip } from "../../ui";
 import { openInEmbeddedBrowser, openInSystemBrowser, type SystemBrowser, useSystemBrowser } from "../browser";
-import { toggleDeliveryFile, workspaceSiteUrl } from "../files/actions";
+import { toggleDeliveryChanges, toggleDeliveryFile, turnSiteUrl, workspaceSiteUrl } from "../files/actions";
 import type { TurnArtifact } from "./turn-artifacts";
 
 /** Collapsed cards before "N more"; four fill the two-column grid. */
@@ -49,8 +49,9 @@ function SystemBrowserIcon({ browser }: { readonly browser: SystemBrowser | null
  * The finished answer's deliverables, attached under its closing bubble: one
  * card per file (type tile, name, description) in a two-column grid.
  *
- * A page the embedded browser can render opens there when the card is clicked;
- * its actions show the source in the Files preview and open it in the system
+ * A page the embedded browser can render opens there when the card is clicked,
+ * as the card's turn left it; its actions show that turn's change of the file
+ * (the source when the turn only referenced it) and open it in the system
  * browser, named and shown with its own icon (Desktop: the default browser;
  * Web: the browser showing the page). Every other file previews on
  * click.
@@ -69,6 +70,15 @@ export function MessageAttachments({
 		const tab = state.preview.tabs[state.preview.active];
 		return activeRightPanel(state) === "files" && tab?.kind === "file" && tab.cwd === cwd ? tab.path : null;
 	});
+	const sessionId = useAppStore((state) => state.current?.id ?? null);
+	// The changes view as it is showing now: which turn, unfolded at which file.
+	const changesView = useAppStore(
+		(state) =>
+			activeRightPanel(state) === "changes" && state.preview.changes
+				? { turnId: state.preview.changes.turnId, focus: state.preview.changes.focus }
+				: null,
+		shallowEqual,
+	);
 	if (!artifacts.length) return null;
 	const shown = showAll ? artifacts : artifacts.slice(0, COLLAPSED_COUNT);
 	return (
@@ -79,7 +89,13 @@ export function MessageAttachments({
 						key={artifact.path}
 						artifact={artifact}
 						cwd={cwd}
+						sessionId={sessionId}
 						sourceOpen={activePath === artifact.path}
+						changesOpen={
+							Boolean(artifact.change) &&
+							changesView?.turnId === artifact.change?.turnId &&
+							changesView?.focus === artifact.change?.file.path
+						}
 						browser={browser}
 					/>
 				))}
@@ -102,12 +118,16 @@ export function MessageAttachments({
 function AttachmentCard({
 	artifact,
 	cwd,
+	sessionId,
 	sourceOpen,
+	changesOpen,
 	browser,
 }: {
 	readonly artifact: TurnArtifact;
 	readonly cwd: string;
+	readonly sessionId: string | null;
 	readonly sourceOpen: boolean;
+	readonly changesOpen: boolean;
 	readonly browser: SystemBrowser | null;
 }) {
 	const t = useT();
@@ -119,12 +139,21 @@ function AttachmentCard({
 	// A Markdown link label ("贪吃蛇小游戏") describes the file better than its folder does.
 	const described = artifact.label && artifact.label !== name && artifact.label !== artifact.path;
 	const meta = described ? artifact.label : [t(`deliveryKind.${artifact.kind}`), dir].filter(Boolean).join(" · ");
+	const change = artifact.change;
 	const toggleSource = () => void toggleDeliveryFile(cwd, artifact.path);
-	// The URL is minted per click: the Host forgets tokens on restart, and a stale one would 404.
+	// The URL is minted per click: the Host forgets tokens on restart, and a stale one would 404. A turn that
+	// changed the file shows its own version, so cards of successive edits to one page each show theirs.
 	const openPage = (target: (url: string) => void) => {
 		if (pending) return;
 		setPending(true);
-		void workspaceSiteUrl(cwd, artifact.path)
+		const minted =
+			change && sessionId
+				? turnSiteUrl(sessionId, change.turnId, artifact.path).then(({ url, exact }) => {
+						if (!exact) showError(t("deliveryVersionInexact"), false);
+						return url;
+					})
+				: workspaceSiteUrl(cwd, artifact.path);
+		void minted
 			.then(target)
 			.catch((failure: unknown) => showError(t("deliveryOpenFailed", { error: errorMessage(failure) })))
 			.finally(() => setPending(false));
@@ -134,7 +163,7 @@ function AttachmentCard({
 		<div
 			className="attachment-card"
 			data-kind={artifact.kind}
-			data-active={sourceOpen || undefined}
+			data-active={sourceOpen || changesOpen || undefined}
 			data-pending={pending || undefined}
 		>
 			<Tooltip content={artifact.path}>
@@ -152,7 +181,16 @@ function AttachmentCard({
 					<span className="attachment-text">
 						<span className="attachment-name">{name}</span>
 						<span className="attachment-meta">
-							<span className="attachment-meta-text">{meta}</span>
+							<span className="attachment-meta-text">
+								{meta}
+								{change && (change.file.additions || change.file.deletions) ? (
+									<DiffStat
+										className="attachment-diffstat"
+										additions={change.file.additions}
+										deletions={change.file.deletions}
+									/>
+								) : null}
+							</span>
 							<span className="attachment-hint">
 								{t(embedded ? "deliveryPreviewInBrowser" : "deliveryPreview")}
 							</span>
@@ -160,9 +198,21 @@ function AttachmentCard({
 					</span>
 				</button>
 			</Tooltip>
-			{embedded || system ? (
+			{change || embedded || system ? (
 				<div className="attachment-open-group">
-					{embedded ? (
+					{change ? (
+						<Tooltip content={t("deliveryViewChanges")}>
+							<IconButton
+								className="attachment-changes"
+								icon="fileDiff"
+								iconSize="xs"
+								aria-controls="rightPanel"
+								aria-expanded={changesOpen}
+								aria-label={`${t("deliveryViewChanges")}: ${artifact.path}`}
+								onClick={() => toggleDeliveryChanges(change.turnId, change.file.path)}
+							/>
+						</Tooltip>
+					) : embedded ? (
 						<Tooltip content={t("deliveryViewSource")}>
 							<IconButton
 								className="attachment-source"
@@ -175,17 +225,19 @@ function AttachmentCard({
 							/>
 						</Tooltip>
 					) : null}
-					<Tooltip content={systemLabel}>
-						<button
-							type="button"
-							className="attachment-system"
-							aria-label={`${systemLabel}: ${artifact.path}`}
-							disabled={pending}
-							onClick={() => openPage(openInSystemBrowser)}
-						>
-							<SystemBrowserIcon browser={browser} />
-						</button>
-					</Tooltip>
+					{system ? (
+						<Tooltip content={systemLabel}>
+							<button
+								type="button"
+								className="attachment-system"
+								aria-label={`${systemLabel}: ${artifact.path}`}
+								disabled={pending}
+								onClick={() => openPage(openInSystemBrowser)}
+							>
+								<SystemBrowserIcon browser={browser} />
+							</button>
+						</Tooltip>
+					) : null}
 				</div>
 			) : null}
 		</div>
