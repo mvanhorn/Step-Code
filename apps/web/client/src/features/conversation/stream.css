@@ -419,7 +419,10 @@
 	pointer-events: none;
 }
 .message:hover .message-meta,
-.message:focus-within /* A user bubble's copy / rewrite affordances, quiet until hovered. */
+.message:focus-within .message-meta {
+	opacity: 1;
+}
+/* A user bubble's copy / rewrite affordances, quiet until hovered. */
 .prompt-actions {
 	display: inline-flex;
 	gap: 2px;
@@ -446,16 +449,6 @@
 .prompt-actions button:hover {
 	background: var(--surface-soft);
 	color: var(--ink);
-}
-.message-meta {
-	opacity: 1;
-}
-.message-meta-model {
-	max-width: 24ch;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-	color: var(--ink-2);
 }
 .message-meta-time {
 	font-variant-numeric: tabular-nums;

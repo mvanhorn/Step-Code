@@ -12,7 +12,6 @@ import { useT } from "../../i18n";
 import type { CommandTimelineItem } from "../../state/types";
 import { Icon } from "../../ui";
 import { commandLeadIcon, MODES, modeFromCommand } from "../composer";
-import { clockTime } from "./message-meta";
 
 export function CommandRow({ item }: { readonly item: CommandTimelineItem }) {
 	const t = useT();
@@ -40,13 +39,6 @@ export function CommandRow({ item }: { readonly item: CommandTimelineItem }) {
 				{badge}
 				{args}
 			</div>
-			{item.timestamp ? (
-				<span className="message-meta">
-					<time className="message-meta-time" dateTime={item.timestamp}>
-						{clockTime(item.timestamp)}
-					</time>
-				</span>
-			) : null}
 		</article>
 	);
 }

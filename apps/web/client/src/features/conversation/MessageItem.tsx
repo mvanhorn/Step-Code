@@ -38,7 +38,6 @@ export const MessageItem = memo(function MessageItem({
 	item,
 	files: pendingFiles,
 	fileCwd,
-	model,
 	rewritableBefore,
 }: {
 	readonly item: MessageTimelineItem;
@@ -156,7 +155,6 @@ export const MessageItem = memo(function MessageItem({
 					) : null}
 				</div>
 			) : null}
-			{role === "user" && item.timestamp ? <MessageMeta model={model} timestamp={item.timestamp} /> : null}
 		</article>
 	);
 });
@@ -193,13 +191,11 @@ function QuotedContext({ quote }: { readonly quote: SessionContextQuote }) {
  * once, on the row under the turn that settled. An entry without a timestamp (an
  * optimistic pending bubble) shows nothing.
  */
-function MessageMeta({ model, timestamp }: { readonly model?: string; readonly timestamp: string }) {
-	const clock = clockTime(timestamp);
+function MessageMeta({ timestamp }: { readonly timestamp: string }) {
 	return (
-		<span className="message-meta" data-model={model || undefined}>
-			{model ? <span className="message-meta-model">{model}</span> : null}
+		<span className="message-meta">
 			<time className="message-meta-time" dateTime={timestamp}>
-				{clock}
+				{clockTime(timestamp)}
 			</time>
 		</span>
 	);
@@ -278,7 +274,6 @@ function MessageError({ entryId, error }: { readonly entryId?: string; readonly 
  */
 export function MessageActions({
 	messages,
-	model,
 	aborted = false,
 }: {
 	readonly messages: readonly MessageTimelineItem[];
@@ -349,7 +344,8 @@ export function MessageActions({
 			) : null}
 			{/* The model and clock time belong to the turn that settled here, not to
 			    every step of it: only this row carries them. */}
-			{last?.timestamp && !aborted ? <MessageMeta model={model} timestamp={last.timestamp} /> : null}
+			{/* Only the clock, and only on hover: the model name is noise here. */}
+			{last?.timestamp && !aborted ? <MessageMeta timestamp={last.timestamp} /> : null}
 		</div>
 	);
 }
