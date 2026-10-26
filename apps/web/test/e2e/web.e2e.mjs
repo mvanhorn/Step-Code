@@ -1466,7 +1466,9 @@ test("clarification close cancels the pending tool and a single freeform answer 
     const active = $(".session-row.active").dataset.sessionId;
     await fetch("/api/v1/sessions/" + active + "/messages", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "clarification fixture again" }) });
     await until(() => !$(".clarification-panel").hidden, "new questions");
-    $("[aria-label='关闭问题']").click();
+    // Closing the round lives with the footer text actions since the panel lost
+    // its card header, so the affordance is a button id, not an icon label.
+    $("#clarificationClose").click();
     await until(() => $(".clarification-panel").hidden, "cancelled card");
     await until(async () => (await (await fetch("/api/v1/sessions/" + active)).json()).status === "completed", "cancelled turn settles");
     await fetch("/api/v1/sessions/" + active + "/messages", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "freeform-only" }) });
