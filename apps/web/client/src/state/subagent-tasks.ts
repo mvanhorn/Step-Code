@@ -1,4 +1,5 @@
-import type { SessionEntry, SubagentStatus, SubagentTask, ToolState } from "./types";
+import { readMessageUsage } from "./subagent-usage";
+import type { SessionEntry, SubagentStatus, SubagentTask, SubagentUsage, ToolState } from "./types";
 
 function record(value: unknown): Record<string, unknown> | undefined {
 	return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
@@ -16,6 +17,24 @@ function status(value: unknown): SubagentStatus {
 		default:
 			return "unknown";
 	}
+}
+
+/**
+ * The run's own totals, read from the tool result.
+ *
+ * `usage` is the kernel's `StepSubagentUsage`: `turns` plus the token counts. The
+ * client keeps the tokens under `SubagentUsage` (with a `records` count standing
+ * in for how many turns reported them), because the panel reports cache rates
+ * over them and must not invent a rate from a zero denominator.
+ */
+function subagentUsage(usage: Record<string, unknown> | undefined): { usage?: SubagentUsage } {
+	if (!usage) return {};
+	const totals = readMessageUsage(usage);
+	if (!totals) return {};
+	// `records` is how many turns reported usage; the kernel's `turns` is that count.
+	const records =
+		typeof usage.turns === "number" && Number.isSafeInteger(usage.turns) && usage.turns >= 0 ? usage.turns : 0;
+	return { usage: { ...totals, records } };
 }
 
 /** Only structured tool records define task state; prose and exit codes are not a lifecycle protocol. */
@@ -43,6 +62,9 @@ export function subagentTasks(
 				...(typeof usage?.turns === "number" && Number.isSafeInteger(usage.turns) && usage.turns >= 0
 					? { turns: usage.turns }
 					: {}),
+				// What the run cost: the kernel already summed its turns, so the panel
+				// does not have to re-add a transcript it may only partly read.
+				...subagentUsage(usage),
 				...(typeof item.errorMessage === "string" && item.errorMessage ? { error: item.errorMessage } : {}),
 			},
 		];
