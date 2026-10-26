@@ -4,6 +4,8 @@ import { collectTurnChanges } from "../../lib/turn-changes";
 import { setUi, useAppStore } from "../../state/store";
 import type { SteeringMessage, TimelineItem } from "../../state/types";
 import { Icon } from "../../ui";
+import { ClarificationPanel } from "./ClarificationPanel";
+import { CommandRow } from "./CommandRow";
 import { CompactionRow, CompactionRunningRow } from "./CompactionRow";
 import { MessageActions, MessageItem } from "./MessageItem";
 import { NoticeRow } from "./NoticeRow";
@@ -165,6 +167,23 @@ export function ConversationStream() {
 		previousRows.current = next;
 		return next;
 	}, [items, running, breaks]);
+	// Only the latest prompt is rewritable: fork to the entry before it.
+	let lastUserIndex = -1;
+	for (let index = items.length - 1; index >= 0; index -= 1) {
+		const entry = items[index];
+		if (entry.kind === "message" && entry.role === "user") {
+			lastUserIndex = index;
+			break;
+		}
+	}
+	let rewriteBefore: string | undefined;
+	for (let index = lastUserIndex - 1; index >= 0; index -= 1) {
+		const entry = items[index];
+		if (entry.kind === "message" && entry.entryId) {
+			rewriteBefore = entry.entryId;
+			break;
+		}
+	}
 	return (
 		<div
 			className="stream"
@@ -189,7 +208,13 @@ export function ConversationStream() {
 											revealEntryId={reveal?.sessionId === sessionId ? reveal.entryId : undefined}
 										/>
 									) : row.item.kind === "message" ? (
-										<MessageItem item={row.item} model={modelId} />
+										<MessageItem
+											item={row.item}
+											model={modelId}
+											rewritableBefore={
+												items[lastUserIndex] === row.item ? (rewriteBefore ?? "") : undefined
+											}
+										/>
 									) : row.item.kind === "tool" ? (
 										<>
 											<ToolRow item={row.item} />
@@ -199,6 +224,8 @@ export function ConversationStream() {
 										<ThinkingDisclosure item={row.item} active={running} />
 									) : row.item.kind === "retry" ? (
 										<RetryRow item={row.item} />
+									) : row.item.kind === "command" ? (
+										<CommandRow item={row.item} />
 									) : row.item.kind === "compaction" ? (
 										<CompactionRow item={row.item} />
 									) : (
@@ -261,6 +288,9 @@ export function ConversationStream() {
 				) : (
 					<EmptyConversation />
 				)}
+				{/* The pending questionnaire is conversation, not composer chrome: it
+				 * renders as the stream's latest element, where the question was asked. */}
+				<ClarificationPanel />
 			</div>
 		</div>
 	);

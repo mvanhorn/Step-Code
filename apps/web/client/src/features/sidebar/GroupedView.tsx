@@ -2,13 +2,16 @@ import { type DragEvent, type ReactNode, useState } from "react";
 import { type TagColor, useT } from "../../i18n";
 import { cx } from "../../lib/format";
 import { shallowEqual, useAppStore } from "../../state/store";
-import type { SessionSummary } from "../../state/types";
+import type { SessionSummary, TagGroup } from "../../state/types";
 import { EmptyState, Icon, LEGACY_ICONS } from "../../ui";
 import { setSessionTag } from "./actions";
+import { GroupRenameInput } from "./GroupRenameInput";
 import { SessionRow } from "./SessionRow";
 import { cssVar, SESSION_DRAG_TYPE, TAG_COLOR_KEYS, TAG_COLORS } from "./tags";
 
 interface GroupedSectionProps {
+	/** Only real tag groups can rename; the ungrouped and archived sections have none. */
+	readonly group?: TagGroup;
 	readonly name: string;
 	readonly color: TagColor | null;
 	readonly sessions: readonly SessionSummary[];
@@ -16,8 +19,10 @@ interface GroupedSectionProps {
 }
 
 /** One coloured section of the grouped view (legacy `buildGroupedSection`, 992-1012). */
-function GroupedSection({ name, color, sessions, archived = false }: GroupedSectionProps) {
+function GroupedSection({ group, name, color, sessions, archived = false }: GroupedSectionProps) {
+	const t = useT();
 	const [folded, setFolded] = useState(false);
+	const [renaming, setRenaming] = useState(false);
 	const [dropTarget, setDropTarget] = useState(false);
 	const groupColor = archived ? "var(--ink-3)" : color ? TAG_COLORS[color] : "var(--line)";
 	// Dropping a row on a section retags it with that group; the ungrouped
@@ -44,19 +49,38 @@ function GroupedSection({ name, color, sessions, archived = false }: GroupedSect
 			onDragLeave={() => setDropTarget(false)}
 			onDrop={onDrop}
 		>
-			{/* biome-ignore lint/a11y/noStaticElementInteractions: legacy heading is a plain clickable div. */}
-			{/* biome-ignore lint/a11y/useKeyWithClickEvents: see above. */}
-			<div className="group-heading" onClick={() => setFolded((value) => !value)}>
-				{archived ? (
-					<Icon {...LEGACY_ICONS.archive} />
-				) : (
-					<span
-						className="tag-diamond"
-						style={cssVar("--tag-color", color ? TAG_COLORS[color] : "var(--line-strong)")}
-					/>
-				)}
-				<span>{name}</span>
-			</div>
+			{group && renaming ? (
+				<GroupRenameInput group={group} onDone={() => setRenaming(false)} />
+			) : (
+				// biome-ignore lint/a11y/noStaticElementInteractions: legacy heading is a plain clickable div.
+				// biome-ignore lint/a11y/useKeyWithClickEvents: see above.
+				<div className="group-heading" onClick={() => setFolded((value) => !value)}>
+					{archived ? (
+						<Icon {...LEGACY_ICONS.archive} />
+					) : (
+						<span
+							className="tag-diamond"
+							style={cssVar("--tag-color", color ? TAG_COLORS[color] : "var(--line-strong)")}
+						/>
+					)}
+					<span>{name}</span>
+					{group ? (
+						<button
+							type="button"
+							className="group-rename-button"
+							title={t("renameGroup")}
+							aria-label={t("renameGroup")}
+							onClick={(event) => {
+								// The heading click folds the section; the pencil only renames.
+								event.stopPropagation();
+								setRenaming(true);
+							}}
+						>
+							<Icon name="pencil" size="xs" />
+						</button>
+					) : null}
+				</div>
+			)}
 			<i className="group-spine" />
 			<div className="group-sessions">
 				{sessions.map((session) => (
@@ -87,7 +111,7 @@ export function GroupedView() {
 		if (!group) continue;
 		const sessions = visible.filter((session) => view.tags.get(session.id) === color);
 		if (!sessions.length) continue;
-		sections.push(<GroupedSection key={color} name={group.name} color={color} sessions={sessions} />);
+		sections.push(<GroupedSection key={color} group={group} name={group.name} color={color} sessions={sessions} />);
 	}
 	const ungrouped = visible.filter((session) => !view.tags.has(session.id));
 	if (ungrouped.length) {

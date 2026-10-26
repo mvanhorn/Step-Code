@@ -80,7 +80,20 @@ let noticeSeq = 0;
  * Append a command notice to the transcript. Notices are this page's view of
  * `ui.notify`: they are never persisted and never enter the model's context.
  */
+/**
+ * Goal lifecycle state the right rail's goal panel already shows: a notice
+ * would only repeat it as a bubble. Warnings that need a decision still show.
+ */
+const GOAL_STATUS_NOTICE =
+	/^(Goal set: |Goal (paused|resumed|cleared|updated)\.|Goal commands: |Goal: .*\(iteration |Stopped a queued goal turn |Goal .+ is (paused|blocked|usage_limited))/u;
+
+/** Whether a notice only restates goal state the goal panel already renders. */
+export function goalStatusNotice(text: string): boolean {
+	return GOAL_STATUS_NOTICE.test(text.trim());
+}
+
 export function pushNotice(level: NoticeItem["level"], text: string, options?: { readonly markdown?: boolean }): void {
+	if (goalStatusNotice(text)) return;
 	const current = getState().current;
 	noticeSeq += 1;
 	const item: NoticeItem = {
@@ -380,6 +393,13 @@ function compactedMessageCount(
  */
 export function timelineFromEntries(entries: readonly SessionEntry[] = [], retry?: SessionRetry): TimelineItem[] {
 	const items: TimelineItem[] = [];
+	/*
+	 * A command that expands into its own user message (`/plan <task>`) journals
+	 * the task twice — once as the host's echo, once as the message the kernel
+	 * sends. The echo carries the badge, so the identical message that follows
+	 * it is dropped from the timeline (it stays journaled for the model).
+	 */
+	let echoArgs: string | null = null;
 	const toolResults = new Map<string, NonNullable<SessionEntry["message"]>>();
 	for (const entry of entries) {
 		if (entry.type === "message" && entry.message?.role === "toolResult" && entry.message.toolCallId) {
@@ -400,9 +420,28 @@ export function timelineFromEntries(entries: readonly SessionEntry[] = [], retry
 			});
 			continue;
 		}
+		// The host's echo of a kernel slash command: the transcript's only record of the typed line.
+		if (entry.type === "custom" && entry.customType === "stepcode-web.command-echo") {
+			const command = typeof entry.command === "string" ? entry.command : "";
+			if (command) {
+				items.push({
+					itemId: `command-${entry.id}`,
+					kind: "command",
+					command,
+					...(typeof entry.timestamp === "string" ? { timestamp: entry.timestamp } : {}),
+				});
+				echoArgs = /^\/[A-Za-z0-9][\w.:-]*\s*([\s\S]*)$/u.exec(command)?.[1]?.trim() || null;
+			}
+			continue;
+		}
 		if (entry.type !== "message") continue;
 		const message = entry.message;
 		if (!message || message.role === "toolResult") continue;
+		if (message.role === "user" && echoArgs !== null) {
+			const duplicate = contentText(message.content).trim() === echoArgs;
+			echoArgs = null;
+			if (duplicate) continue;
+		}
 		const index = messagePosition.get(entry.id) ?? 0;
 		const text = contentText(message.content);
 		const images = message.role === "user" ? imageSources(message.content) : [];
@@ -1189,7 +1228,8 @@ export function closeRenameSession(): void {
 
 /**
  * Submit `#renameSessionDialog`. The dialog closes once the host accepted the name; a failure keeps it
- * open with the typed name so the user can retry, and reports the error in the toast.
+ * open with the typed name so the user can retry, and reports the error in the toast. A late success
+ * only closes the dialog it belongs to, and a failed list refresh does not turn into a failed rename.
  */
 export async function renameSession(name: string): Promise<void> {
 	const target = getState().ui.renameSession;
@@ -1197,23 +1237,29 @@ export async function renameSession(name: string): Promise<void> {
 	if (!target || target.pending || !trimmed) return;
 	setUi({ renameSession: { ...target, pending: true } });
 	try {
-		await apiSend(`/api/v1/sessions/${target.sessionId}/name`, "PATCH", { name: trimmed });
-		patchCurrentSession(target.sessionId, { name: trimmed });
-		setUi((ui) => (ui.renameSession?.sessionId === target.sessionId ? { renameSession: null } : {}));
-		await refreshSessions();
+		// The host trims the name to its own limit; the returned snapshot is what it stored.
+		const saved = await apiSend<SessionSummary>(`/api/v1/sessions/${target.sessionId}/name`, "PATCH", {
+			name: trimmed,
+		});
+		patchCurrentSession(target.sessionId, { name: saved.name?.trim() || trimmed });
 	} catch (error) {
 		setUi((ui) =>
 			ui.renameSession?.sessionId === target.sessionId ? { renameSession: { ...target, pending: false } } : {},
 		);
 		showError(errorMessage(error));
+		return;
 	}
+	setUi((ui) => (ui.renameSession?.sessionId === target.sessionId ? { renameSession: null } : {}));
+	// The rename already succeeded; a failed list refresh must not report it as a failure.
+	await refreshSessions().catch(() => {});
 }
 
 /**
  * Rename / archive / delete one session (legacy `openSessionMenu` click
  * handler, 1297-1328). Called from the sidebar's row menu and the
- * conversation header's menu; the open session's snapshot follows along so
- * the header title does not wait for the next SSE snapshot.
+ * conversation header's menu. Rename only opens `#renameSessionDialog`
+ * (`renameSession` saves); archive and delete patch the open session's
+ * snapshot so the header does not wait for the next SSE snapshot.
  */
 export async function runSessionAction(action: SessionAction, session: SessionSummary): Promise<void> {
 	try {

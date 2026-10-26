@@ -87,6 +87,8 @@ import {
 	UploadTooLargeError,
 	withUploadedFiles,
 } from "./uploads.ts";
+import { VoiceRelay } from "./voice.ts";
+import { voiceRoute } from "./voice-routes.ts";
 import { WORKSPACES_FILE, WorkspaceRegistry } from "./workspaces.ts";
 
 const moduleRoot = resolve(fileURLToPath(new URL(".", import.meta.url)));
@@ -269,6 +271,7 @@ const store = new WebSessionStore({ index: sessionSearch });
 const workspaces = new WorkspaceRegistry(join(resolveStepAgentDir(), WORKSPACES_FILE));
 const embeddedBrowser = new WebBrowser([port, launchPort]);
 const terminals = new WebTerminals();
+const voice = new VoiceRelay();
 
 /**
  * Resolve the `cwd` of a workspace-scoped request, or undefined when the folder
@@ -675,6 +678,7 @@ const server = createServer(async (request, response) => {
 		if (parts[2] === "browser") return await browserRoute(embeddedBrowser, parts.slice(3), request, response);
 		if (parts[2] === "terminals")
 			return await terminalRoute(terminals, parts.slice(3), url, request, response, knownWorkspace);
+		if (parts[2] === "voice") return await voiceRoute(voice, parts.slice(3), request, response);
 		if (parts[2] === "bootstrap" && method === "GET") {
 			const [report, customModels] = await Promise.all([loginReport(), hasUsableCustomModel()]);
 			return json(response, 200, { cwd: defaultWorkspace(), directoryPicker, login: report, customModels });
@@ -1160,6 +1164,7 @@ const shutdown = async (): Promise<void> => {
 		const results = await Promise.allSettled([
 			embeddedBrowser.close(),
 			terminals.stopAll(),
+			voice.stopAll(),
 			(async () => {
 				try {
 					await store.close();

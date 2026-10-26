@@ -1345,6 +1345,34 @@ test("workspace @ completion is authenticated, scoped, and used by the real comp
   assert.deepEqual(picked, { text: "参考 @src/deep/needle-file.ts ", selectedWithFocus: true });
 });
 
+test("the voice button sits in the composer and its status never carries the key", async () => {
+  await browser.goto(`${origin}/`);
+  const voice = await browser.run(`
+    await until(() => $("#workspaceButtonName").textContent === "project", "bootstrap workspace");
+    const button = await until(() => $("#voiceButton"), "voice button");
+    const status = await (await fetch("/api/v1/voice")).json();
+    return {
+      inRightCluster: $(".composer-right").contains(button),
+      isButton: button.tagName === "BUTTON" && button.getAttribute("type") === "button",
+      disabled: button.disabled,
+      label: button.getAttribute("aria-label"),
+      status,
+      serialized: JSON.stringify(status),
+    };
+  `);
+  assert.equal(voice.isButton, true);
+  assert.equal(voice.inRightCluster, true);
+  // The fixture stores a Step Plan credential, so dictation is available.
+  assert.equal(voice.disabled, false);
+  assert.equal(voice.label, "语音听写");
+  assert.deepEqual(voice.status, {
+    available: true,
+    channel: "step_plan",
+    keySource: "auth.json",
+  });
+  assert.ok(!voice.serialized.includes("e2e-not-a-real-token"), "the status must not carry the credential");
+});
+
 test("the composer sends a completed @ reference as text through the real agent to a scratch file", { skip }, async () => {
   await browser.goto(`${origin}/`);
   const result = await browser.run(`
@@ -1853,6 +1881,172 @@ test(
     assert.equal(dialog.focused, true)
     assert.deepEqual(dialog.after, dialog.before)
     assert.ok(existsSync(join(workspace, "README.md")), "opening the removal dialog must not delete workspace files")
+  },
+)
+
+test(
+  "the session menu renames through an in-app dialog, which the desktop shell needs instead of window.prompt",
+  { skip },
+  async () => {
+    // Electron has no `window.prompt`: the renderer throws "prompt() is not supported."
+    // and the rename never reaches the host. The dialog renames in both hosts.
+    const renamed = await browser.run(`
+		const row = await until(() => $("#projectGroups .session-row, #recentTasks .session-row"), "a session row");
+		row.click();
+		const id = await until(() => $(".session-row.active")?.dataset.sessionId, "open conversation");
+		const titleBefore = await until(() => {
+			const text = $("#sessionHeader .session-header-title")?.textContent;
+			return text && text !== "新建会话" ? text : null;
+		}, "conversation header title");
+		const activeRow = () => $("#projectView .session-row[data-session-id='" + id + "']");
+		activeRow().querySelector(".session-menu-button").click();
+		await until(() => $("#sessionMenu"), "session menu");
+		$("#sessionMenu [data-action='rename']").click();
+		await until(() => !$("#renameSessionDialog").hidden, "rename dialog");
+		const input = $("#renameSessionInput");
+		const opened = {
+			focus: document.activeElement === input,
+			value: input.value,
+			selected: input.selectionStart === 0 && input.selectionEnd === input.value.length,
+			title: $("#renameSessionTitle").textContent,
+			confirmDisabled: $("#renameSessionConfirm").disabled,
+			modal: $("#renameSessionDialog [role='dialog']").getAttribute("aria-modal"),
+			menuClosed: !$("#sessionMenu"),
+		};
+		// React's onChange listens for a bubbling input event; a plain value assignment would be missed.
+		const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+		setter.call(input, "renamed-session-e2e");
+		input.dispatchEvent(new Event("input", { bubbles: true }));
+		await until(() => !$("#renameSessionConfirm").disabled, "confirm enabled by a new name");
+		$("#renameSessionConfirm").click();
+		await until(() => $("#renameSessionDialog").hidden, "dialog closes after saving");
+		const header = await until(() => {
+			const text = $("#sessionHeader .session-header-title").textContent;
+			return text === "renamed-session-e2e" ? text : null;
+		}, "header title after rename");
+		const rowTitle = await until(() => {
+			const text = activeRow()?.querySelector(".session-title")?.textContent;
+			return text === "renamed-session-e2e" ? text : null;
+		}, "sidebar row title after rename");
+		const stored = await (await fetch("/api/v1/sessions/" + id)).json();
+		return { id, titleBefore, opened, header, rowTitle, storedName: stored.name };
+	`)
+    assert.equal(renamed.opened.focus, true, "the name field takes focus")
+    assert.equal(renamed.opened.selected, true, "the current title is selected for replacement")
+    assert.equal(renamed.opened.value, renamed.titleBefore)
+    assert.equal(renamed.opened.title, "重命名会话")
+    assert.equal(renamed.opened.confirmDisabled, true, "an unchanged name cannot be saved again")
+    assert.equal(renamed.opened.modal, "true")
+    assert.equal(renamed.opened.menuClosed, true, "the row menu closes behind the dialog")
+    assert.equal(renamed.header, "renamed-session-e2e", "the header shows the new name")
+    assert.equal(renamed.rowTitle, "renamed-session-e2e", "the sidebar row shows the new name")
+    assert.equal(renamed.storedName, "renamed-session-e2e", "the host persisted the new name")
+
+    await browser.goto(`${origin}/`)
+    const reloaded = await browser.run(`
+		const row = await until(() => document.querySelector('#projectView .session-row[data-session-id="${renamed.id}"]'), "renamed session after reload");
+		return row.querySelector(".session-title").textContent;
+	`)
+    assert.equal(reloaded, "renamed-session-e2e")
+
+    // Escape from the focused field is the shell chain's: the edited text is dropped, the saved name kept.
+    await browser.run(`
+		const row = await until(() => document.querySelector('#projectView .session-row[data-session-id="${renamed.id}"]'), "row for Escape");
+		row.querySelector(".session-menu-button").click();
+		await until(() => $("#sessionMenu"), "menu before Escape");
+		$("#sessionMenu [data-action='rename']").click();
+		const field = await until(() => !$("#renameSessionDialog").hidden && $("#renameSessionInput"), "dialog before Escape");
+		const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+		setter.call(field, "discarded-by-escape");
+		field.dispatchEvent(new Event("input", { bubbles: true }));
+		await until(() => !$("#renameSessionConfirm").disabled, "edited name before Escape");
+	`)
+    await browser.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 })
+    await browser.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 })
+    const escaped = await browser.run(`
+		await until(() => $("#renameSessionDialog").hidden, "Escape to close the rename dialog");
+		const stored = (await (await fetch("/api/v1/sessions/${renamed.id}")).json()).name;
+		const reopened = $("#renameSessionInput")?.value ?? null;
+		return { stored, reopened };
+	`)
+    assert.deepEqual(escaped, { stored: "renamed-session-e2e", reopened: null })
+
+    // A refused save keeps the dialog and its text open, and clears the pending state.
+    const refused = await browser.run(`
+		const row = await until(() => document.querySelector('#projectView .session-row[data-session-id="${renamed.id}"]'), "row for refusal");
+		row.querySelector(".session-menu-button").click();
+		await until(() => $("#sessionMenu"), "menu for refusal");
+		$("#sessionMenu [data-action='rename']").click();
+		const field = await until(() => !$("#renameSessionDialog").hidden && $("#renameSessionInput"), "dialog for refusal");
+		const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+		const type = (text) => { setter.call(field, text); field.dispatchEvent(new Event("input", { bubbles: true })); };
+		type("refused-name-e2e");
+		await until(() => !$("#renameSessionConfirm").disabled, "refusal name typed");
+		const original = window.fetch; let calls = 0;
+		window.fetch = (...args) => {
+			if (String(args[0]).endsWith("/name") && args[1]?.method === "PATCH") {
+				calls++;
+				return Promise.resolve(new Response(JSON.stringify({error:"rename fixture refusal"}), {status:500, headers:{"content-type":"application/json"}}));
+			}
+			return original(...args);
+		};
+		$("#renameSessionConfirm").click();
+		await until(() => $("#errorToast").textContent.includes("rename fixture refusal"), "refusal toast");
+		const during = {
+			open: !$("#renameSessionDialog").hidden,
+			text: field.value,
+			busy: $("#renameSessionDialog [role='dialog']").getAttribute("aria-busy"),
+		};
+		// The refused name is not the stored one, and the field is editable again.
+		await until(() => document.activeElement === field, "focus back on the field after a refusal");
+		window.fetch = original;
+		type("retried-name-e2e");
+		$("#renameSessionConfirm").click();
+		await until(() => $("#renameSessionDialog").hidden, "retry saves");
+		return { calls, during, stored: (await (await fetch("/api/v1/sessions/${renamed.id}")).json()).name };
+	`)
+    assert.equal(refused.calls, 1)
+    assert.deepEqual(refused.during, { open: true, text: "refused-name-e2e", busy: "false" })
+    assert.equal(refused.stored, "retried-name-e2e", "the retry after a refusal is the name stored")
+
+    // While the save is in flight the dialog cannot be dismissed, and focus does not
+    // fall out of it: Escape is read, the request still lands.
+    await browser.run(`
+		const row = await until(() => document.querySelector('#projectView .session-row[data-session-id="${renamed.id}"]'), "row for pending Escape");
+		row.querySelector(".session-menu-button").click();
+		await until(() => $("#sessionMenu"), "menu for pending Escape");
+		$("#sessionMenu [data-action='rename']").click();
+		const field = await until(() => !$("#renameSessionDialog").hidden && $("#renameSessionInput"), "dialog for pending Escape");
+		const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+		setter.call(field, "pending-escape-e2e");
+		field.dispatchEvent(new Event("input", { bubbles: true }));
+		const original = window.fetch;
+		window.fetch = (...args) => {
+			if (String(args[0]).endsWith("/name") && args[1]?.method === "PATCH") {
+				return new Promise((resolve, reject) => setTimeout(() => original(...args).then(resolve, reject), 1500));
+			}
+			return original(...args);
+		};
+		window.__renameRestore = original;
+		$("#renameSessionConfirm").click();
+		await until(() => $("#renameSessionDialog [role='dialog']").getAttribute("aria-busy") === "true", "pending rename");
+	`)
+    await browser.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 })
+    await browser.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 })
+    const duringPending = await browser.run(`
+		await new Promise((resolve) => requestAnimationFrame(resolve));
+		const dialog = $("#renameSessionDialog [role='dialog']");
+		const held = {
+			open: !$("#renameSessionDialog").hidden,
+			busy: dialog.getAttribute("aria-busy"),
+			focus: document.activeElement === dialog,
+		};
+		await until(() => $("#renameSessionDialog").hidden, "pending save to land and close");
+		window.fetch = window.__renameRestore;
+		return { held, stored: (await (await fetch("/api/v1/sessions/${renamed.id}")).json()).name };
+	`)
+    assert.deepEqual(duringPending.held, { open: true, busy: "true", focus: true })
+    assert.equal(duringPending.stored, "pending-escape-e2e", "Escape during the save must not cancel it")
   },
 )
 

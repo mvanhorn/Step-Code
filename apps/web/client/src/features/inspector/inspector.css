@@ -282,3 +282,99 @@
 	.sb-disclosure, .sb-fold-icon, .sb-task-progress-fill { transition: none; }
 	.sb-status-spinner { animation: none !important; }
 }
+
+/* ── 目标面板：goal lifecycle ─────────────────────────────────────────── */
+/*
+ * The goal's status chip carries the state colour: running green, held states
+ * attention, finished neutral. The rail button wears a dot while a goal runs.
+ */
+.goal-panel {
+	--goal-accent: var(--ink-3);
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	padding: 14px;
+}
+.goal-panel[data-status="active"] {
+	--goal-accent: var(--mode-goal);
+}
+.goal-panel[data-status="paused"],
+.goal-panel[data-status="blocked"],
+.goal-panel[data-status="usage_limited"],
+.goal-panel[data-status="budget_limited"] {
+	--goal-accent: var(--attention);
+}
+.goal-panel-head {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+.goal-panel-status {
+	padding: 2px 9px;
+	border: 1px solid color-mix(in srgb, var(--goal-accent) 35%, var(--line));
+	border-radius: var(--radius-pill);
+	background: color-mix(in srgb, var(--goal-accent) 10%, var(--surface));
+	color: var(--goal-accent);
+	font-size: 12px;
+	font-weight: 500;
+}
+.goal-panel-rounds {
+	color: var(--ink-3);
+	font-size: 12px;
+}
+.goal-panel-objective {
+	margin: 0;
+	color: var(--ink);
+	font-size: 14px;
+	line-height: 1.6;
+	overflow-wrap: anywhere;
+}
+.goal-panel-stats {
+	margin: 0;
+	color: var(--ink-3);
+	font-size: 12px;
+}
+.goal-panel-edit {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+.goal-panel-input {
+	width: 100%;
+	height: var(--control-h-md);
+	padding: 0 8px;
+	border: 1px solid var(--line-strong);
+	border-radius: var(--radius-input);
+	background: var(--surface);
+	color: var(--ink);
+	font: inherit;
+	font-size: 13px;
+}
+.goal-panel-input:focus {
+	border-color: var(--focus-border);
+	outline: none;
+}
+.goal-panel-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+.goal-panel-empty {
+	padding: 18px 14px;
+	color: var(--ink-3);
+	font-size: 13px;
+}
+.right-tool-rail .icon-button {
+	position: relative;
+}
+.right-tool-rail .icon-button.rail-goal-active::after {
+	content: "";
+	position: absolute;
+	top: 5px;
+	right: 5px;
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background: var(--mode-goal);
+	box-shadow: 0 0 0 2px var(--surface);
+}

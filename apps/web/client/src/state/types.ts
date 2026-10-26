@@ -28,6 +28,18 @@ export interface TerminalSnapshot {
 	readonly chunks: readonly { readonly seq: number; readonly data: string }[];
 }
 
+/**
+ * Voice dictation (`/api/v1/voice/*`, host `voice.ts`): the composer's
+ * microphone button. The status snapshot reports where the credential comes
+ * from and which channel it belongs to — never the key itself.
+ */
+export interface VoiceStatus {
+	readonly available: boolean;
+	readonly reason?: "no-credential";
+	readonly channel?: "step_plan" | "platform";
+	readonly keySource?: "environment" | "auth.json";
+}
+
 /** Host-wide embedded-browser projection, independent of model sessions. */
 export interface EmbeddedBrowserTab {
 	readonly id: string;
@@ -532,7 +544,22 @@ export type TimelineItem =
 	| ToolTimelineItem
 	| ApprovalTimelineItem
 	| RetryTimelineItem
+	| CommandTimelineItem
 	| CompactionTimelineItem;
+
+/**
+ * A kernel slash command the user sent, echoed by the host: the command runs
+ * without a user message, so this row is the transcript's record of what was
+ * typed. It persists in the session file (outside model context) and reloads
+ * like any other row; `/mcp`, `/btw` and `/feedback` never become one.
+ */
+export interface CommandTimelineItem {
+	readonly itemId: string;
+	readonly kind: "command";
+	/** The command line as sent, e.g. `/goal 整理文件夹`. */
+	readonly command: string;
+	readonly timestamp?: string;
+}
 
 /**
  * A context compaction the kernel recorded. Collapsed by default: the header

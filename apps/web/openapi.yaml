@@ -123,12 +123,90 @@ paths:
               schema: { type: string }
         "400": { description: Invalid or future cursor }
         "404": { description: Unknown terminal }
+  /api/v1/voice:
+    get:
+      description: |
+        Voice dictation availability for the composer's microphone button:
+        which channel the resolved credential belongs to. The key itself never
+        appears in any response. Unavailable means no credential: an
+        environment key or the stored Step login.
+      responses:
+        "200":
+          description: Availability snapshot
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VoiceStatus" }
+        "401": { description: Authentication required }
+  /api/v1/voice/start:
+    post:
+      description: |
+        Open the one buffering session (a second start while one runs answers
+        409). Chunks are buffered until the stop, which transcribes the whole
+        recording.
+      responses:
+        "200":
+          description: Session started
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sessionId]
+                properties:
+                  sessionId: { type: string }
+        "401": { description: Authentication required }
+        "409": { description: A voice session is already running }
+  /api/v1/voice/audio:
+    post:
+      description: |
+        Buffer one base64 PCM16 chunk (100 ms slices, 24 kHz mono) for the
+        active session. At most 512 KiB decoded per chunk and 10 minutes of
+        audio per session.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data: { type: string, description: Base64 PCM16 audio }
+      responses:
+        "202": { description: Chunk buffered }
+        "400": { description: Malformed body }
+        "401": { description: Authentication required }
+        "404": { description: No active voice session }
+        "413": { description: Chunk or session exceeds the size limit }
+  /api/v1/voice/stop:
+    post:
+      description: |
+        Transcribe the buffered recording with the StepFun ASR service and end
+        the session. The complete text comes back in the reply; an empty
+        recording (or one the service recognised nothing in) answers with an
+        empty text.
+      responses:
+        "200":
+          description: Transcript
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [text]
+                properties:
+                  text: { type: string, description: The recognised text, possibly empty }
+        "401": { description: Authentication required }
+        "404": { description: No active voice session }
+        "502": { description: The ASR service could not be reached or failed }
+  /api/v1/voice/cancel:
+    post:
+      description: Discard the buffered recording without transcribing.
+      responses:
+        "200": { description: Session discarded }
+        "401": { description: Authentication required }
   /api/v1/browser:
     get:
       description: Host-wide browser tab snapshot. No engine is launched by reading it. An optional control header renews that page's lease.
       parameters:
-        - { name: x-stepcode-browser-control, in: header, schema: { type: string } }
-      responses:
+        - { name: x-stepcode-browser-control, in: header, schema: { type: string } }      responses:
         "200":
           description: Browser snapshot
           content:
@@ -1995,6 +2073,14 @@ components:
             properties:
               seq: { type: integer, minimum: 1 }
               data: { type: string, maxLength: 8192 }
+    VoiceStatus:
+      type: object
+      required: [available]
+      properties:
+        available: { type: boolean }
+        reason: { type: string, enum: [no-credential], description: Why dictation is unavailable }
+        channel: { type: string, enum: [step_plan, platform], description: Which StepFun service the credential belongs to }
+        keySource: { type: string, enum: [environment, auth.json], description: Where the credential comes from; never the key }
     EmbeddedBrowserSnapshot:
       type: object
       required: [revision, activeId, tabs]
