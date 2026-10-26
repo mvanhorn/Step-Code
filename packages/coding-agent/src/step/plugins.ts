@@ -13,17 +13,15 @@ import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
 import { BorderedLoader } from "../components/bordered-loader.ts";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionFactory } from "../core/extensions/types.ts";
+import { execFileText } from "../utils/child-process.ts";
 import { resolveStepConfigDir } from "./environment.ts";
 import { resolveStepMcpEnvironment, STEP_LOGIN_SUPPLIED_ENV } from "./mcp-environment.ts";
 import { isPathContained } from "./path-containment.ts";
 import { ensureStepPageReady, stepPageInstallerUrl } from "./steppage-provision.ts";
 import { resolveStepStorageRoot } from "./storage-root.ts";
 import { type StepTelemetryReporter, trackStepTelemetry } from "./telemetry.ts";
-
-const execFileAsync = promisify(execFile);
 
 export const STEP_PLUGIN_MANIFEST_FILE = "step.plugin.json";
 export const PLUGIN_MANIFEST_FILE_NAME = STEP_PLUGIN_MANIFEST_FILE;
@@ -1156,7 +1154,7 @@ export async function updateMarketplaceSource(input: {
 		return { warnings: [`Marketplace '${name}' is a local checkout and cannot be updated automatically.`] };
 	}
 	try {
-		await execFileAsync("git", ["-C", target, "pull", "--ff-only", "--quiet"], { timeout: 120_000 });
+		await execFileText("git", ["-C", target, "pull", "--ff-only", "--quiet"], { timeout: 120_000 });
 	} catch (error) {
 		return { warnings: [`Could not update marketplace '${name}': ${describe(error)}`] };
 	}
@@ -1747,7 +1745,7 @@ function deriveMarketplaceName(source: string): string | undefined {
 
 async function readGitOrigin(dir: string): Promise<string | null> {
 	try {
-		const result = await execFileAsync("git", ["-C", dir, "remote", "get-url", "origin"], { timeout: 10_000 });
+		const result = await execFileText("git", ["-C", dir, "remote", "get-url", "origin"], { timeout: 10_000 });
 		return result.stdout.trim() || null;
 	} catch {
 		return null;
