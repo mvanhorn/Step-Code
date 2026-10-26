@@ -435,9 +435,10 @@ depend on what the file holds now. Without such a write (the file predates the
 session) it reverses later turns' patches from the file on disk instead; when
 neither reaches the version (an untracked change, a recreated file, or an edit
 outside the session), a card whose turn changed the file opens the current file
-with a notice. Changes count Step's `edit_file` (a patch) and `write_file` (no
-patch, so untracked for undo; nothing when it changed nothing) as well as
-`edit` and `write`. A card whose turn only referenced the file keeps a source
+with a notice. Changes count Step's `edit_file` and `write_file`, which record
+the same patches as `edit` and `write` (a `write_file` from sessions recorded
+before that has no patch and stays untracked; one that changed nothing is no
+change). A card whose turn only referenced the file keeps a source
 action instead of the diff. The pill also opens
 the page in the system browser, named and shown  
 with its icon: on Desktop the system default browser with its OS icon (macOS  
