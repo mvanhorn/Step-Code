@@ -61,6 +61,8 @@ export const MessageItem = memo(function MessageItem({
 	/**
 	 * Present only on the latest user message: the entry a rewrite forks to
 	 * ("" forks from the head). Its presence makes the bubble editable in place.
+	 * A row without an entry id (the echo of a prompt still being sent) has no
+	 * recorded message to rewrite, so it offers no action even when it is latest.
 	 */
 	readonly rewritableBefore?: string;
 }) {
@@ -150,7 +152,7 @@ export const MessageItem = memo(function MessageItem({
 					>
 						<Icon {...LEGACY_ICONS.copy} />
 					</button>
-					{rewritableBefore !== undefined ? (
+					{rewritableBefore !== undefined && item.entryId ? (
 						<button
 							type="button"
 							className="message-action"

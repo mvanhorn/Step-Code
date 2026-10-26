@@ -14,6 +14,7 @@ const component = await readFile(
 	new URL("../client/src/features/conversation/ConversationStream.tsx", import.meta.url),
 	"utf8",
 );
+const store = await readFile(new URL("../client/src/state/store.ts", import.meta.url), "utf8");
 
 function rule(selector: string): string {
 	const start = css.indexOf(`${selector} {`);
@@ -40,4 +41,13 @@ test("the stylesheet matches the markup the empty state renders", () => {
 	assert.match(component, /className="empty-mark"/u);
 	assert.match(component, /className="empty-title"/u);
 	assert.doesNotMatch(css, /\.empty-wordmark/u, "the retired wordmark styles");
+});
+
+test("startup is not drawn as a centred new conversation", () => {
+	// Before bootstrap picks a session the timeline is empty, but that is loading,
+	// not a new conversation: painting it centred moved the composer into the middle
+	// of the pane and dropped it to the bottom a few frames later.
+	assert.match(component, /!state\.booted \|\| state\.ui\.openingSession !== null/u);
+	assert.match(store, /readonly booted: boolean/u);
+	assert.match(store, /booted: false/u);
 });

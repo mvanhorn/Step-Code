@@ -307,6 +307,11 @@ export interface AppState {
 	 */
 	readonly pendingTurn: PendingTurn | null;
 	readonly bootstrapCwd: string;
+	/**
+	 * The first bootstrap pass finished: a session or a draft has been chosen.
+	 * Until then the pane is still loading, not an empty new conversation.
+	 */
+	readonly booted: boolean;
 	readonly draftCwd: string;
 	readonly draftPolicy: string;
 	/**
@@ -346,6 +351,12 @@ export interface AppState {
 	/** The in-page workspace browser (legacy workspaceBrowserPath/Parent, workspaceDirectories). */
 	readonly workspaceBrowser: DirectoryListing;
 	readonly directoryPicker: DirectoryPickerMode;
+	/**
+	 * The running build's identity, as the host reported it in the bootstrap
+	 * payload: the product version and, for an installed build, when it was made.
+	 * Settings shows it so anyone can tell which build a window is running.
+	 */
+	readonly build: { readonly version?: string; readonly madeAt?: string };
 	/** The system folder chooser request is pending (`#addWorkspace[aria-busy]`). */
 	readonly pickingFolder: boolean;
 	readonly tree: TreeState;
@@ -404,6 +415,7 @@ export function createInitialState(): AppState {
 		compacting: false,
 		pendingTurn: null,
 		bootstrapCwd: "",
+		booted: false,
 		draftCwd: "",
 		draftPolicy: "approve-for-me",
 		draftSelection: null,
@@ -423,6 +435,7 @@ export function createInitialState(): AppState {
 		account: null,
 		workspaceBrowser: { path: "", parent: "", directories: [] },
 		directoryPicker: "browse",
+		build: {},
 		pickingFolder: false,
 		tree: emptyTree(),
 		treeExpandedByCwd: new Map(),

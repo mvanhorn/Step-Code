@@ -204,8 +204,15 @@ When to add or change one:
   separate. Preserve original
   timeline indices for turn footers, file deliveries and search reveal. Group
   completion counts tool results, never canonical Tasks or child-agent success.
+- A subagent record is context the main agent produced, so its inspector has no prompt surface:
+  the child's input is a collapsed "task message received" receipt, never a bubble or box, and the parent
+  composer is hidden while the record is open (closing it restores the composer). Do not add a composer,
+  inline editor or send control to the child view.
 - Subagent rows project structured per-task results and use the existing read-only child transcript API.
-  Planned arguments mean queued, not running; missing legacy statuses stay unknown. Background custom messages
+  Planned arguments mean queued, not running; missing legacy statuses stay unknown. A dispatch the kernel
+  rejected never started a child, so its planned rows stay as failed attempts carrying the tool result's own
+  error: a refused run must not read as "status not recorded" or vanish from the rail and Summary. Only steps
+  that never settled become failed; a completed chain step keeps its own result. Background custom messages
   expose only validated agentId/event/status fields through `src/subagent-notification.ts`. Do not parse
   notification prose, infer per-task success from the parent tool, or add child execution controls in the inspector.
 - `features/inspector` owns the shared right rail, Summary and Context views.
@@ -292,6 +299,14 @@ When to add or change one:
 - Workspace navigation metadata is separate from sessions: `web-workspaces.json` stores registered `workspaces`
   and explicit `removedWorkspaces`. Removed entries are returned with `hidden: true`; clients must not recreate
   their project groups from session cwd values. Re-adding restores the group; removal never deletes chats or files.
+- Session tag groups are derived, not stored: a group exists exactly as long as a listed session carries its tag
+  (`state/tag-groups.ts`). Deleting a session or untagging its last member removes the group from the grouped view
+  and the row's picker together, and frees its colour; clearing the filter when its group disappears keeps the
+  sidebar from going blank. Never keep an empty group record for the picker to re-offer.
+- `GET /api/v1/bootstrap` reports the running build's identity: `version` always, and `buildTime` when the
+  installer staged a release envelope (`STEPCODE_BUILD_TIME`, set by `apps/desktop/src/release-envelope.ts`).
+  Settings › General shows it as "当前版本", so a window can be told apart from a stale install or a source
+  checkout. Keep it a report of what the host runs; never synthesize a build time in the client.
 - Environment variables: `STEPCODE_WEB_PORT` (default 3077), `STEPCODE_WEB_CWD` (default workspace),
   `STEPCODE_WEB_PUBLIC_DIR` (client directory), `STEPCODE_WEB_AUTH_SECRET`, `STEPCODE_WEB_OPEN` (below),
   `STEPCODE_WEB_CLIENT_PORT` (the launch URL points at this port instead of the host's; `web:watch` sets it to the

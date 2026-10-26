@@ -42,7 +42,13 @@
 .right-panel .preview-path > strong { min-width: 0; flex-shrink: 1; }
 .right-panel .preview-toolbar { flex-wrap: wrap; padding-block: 6px; }
 .right-panel .preview-tools { margin-left: auto; }
-.app.right-panel-expanded .right-panel { position: absolute; top: 0; bottom: 0; left: 0; right: var(--rail-width); width: auto; z-index: 24; }
+/*
+ * Maximized, the panel covers the workbench. An absolutely positioned grid item
+ * is contained by its grid *area*, not the app, so the span must be restated:
+ * without it `left: 0; right: …` resolved inside column 3 and the panel stayed
+ * as narrow as its dock.
+ */
+.app.right-panel-expanded .right-panel { position: absolute; grid-column: 1 / -1; grid-row: 1; top: 0; bottom: 0; left: 0; right: var(--rail-width); width: auto; z-index: 24; }
 .app.right-panel-expanded .right-panel > .preview-resizer { display: none; }
 .sb-content { padding: 16px 0 8px; font-size: 12px; line-height: 1.65; }
 .sb-content h3 { font-size: 13px; font-weight: 600; margin: 0; }

@@ -129,6 +129,18 @@ const directoryPicker: DirectoryPickerMode = resolveDirectoryPickerMode({
 	platform: process.platform,
 	env: process.env,
 });
+/**
+ * When this build was made, from the installer's release envelope
+ * (`apps/desktop/src/release-envelope.ts`). A source checkout has none.
+ */
+const buildTime = normalizeBuildTime(process.env.STEPCODE_BUILD_TIME);
+
+/** A parseable ISO timestamp, or undefined: the page only formats what it can trust. */
+function normalizeBuildTime(value: string | undefined): string | undefined {
+	const trimmed = value?.trim();
+	if (!trimmed || Number.isNaN(Date.parse(trimmed))) return undefined;
+	return new Date(trimmed).toISOString();
+}
 /** One system dialog at a time; a second would stack invisibly behind the first. */
 let pickerOpen = false;
 const auth = new WebAuth([`http://127.0.0.1:${port}`, `http://localhost:${port}`], authSecretPath);
@@ -706,7 +718,17 @@ const server = createServer(async (request, response) => {
 		if (parts[2] === "voice") return await voiceRoute(voice, parts.slice(3), request, response);
 		if (parts[2] === "bootstrap" && method === "GET") {
 			const [report, customModels] = await Promise.all([loginReport(), hasUsableCustomModel()]);
-			return json(response, 200, { cwd: defaultWorkspace(), directoryPicker, login: report, customModels });
+			// The identity of the running build, so a page (and the person looking at
+			// it) can tell which build it is talking to. `buildTime` is staged beside
+			// the server entry by the installer; a source checkout reports none.
+			return json(response, 200, {
+				cwd: defaultWorkspace(),
+				directoryPicker,
+				login: report,
+				customModels,
+				version: resolveStepCodeVersion().value,
+				...(buildTime ? { buildTime } : {}),
+			});
 		}
 		if (parts[2] === "account" && parts.length === 3 && method === "GET") {
 			return json(response, 200, await account.get());

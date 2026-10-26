@@ -238,8 +238,9 @@ export function Composer({ workspaceControl, branchControl, variant = "full" }: 
 		},
 		[syncHasText],
 	);
-	const stopMode = status === "running" && !hasText;
 	const edit = variant === "edit";
+	// The in-place editor rewrites one message; it is never the run's stop button.
+	const stopMode = !edit && status === "running" && !hasText;
 	/* Rewriting: the edit instance starts from the message's text and submits a fork. */
 	const editingPrompt = useAppStore((state) => state.ui.editingPrompt);
 	const editLoaded = useRef(false);
@@ -674,12 +675,15 @@ export function Composer({ workspaceControl, branchControl, variant = "full" }: 
 						onSubmit={() => form.current?.requestSubmit()}
 						onSteer={steer}
 						placeholder={
-							// A running turn's queue hint outranks the mode's coaching text.
-							active
-								? t(queuedCount ? "queuePlaceholderSteerAll" : "queuePlaceholderRunning")
-								: activeModeMeta
-									? t(activeModeMeta.placeholderKey)
-									: undefined
+							// The in-place editor edits one message; queue hints belong to the bottom composer.
+							edit
+								? t("promptEditPlaceholder")
+								: // A running turn's queue hint outranks the mode's coaching text.
+									active
+									? t(queuedCount ? "queuePlaceholderSteerAll" : "queuePlaceholderRunning")
+									: activeModeMeta
+										? t(activeModeMeta.placeholderKey)
+										: undefined
 						}
 						onValueInput={onValueInput}
 						onCaretChange={syncFileQuery}
@@ -705,14 +709,17 @@ export function Composer({ workspaceControl, branchControl, variant = "full" }: 
 					) : null}
 				</div>
 				<div className="composer-controls">
-					<PlusMenu
-						{...menu("plus")}
-						onPickMode={pickMode}
-						onPickSkill={pickSkill}
-						onPickPlugin={pickPlugin}
-						onPickSession={(id) => void pickSession(id)}
-						onFiles={(picked) => stageFiles.current?.(picked)}
-					/>
+					{/* The editor rewrites one message: it has no attach menu, policy picker or model switch. */}
+					{edit ? null : (
+						<PlusMenu
+							{...menu("plus")}
+							onPickMode={pickMode}
+							onPickSkill={pickSkill}
+							onPickPlugin={pickPlugin}
+							onPickSession={(id) => void pickSession(id)}
+							onFiles={(picked) => stageFiles.current?.(picked)}
+						/>
+					)}
 					{edit ? null : <PolicyMenu {...menu("policy")} />}
 					{edit ? null : (
 						<Tooltip content={`${previewOpen ? t("markdownEdit") : t("markdownPreview")} (Cmd/Ctrl+Shift+M)`}>
@@ -755,8 +762,8 @@ export function Composer({ workspaceControl, branchControl, variant = "full" }: 
 								className="send-button"
 								id="sendButton"
 								type="submit"
-								title={active ? t("queueMessage") : t("sendMessage")}
-								aria-label={active ? t("queueMessage") : t("sendMessage")}
+								title={!edit && active ? t("queueMessage") : t("sendMessage")}
+								aria-label={!edit && active ? t("queueMessage") : t("sendMessage")}
 								disabled={waiting}
 							>
 								<Icon name="send" />
@@ -765,7 +772,8 @@ export function Composer({ workspaceControl, branchControl, variant = "full" }: 
 					</div>
 				</div>
 			</div>
-			<PerformanceBar />
+			{/* The editor is not a run surface: the session's timing belongs to the bottom composer. */}
+			{edit ? null : <PerformanceBar />}
 		</form>
 	);
 }

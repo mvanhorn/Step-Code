@@ -545,6 +545,18 @@ paths:
                       A custom (bring-your-own-key) model from models.json is usable
                       without a Step credential. Checked offline. When true, the
                       page does not open the sign-in gate.
+                  version:
+                    type: string
+                    description: |
+                      Product version of the running host build, e.g. `0.1.0`.
+                      Settings shows it so a window can be identified.
+                  buildTime:
+                    type: string
+                    format: date-time
+                    description: |
+                      When the installed build was produced, from the release
+                      envelope staged beside the server entry. Absent for a
+                      source checkout.
   /api/v1/account:
     get:
       description: |

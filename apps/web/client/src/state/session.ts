@@ -20,6 +20,7 @@ import { assistantBlocks } from "./assistant-content";
 import { observePerformance } from "./performance";
 import { type AppState, getState, mapWith, setState, setUi, type ToastState } from "./store";
 import { backgroundSubagentStatuses, subagentTasks } from "./subagent-tasks";
+import { pruneTagGroups, withoutSessionTag } from "./tag-groups";
 import { readThinkingTimings } from "./thinking-timing";
 import type {
 	AccountReport,
@@ -558,6 +559,10 @@ export function timelineFromEntries(entries: readonly SessionEntry[] = [], retry
 									block.arguments,
 									result?.details,
 									result?.isError ? "failed" : result ? "completed" : "pending",
+									[],
+									// A rejected dispatch reports no per-task result: its error is the
+									// only account of why the run did not happen.
+									result?.isError ? clipDetail(contentText(result.content)) : undefined,
 								),
 							}
 						: {}),
@@ -1011,6 +1016,7 @@ function handleAgentEvent(agentEvent: AgentStreamEvent, thinkingTimings?: Thinki
 							agentEvent.result?.details,
 							agentEvent.isError ? "failed" : "completed",
 							item.subagentTasks,
+							agentEvent.isError ? clipDetail(output) : undefined,
 						),
 					}
 				: {}),
@@ -1237,6 +1243,16 @@ export function forgetUnlistedSession(id: string): void {
 	unlistedSessions.delete(id);
 }
 
+/**
+ * A session the host deleted is forgotten completely: its optimistic row and
+ * the group tag it carried. The tag is a record about that session, so leaving
+ * it behind kept a group in the picker that no session could ever name again.
+ */
+export function forgetDeletedSession(id: string): void {
+	forgetUnlistedSession(id);
+	setState((state) => withoutSessionTag(state, id));
+}
+
 /** Reload the session list (legacy `refreshSessions`, 3111-3115). */
 export async function refreshSessions(): Promise<void> {
 	const data = await api<{ sessions: SessionSummary[] }>("/api/v1/sessions");
@@ -1247,7 +1263,16 @@ export async function refreshSessions(): Promise<void> {
 		const live = data.sessions.flatMap((session): SessionLiveStatus[] =>
 			session.status ? [{ id: session.id, status: session.status, unread: session.unread === true }] : [],
 		);
-		return { sessions: [...kept, ...data.sessions], ...foldLiveStatuses(state, live, listed) };
+		// A session the host no longer lists is gone for good; its group tag has to
+		// go with it, or the group stays in the picker with no session anywhere. The
+		// open session counts as listed even if this answer omitted it.
+		const present = new Set([...kept, ...data.sessions].map((session) => session.id));
+		if (state.current) present.add(state.current.id);
+		return {
+			sessions: [...kept, ...data.sessions],
+			...pruneTagGroups(state, present),
+			...foldLiveStatuses(state, live, listed),
+		};
 	});
 }
 
@@ -1313,7 +1338,7 @@ export async function runSessionAction(action: SessionAction, session: SessionSu
 		}
 		if (action === "delete" && window.confirm(t("confirmDelete", { name: sessionTitle(session) }))) {
 			await apiSend(`/api/v1/sessions/${session.id}`, "DELETE");
-			forgetUnlistedSession(session.id);
+			forgetDeletedSession(session.id);
 			const state = getState();
 			if (state.current?.id === session.id) startDraft(state.bootstrapCwd);
 			// After leaving it: leaving a session stashes its tabs.
@@ -1688,6 +1713,14 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<void> {
 			directoryPicker: boot.directoryPicker === "native" ? "native" : "browse",
 			login: boot.login ?? null,
 			draftCwd: boot.cwd,
+			// Only what the host actually reported: an absent field stays absent
+			// rather than being invented from the page's own bundle.
+			build: {
+				...(typeof boot.version === "string" && boot.version ? { version: boot.version } : {}),
+				...(typeof boot.buildTime === "string" && !Number.isNaN(Date.parse(boot.buildTime))
+					? { madeAt: boot.buildTime }
+					: {}),
+			},
 		});
 		if (boot.login?.configured) void refreshAccount();
 		// An explicit Step sign-out in plain Web sets this so the page asks for a
@@ -1731,5 +1764,8 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<void> {
 		}
 	} catch (error) {
 		showError(errorMessage(error));
+	} finally {
+		// The pane stops loading here even when a step failed: from now on an empty stream is an empty conversation.
+		setState({ booted: true });
 	}
 }

@@ -82,7 +82,9 @@ export function ConversationStream() {
 	// Sent with "立即" or Cmd/Ctrl+Enter: the kernel reads them after the current tool call; shown already.
 	const steering = useAppStore((state) => state.current?.steeringMessages ?? NO_STEERING);
 	const sessionId = useAppStore((state) => state.current?.id ?? "");
-	const opening = useAppStore((state) => state.ui.openingSession !== null);
+	// Before the first bootstrap pass picks a session or a draft there is no session to draw yet: treat it as
+	// opening, so the pane never paints the centred new-session layout for a conversation that is about to arrive.
+	const opening = useAppStore((state) => !state.booted || state.ui.openingSession !== null);
 	const cwd = useAppStore((state) => state.current?.cwd ?? "");
 	const status = useAppStore((state) => state.current?.status);
 	const compacting = useAppStore((state) => state.compacting);
@@ -209,6 +211,12 @@ export function ConversationStream() {
 	useEffect(() => {
 		if (running && editingPrompt) setUi({ editingPrompt: null });
 	}, [running, editingPrompt]);
+	/*
+	 * The rewrite target is a recorded message. Live rows — the streamed reply and the echo of the prompt being
+	 * sent — carry no entry id yet, and `editingPrompt?.entryId` is `undefined` when nothing is being rewritten:
+	 * comparing the two mounted an empty editor in the middle of every turn, beside the real composer.
+	 */
+	const editingEntryId = editingPrompt?.entryId ?? "";
 	// Only the latest prompt is rewritable: fork to the entry before it.
 	// A command echo is a prompt too: the newest of either kind is rewritable.
 	let lastUserIndex = -1;
@@ -259,7 +267,7 @@ export function ConversationStream() {
 											revealEntryId={reveal?.sessionId === sessionId ? reveal.entryId : undefined}
 										/>
 									) : row.item.kind === "message" ? (
-										editingPrompt?.entryId === row.item.entryId ? (
+										editingEntryId !== "" && editingEntryId === row.item.entryId ? (
 											<div className="edit-prompt-slot">
 												<Composer variant="edit" />
 											</div>
@@ -286,7 +294,7 @@ export function ConversationStream() {
 									) : row.item.kind === "retry" ? (
 										<RetryRow item={row.item} />
 									) : row.item.kind === "command" ? (
-										editingPrompt?.entryId === row.item.entryId ? (
+										editingEntryId !== "" && editingEntryId === row.item.entryId ? (
 											<div className="edit-prompt-slot">
 												<Composer variant="edit" />
 											</div>
