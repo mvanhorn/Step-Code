@@ -41,6 +41,11 @@ export function BrowserPanel({ open }: { open: boolean }) {
 	const [frame, setFrame] = useState<EmbeddedBrowserFrame>();
 	const [address, setAddress] = useState("");
 	const connection = useRef<BrowserConnection>(null);
+	/**
+	 * The connection that finished connecting. `ready` still reads true from the previous connection in the
+	 * render that reopens the panel, while the new one has no control token yet and drops what it is sent.
+	 */
+	const connected = useRef<BrowserConnection>(null);
 	const attempts = useRef(0);
 	const surface = useRef<HTMLDivElement>(null);
 	const input = useRef<HTMLTextAreaElement>(null);
@@ -108,6 +113,7 @@ export function BrowserPanel({ open }: { open: boolean }) {
 				setError(failureText(failure));
 				if (disconnected) {
 					clearTimeout(healthyTimer);
+					if (connected.current === client) connected.current = null;
 					setReady(false);
 					reconnect(failure);
 				}
@@ -120,6 +126,7 @@ export function BrowserPanel({ open }: { open: boolean }) {
 			.connect()
 			.then(() => {
 				if (disposed) return;
+				connected.current = client;
 				setReady(true);
 				healthyTimer = setTimeout(() => {
 					attempts.current = 0;
@@ -137,19 +144,21 @@ export function BrowserPanel({ open }: { open: boolean }) {
 			clearTimeout(healthyTimer);
 			client.close();
 			connection.current = null;
+			if (connected.current === client) connected.current = null;
 		};
 	}, [open, retry]);
 	// Another feature asked for a page (a delivered file's preview): reuse a tab already on it, reloaded so a
 	// rewritten file shows its new content, or open a new one. Each request is handled once, once connected.
 	useEffect(() => {
-		if (!open || !ready || !openRequest || openRequest.seq <= handledRequest.current) return;
+		const client = connected.current;
+		if (!open || !ready || !client || !openRequest || openRequest.seq <= handledRequest.current) return;
 		handledRequest.current = openRequest.seq;
 		setError("");
 		const existing = tabs.current.find((tab) => tab.url === openRequest.url);
 		if (existing) {
-			connection.current?.send(`/tabs/${existing.id}/select`);
-			connection.current?.send(`/tabs/${existing.id}/action`, { action: "reload" });
-		} else connection.current?.send("/tabs", { url: openRequest.url });
+			client.send(`/tabs/${existing.id}/select`);
+			client.send(`/tabs/${existing.id}/action`, { action: "reload" });
+		} else client.send("/tabs", { url: openRequest.url });
 	}, [open, ready, openRequest]);
 	useEffect(() => {
 		const element = surface.current;
