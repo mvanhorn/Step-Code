@@ -8,6 +8,8 @@ import { Button, Icon, IconButton, type IconName, Tooltip } from "../../ui";
 import { BrowserConnection, browserKeyRoute } from "./actions";
 
 const EMPTY: EmbeddedBrowserSnapshot = { revision: 0, activeId: null, tabs: [] };
+/** Backoff for an unexpected stream drop; a manual Reconnect starts over. */
+const RECONNECT_DELAYS_MS = [1000, 2000, 4000, 8000, 8000];
 
 export function BrowserPanel({ open }: { open: boolean }) {
 	const t = useT();
@@ -21,6 +23,7 @@ export function BrowserPanel({ open }: { open: boolean }) {
 	const [frame, setFrame] = useState<EmbeddedBrowserFrame>();
 	const [address, setAddress] = useState("");
 	const connection = useRef<BrowserConnection>(null);
+	const attempts = useRef(0);
 	const surface = useRef<HTMLDivElement>(null);
 	const input = useRef<HTMLTextAreaElement>(null);
 	const addressInput = useRef<HTMLInputElement>(null);
@@ -35,6 +38,7 @@ export function BrowserPanel({ open }: { open: boolean }) {
 	useEffect(() => {
 		if (!open) return;
 		let disposed = false;
+		let retryTimer: ReturnType<typeof setTimeout> | undefined;
 		let decoding = false;
 		let latest: EmbeddedBrowserFrame | undefined;
 		const display = async (value: EmbeddedBrowserFrame) => {
@@ -56,6 +60,18 @@ export function BrowserPanel({ open }: { open: boolean }) {
 				decoding = false;
 			}
 		};
+		// A dropped stream (a stalled renderer, a Host restart) reconnects by itself; a competing
+		// page or a stopping Host keeps the manual Reconnect button instead of retrying forever.
+		const reconnect = () => {
+			if (disposed || retryTimer) return;
+			const attempt = attempts.current;
+			if (attempt >= RECONNECT_DELAYS_MS.length) return;
+			attempts.current = attempt + 1;
+			retryTimer = setTimeout(() => {
+				retryTimer = undefined;
+				setRetry((value) => value + 1);
+			}, RECONNECT_DELAYS_MS[attempt]);
+		};
 		const client = new BrowserConnection(
 			(value) => {
 				if (!disposed) setSnapshot(value);
@@ -64,9 +80,11 @@ export function BrowserPanel({ open }: { open: boolean }) {
 				void display(value);
 			},
 			(failure, disconnected) => {
-				if (!disposed) {
-					setError(failureText(failure));
-					if (disconnected) setReady(false);
+				if (disposed) return;
+				setError(failureText(failure));
+				if (disconnected) {
+					setReady(false);
+					reconnect();
 				}
 			},
 		);
@@ -76,14 +94,20 @@ export function BrowserPanel({ open }: { open: boolean }) {
 		void client
 			.connect()
 			.then(() => {
-				if (!disposed) setReady(true);
+				if (!disposed) {
+					attempts.current = 0;
+					setReady(true);
+				}
 			})
 			.catch((failure: unknown) => {
-				if (!disposed) setError(failureText(failure));
+				if (disposed) return;
+				setError(failureText(failure));
 				client.close();
+				if (!(failure instanceof ApiError) || (failure.status !== 409 && failure.status !== 503)) reconnect();
 			});
 		return () => {
 			disposed = true;
+			clearTimeout(retryTimer);
 			client.close();
 			connection.current = null;
 		};
@@ -286,7 +310,10 @@ export function BrowserPanel({ open }: { open: boolean }) {
 						<IconButton
 							icon="refresh"
 							aria-label={t("browserReconnect")}
-							onClick={() => setRetry((value) => value + 1)}
+							onClick={() => {
+								attempts.current = 0;
+								setRetry((value) => value + 1);
+							}}
 						/>
 					</Tooltip>
 				</div>
@@ -309,8 +336,8 @@ export function BrowserPanel({ open }: { open: boolean }) {
 				onContextMenu={(event) => event.preventDefault()}
 				onWheel={(event) => {
 					event.stopPropagation();
-					sendInput({
-						kind: "wheel",
+					if (!activeId || !ready) return;
+					connection.current?.wheel(`/tabs/${activeId}/input`, {
 						...point(event.clientX, event.clientY),
 						deltaX: Math.max(-4000, Math.min(4000, event.deltaX)),
 						deltaY: Math.max(-4000, Math.min(4000, event.deltaY)),

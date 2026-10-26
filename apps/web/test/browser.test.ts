@@ -59,6 +59,38 @@ test("browser command queue is bounded and revalidates control before mutations"
 	} finally { await browser.close(); }
 });
 
+test("an attached stream outlives a missed heartbeat; a closed page loses control", async (t) => {
+	t.mock.timers.enable({ apis: ["setTimeout", "Date"], now: 0 });
+	const browser = new WebBrowser([3077]);
+	try {
+		const { token } = browser.acquire("client-111111111111");
+		let closed = 0;
+		const stop = browser.subscribe(token, () => {}, () => closed++);
+		t.mock.timers.tick(15_001);
+		assert.equal(closed, 0, "the open stream must not be ended by a missed heartbeat");
+		browser.touch(token);
+		stop();
+		t.mock.timers.tick(15_001);
+		assert.throws(() => browser.touch(token), /expired/);
+	} finally {
+		await browser.close();
+	}
+});
+
+test("an explicit release still ends the attached stream and drops control", async () => {
+	const browser = new WebBrowser([3077]);
+	try {
+		const { token } = browser.acquire("client-111111111111");
+		let closed = 0;
+		browser.subscribe(token, () => {}, () => closed++);
+		browser.release(token);
+		assert.equal(closed, 1);
+		assert.throws(() => browser.command(token, async () => 1), /expired/);
+	} finally {
+		await browser.close();
+	}
+});
+
 test("a browser command that never settles times out and does not block the next one", async () => {
 	const browser = new WebBrowser([3077]);
 	try {

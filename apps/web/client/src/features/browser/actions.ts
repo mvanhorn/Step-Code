@@ -3,6 +3,11 @@ import type { EmbeddedBrowserFrame, EmbeddedBrowserSnapshot } from "../../state/
 
 const ROOT = "/api/v1/browser";
 
+/** One coalesced wheel command per frame; Chromium needs about two frames per dispatch. */
+const WHEEL_FLUSH_MS = 40;
+/** The host rejects a single wheel delta above this bound. */
+const MAX_WHEEL_DELTA = 4000;
+
 /** The parts of a keydown that decide where the key goes. */
 export interface BrowserKeyEvent {
 	readonly key: string;
@@ -44,11 +49,14 @@ export class BrowserConnection {
 	private token = "";
 	private controller = new AbortController();
 	private heartbeat?: ReturnType<typeof setInterval>;
+	private heartbeatMisses = 0;
 	private queue: Promise<unknown> = Promise.resolve();
 	private pending = 0;
 	private revision = -1;
 	private moved?: { path: string; body: unknown };
 	private moveTimer?: ReturnType<typeof setTimeout>;
+	private wheelPending?: { path: string; x: number; y: number; deltaX: number; deltaY: number };
+	private wheelTimer?: ReturnType<typeof setTimeout>;
 	private readonly onSnapshot: (state: EmbeddedBrowserSnapshot) => void;
 	private readonly onFrame: (frame: EmbeddedBrowserFrame) => void;
 	private readonly onError: (error: unknown, disconnected: boolean) => void;
@@ -103,12 +111,17 @@ export class BrowserConnection {
 		if (this.controller.signal.aborted) return;
 		this.heartbeat = setInterval(() => {
 			void this.request<EmbeddedBrowserSnapshot>("")
-				.then((snapshot) => this.acceptSnapshot(snapshot))
+				.then((snapshot) => {
+					this.heartbeatMisses = 0;
+					this.acceptSnapshot(snapshot);
+				})
 				.catch((error: unknown) => {
-					if (!this.controller.signal.aborted) {
-						this.onError(error, true);
-						this.close();
-					}
+					if (this.controller.signal.aborted) return;
+					// A single slow or failed heartbeat is normal while the window sleeps or the Host
+					// is busy; only a run of failures means this page lost its Host.
+					if (++this.heartbeatMisses < 3) return;
+					this.onError(error, true);
+					this.close();
 				});
 		}, 5000);
 		void this.stream().catch((error: unknown) => {
@@ -164,6 +177,7 @@ export class BrowserConnection {
 		clearTimeout(this.moveTimer);
 		this.moveTimer = undefined;
 		if (moved) this.send(moved.path, moved.body);
+		this.flushWheel();
 		if (this.pending >= 48) {
 			this.onError(new Error("Browser input queue is full"), false);
 			return;
@@ -193,6 +207,45 @@ export class BrowserConnection {
 		}, 40);
 	}
 
+	/** Queue the accumulated wheel delta before a command that must observe its scroll position. */
+	private flushWheel(): void {
+		clearTimeout(this.wheelTimer);
+		this.wheelTimer = undefined;
+		const wheel = this.wheelPending;
+		this.wheelPending = undefined;
+		if (!wheel) return;
+		this.send(wheel.path, {
+			kind: "wheel",
+			x: wheel.x,
+			y: wheel.y,
+			deltaX: wheel.deltaX,
+			deltaY: wheel.deltaY,
+		});
+	}
+
+	/**
+	 * Coalesce wheel input like pointer movement. One request per event cannot keep up: Chromium
+	 * needs about two frames per dispatch, so a 120 Hz trackpad fills the bounded queue and the
+	 * dropped events lose scroll distance. Summing the deltas into one command per frame keeps
+	 * that distance and leaves the queue to real input.
+	 */
+	wheel(path: string, body: { x: number; y: number; deltaX: number; deltaY: number }): void {
+		if (!this.token || this.controller.signal.aborted) return;
+		const current = this.wheelPending;
+		if (
+			current &&
+			(current.path !== path ||
+				Math.abs(current.deltaX + body.deltaX) > MAX_WHEEL_DELTA ||
+				Math.abs(current.deltaY + body.deltaY) > MAX_WHEEL_DELTA)
+		)
+			this.flushWheel();
+		const base = this.wheelPending;
+		this.wheelPending = base
+			? { ...base, x: body.x, y: body.y, deltaX: base.deltaX + body.deltaX, deltaY: base.deltaY + body.deltaY }
+			: { path, x: body.x, y: body.y, deltaX: body.deltaX, deltaY: body.deltaY };
+		if (!this.wheelTimer) this.wheelTimer = setTimeout(() => this.flushWheel(), WHEEL_FLUSH_MS);
+	}
+
 	async selection(id: string): Promise<string> {
 		return (await this.request<{ text: string }>(`/tabs/${id}/selection`)).text;
 	}
@@ -204,13 +257,17 @@ export class BrowserConnection {
 			headers: { "x-stepcode-browser-control": this.token },
 			keepalive: true,
 		}).catch(() => {
-			// On offline/navigation the host's 15-second lease expiry releases ownership.
+			// On offline/navigation the host's lease expiry releases ownership once this page's
+			// stream closes; an attached stream keeps it across a missed heartbeat.
 		});
 	}
 
 	close(): void {
 		clearInterval(this.heartbeat);
 		clearTimeout(this.moveTimer);
+		clearTimeout(this.wheelTimer);
+		this.moved = undefined;
+		this.wheelPending = undefined;
 		this.controller.abort();
 		this.release();
 	}
