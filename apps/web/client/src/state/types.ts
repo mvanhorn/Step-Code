@@ -569,6 +569,8 @@ export type TimelineItem =
 export interface CommandTimelineItem {
 	readonly itemId: string;
 	readonly kind: "command";
+	/** The echo entry's id: rewriting swaps this row for the edit composer. */
+	readonly entryId?: string;
 	/** The command line as sent, e.g. `/goal 整理文件夹`. */
 	readonly command: string;
 	readonly timestamp?: string;

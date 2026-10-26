@@ -22,6 +22,7 @@ test("a command echo becomes one command row with the typed line", () => {
 	assert.deepEqual(items[0], {
 		itemId: "command-e1",
 		kind: "command",
+		entryId: "e1",
 		command: "/goal 梳理一下本地文件夹",
 		timestamp: "2026-10-23T06:26:26.000Z",
 	});

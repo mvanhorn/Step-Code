@@ -10,11 +10,18 @@
 
 import { useT } from "../../i18n";
 import { copyText } from "../../state/session";
+import { setUi } from "../../state/store";
 import type { CommandTimelineItem } from "../../state/types";
 import { Icon, LEGACY_ICONS } from "../../ui";
 import { commandLeadIcon, MODES, modeFromCommand } from "../composer";
 
-export function CommandRow({ item }: { readonly item: CommandTimelineItem }) {
+export function CommandRow({
+	item,
+	rewritableBefore,
+}: {
+	readonly item: CommandTimelineItem;
+	readonly rewritableBefore?: string;
+}) {
 	const t = useT();
 	const match = /^\/([A-Za-z0-9][\w.:-]*)\s*([\s\S]*)$/u.exec(item.command);
 	const name = match?.[1] ?? "";
@@ -51,6 +58,27 @@ export function CommandRow({ item }: { readonly item: CommandTimelineItem }) {
 				>
 					<Icon {...LEGACY_ICONS.copy} />
 				</button>
+				{rewritableBefore !== undefined ? (
+					<button
+						type="button"
+						className="message-action"
+						title={t("promptRewrite")}
+						aria-label={t("promptRewrite")}
+						onClick={() =>
+							item.entryId
+								? setUi({
+										editingPrompt: {
+											entryId: item.entryId,
+											before: rewritableBefore || undefined,
+											text: item.command,
+										},
+									})
+								: undefined
+						}
+					>
+						<Icon name="squarePen" size="xs" />
+					</button>
+				) : null}
 			</div>
 		</article>
 	);

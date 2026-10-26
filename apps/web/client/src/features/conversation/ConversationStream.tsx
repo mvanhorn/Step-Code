@@ -183,10 +183,11 @@ export function ConversationStream() {
 	// Rewriting swaps the message for the compact edit composer, in place.
 	const editingPrompt = useAppStore((state) => state.ui.editingPrompt);
 	// Only the latest prompt is rewritable: fork to the entry before it.
+	// A command echo is a prompt too: the newest of either kind is rewritable.
 	let lastUserIndex = -1;
 	for (let index = items.length - 1; index >= 0; index -= 1) {
 		const entry = items[index];
-		if (entry.kind === "message" && entry.role === "user") {
+		if (entry.kind === "command" || (entry.kind === "message" && entry.role === "user")) {
 			lastUserIndex = index;
 			break;
 		}
@@ -245,7 +246,12 @@ export function ConversationStream() {
 									) : row.item.kind === "retry" ? (
 										<RetryRow item={row.item} />
 									) : row.item.kind === "command" ? (
-										<CommandRow item={row.item} />
+										<CommandRow
+											item={row.item}
+											rewritableBefore={
+												items[lastUserIndex] === row.item ? (rewriteBefore ?? "") : undefined
+											}
+										/>
 									) : row.item.kind === "compaction" ? (
 										<CompactionRow item={row.item} />
 									) : (

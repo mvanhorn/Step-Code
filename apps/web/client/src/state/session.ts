@@ -427,6 +427,7 @@ export function timelineFromEntries(entries: readonly SessionEntry[] = [], retry
 				items.push({
 					itemId: `command-${entry.id}`,
 					kind: "command",
+					entryId: entry.id,
 					command,
 					...(typeof entry.timestamp === "string" ? { timestamp: entry.timestamp } : {}),
 				});
