@@ -280,12 +280,18 @@ export function ConversationStream() {
 									) : row.item.kind === "retry" ? (
 										<RetryRow item={row.item} />
 									) : row.item.kind === "command" ? (
-										<CommandRow
-											item={row.item}
-											rewritableBefore={
-												items[lastUserIndex] === row.item ? (rewriteBefore ?? "") : undefined
-											}
-										/>
+										editingPrompt?.entryId === row.item.entryId ? (
+											<div className="edit-prompt-slot">
+												<Composer variant="edit" />
+											</div>
+										) : (
+											<CommandRow
+												item={row.item}
+												rewritableBefore={
+													items[lastUserIndex] === row.item ? (rewriteBefore ?? "") : undefined
+												}
+											/>
+										)
 									) : row.item.kind === "compaction" ? (
 										<CompactionRow item={row.item} />
 									) : row.item.kind === "goal-round" ? (
