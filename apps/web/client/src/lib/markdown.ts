@@ -307,6 +307,27 @@ export function skillInvocation(text: string): SkillInvocation | null {
 	return command ? { name: command[1], request: command[2]?.trim() ?? "" } : null;
 }
 
+/** A quoted other-session context: the source session's name and its capped transcript. */
+export interface SessionContextQuote {
+	readonly title: string;
+	readonly transcript: string;
+}
+
+/**
+ * A quoted other-session context (`packageSessionContext`) rides at the tail of
+ * the message it was sent with: a heading naming the source session followed by
+ * a fenced transcript. Split it off so the bubble shows the user's own words
+ * and the quote collapses into one row.
+ */
+export function sessionContextOf(text: string): { readonly body: string; readonly quote: SessionContextQuote } | null {
+	const match = /\n*# 引用会话「([^」]+)」的上下文\n```session-context\n([\s\S]*?)\n```[ \t]*$/.exec(text);
+	if (!match) return null;
+	return {
+		body: text.slice(0, match.index).trim(),
+		quote: { title: match[1], transcript: match[2] },
+	};
+}
+
 /**
  * A user message that opted its turn into the ultraloop workflow through the
  * keyword form (`ultracode: request`): the request the user typed after it.

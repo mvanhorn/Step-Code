@@ -6,6 +6,8 @@ import {
 	escapeHtml,
 	pluginInstallInvocation,
 	renderMarkdown,
+	type SessionContextQuote,
+	sessionContextOf,
 	skillInvocation,
 	ultraloopInvocation,
 } from "../../lib/markdown";
@@ -69,15 +71,15 @@ export const MessageItem = memo(function MessageItem({
 		() => (role === "user" ? splitAttachedFiles(item.content) : { text: item.content, files: [] }),
 		[role, item.content],
 	);
-	const skill = role === "user" ? skillInvocation(attached.text) : null;
+	// A quoted other-session context rides at the tail; peel it before any invocation match.
+	const quoted = role === "user" ? sessionContextOf(attached.text) : null;
+	const messageText = quoted ? quoted.body : attached.text;
+	const skill = role === "user" ? skillInvocation(messageText) : null;
 	/** The install command a plugin pick chip sent; badge only, no body change. */
-	const pluginInstall = role === "user" && !skill ? pluginInstallInvocation(attached.text) : null;
+	const pluginInstall = role === "user" && !skill ? pluginInstallInvocation(messageText) : null;
 	/** The ultraloop keyword form rides the message as ordinary text; its badge mirrors the skill one. */
-	const ultraloop = role === "user" && !skill && !pluginInstall ? ultraloopInvocation(attached.text) : null;
-	const content = useSmoothText(
-		skill || ultraloop ? (skill?.request ?? ultraloop?.request ?? "") : attached.text,
-		live,
-	);
+	const ultraloop = role === "user" && !skill && !pluginInstall ? ultraloopInvocation(messageText) : null;
+	const content = useSmoothText(skill || ultraloop ? (skill?.request ?? ultraloop?.request ?? "") : messageText, live);
 	const images = role === "user" ? (item.images ?? []) : [];
 	// Memoised: a streaming turn re-renders the timeline per frame, and parsing every earlier message each time made long sessions crawl.
 	const files = pendingFiles ?? attached.files;
@@ -128,6 +130,7 @@ export const MessageItem = memo(function MessageItem({
 					onFileReference={(path) => void openFileReference(cwd, path)}
 				/>
 			) : null}
+			{quoted ? <QuotedContext quote={quoted.quote} /> : null}
 			{role === "user" && item.content ? (
 				<div className="prompt-actions">
 					<button type="button" title={t("copy")} aria-label={t("copy")} onClick={() => void copyText(content)}>
@@ -157,6 +160,33 @@ export const MessageItem = memo(function MessageItem({
 		</article>
 	);
 });
+
+/**
+ * The quoted other-session context of a sent message: one collapsed row naming
+ * the source session, expanded on demand to the capped transcript.
+ */
+function QuotedContext({ quote }: { readonly quote: SessionContextQuote }) {
+	const t = useT();
+	const [open, setOpen] = useState(false);
+	const label = t("quotedSessionContextTitle", { title: quote.title });
+	return (
+		<div className="message-quote">
+			<button
+				type="button"
+				className="message-quote-toggle"
+				aria-expanded={open}
+				aria-label={t("quotedSessionContext")}
+				title={label}
+				onClick={() => setOpen((value) => !value)}
+			>
+				<Icon name="layers" size="xs" />
+				<span className="message-quote-title">{label}</span>
+				<Icon className="message-quote-twisty" name="disclosure" size="2xs" />
+			</button>
+			{open ? <pre className="message-quote-body">{quote.transcript}</pre> : null}
+		</div>
+	);
+}
 
 /**
  * What a message was and when: the model and the clock time (`14:05`), as plain

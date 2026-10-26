@@ -264,6 +264,61 @@
 	margin: 0 7px 0 0;
 	vertical-align: baseline;
 }
+/*
+ * A quoted other-session context collapses into one pill row under the bubble's
+ * text; expanding shows the capped transcript in a bounded block, never the
+ * full-width sprawl the raw markdown fence had.
+ */
+.message-quote {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 6px;
+	max-width: 100%;
+	margin-top: 6px;
+}
+.message-quote-toggle {
+	display: inline-flex;
+	align-items: center;
+	gap: 5px;
+	max-width: 100%;
+	padding: 3px 9px;
+	border: 1px solid color-mix(in srgb, var(--ink-2) 35%, var(--line));
+	border-radius: var(--radius-pill);
+	background: color-mix(in srgb, var(--ink-2) 10%, var(--surface));
+	color: var(--ink-2);
+	font-size: 12px;
+	font-weight: 500;
+}
+.message-quote-toggle:hover {
+	background: color-mix(in srgb, var(--ink-2) 16%, var(--surface));
+}
+.message-quote-title {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.message-quote-twisty {
+	flex: none;
+	transition: transform var(--fast);
+}
+.message-quote-toggle[aria-expanded="true"] .message-quote-twisty {
+	transform: rotate(90deg);
+}
+.message-quote-body {
+	align-self: stretch;
+	max-height: 220px;
+	overflow: auto;
+	margin: 0;
+	padding: 8px 10px;
+	border: 1px solid var(--line);
+	border-radius: var(--radius-input);
+	background: var(--surface-soft);
+	font-size: 12px;
+	line-height: 1.5;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
 /* A user message's images, above its text, right-aligned like the bubble. */
 .message-images {
 	display: flex;
