@@ -9,6 +9,7 @@ import { Composer } from "../composer";
 import { ClarificationPanel } from "./ClarificationPanel";
 import { CommandRow } from "./CommandRow";
 import { CompactionRow, CompactionRunningRow } from "./CompactionRow";
+import { GoalRoundRow } from "./GoalRoundRow";
 import { MessageActions, MessageItem } from "./MessageItem";
 import { NoticeRow } from "./NoticeRow";
 import { PlanReviewCard } from "./PlanReviewCard";
@@ -248,6 +249,8 @@ export function ConversationStream() {
 										<CommandRow item={row.item} />
 									) : row.item.kind === "compaction" ? (
 										<CompactionRow item={row.item} />
+									) : row.item.kind === "goal-round" ? (
+										<GoalRoundRow item={row.item} />
 									) : (
 										<ApprovalCard approval={row.item.approval} />
 									)}

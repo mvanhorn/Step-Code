@@ -400,6 +400,8 @@ export function timelineFromEntries(entries: readonly SessionEntry[] = [], retry
 	 * it is dropped from the timeline (it stays journaled for the model).
 	 */
 	let echoArgs: string | null = null;
+	// Separators seen so far, for labelling a round whose projected number is missing.
+	let goalRounds = 0;
 	const toolResults = new Map<string, NonNullable<SessionEntry["message"]>>();
 	for (const entry of entries) {
 		if (entry.type === "message" && entry.message?.role === "toolResult" && entry.message.toolCallId) {
@@ -432,6 +434,19 @@ export function timelineFromEntries(entries: readonly SessionEntry[] = [], retry
 				});
 				echoArgs = /^\/[A-Za-z0-9][\w.:-]*\s*([\s\S]*)$/u.exec(command)?.[1]?.trim() || null;
 			}
+			continue;
+		}
+		// The goal's continuation message starts the next round; the flow marks
+		// it with a separator so a run reads as rounds, not one long stream.
+		if (entry.type === "custom_message" && entry.customType === "step-goal") {
+			goalRounds += 1;
+			const projected = entry.goalRound;
+			items.push({
+				itemId: `goal-round-${entry.id}`,
+				kind: "goal-round",
+				round: typeof projected === "number" && projected > 0 ? projected : goalRounds + 1,
+				...(typeof entry.timestamp === "string" ? { timestamp: entry.timestamp } : {}),
+			});
 			continue;
 		}
 		if (entry.type !== "message") continue;

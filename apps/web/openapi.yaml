@@ -997,7 +997,7 @@ paths:
             Session snapshot including pendingClarifications and pendingSelections (in-memory requests restored after
             page reload). `permissionPreset` is the tier the kernel enforces now, which can differ from the Step
             settings (a "this session" Full Access grant is not persisted).
-            `goal` is the running goal the client draws above the composer (absent when the session has none), and
+            `goal` is the running goal the client steers from the summary board (absent when the session has none), and
             `planMode` reports whether plan mode is active; both are read from the session branch, not from UI state.
           content:
             application/json:
@@ -1015,6 +1015,7 @@ paths:
                         type: string
                         enum: [active, paused, blocked, usage_limited, budget_limited, complete]
                       tokensUsed: { type: integer }
+                      timeUsedSeconds: { type: integer, description: "Active-only elapsed seconds; the client ticks from it between snapshots" }
                       tokenBudget: { type: integer }
                       rounds: { type: integer, description: "Completed agent runs; progress, not a stop condition" }
                   planMode:
@@ -1042,6 +1043,13 @@ paths:
                               type: string
                               enum: [background_done, background_failed, background_interrupted, background_progress, background_restarted, background_needs_input]
                             status: { type: string, enum: [running, completed, failed, aborted] }
+                        goalRound:
+                          type: integer
+                          minimum: 1
+                          description: >-
+                            On a step-goal continuation custom_message only: the round (1-based) this
+                            continuation starts, from its validated details.iteration. The client draws
+                            the flow's round separators from it.
                         thinkingTimings:
                           $ref: "#/components/schemas/ThinkingTimings"
                   policies:
@@ -1929,11 +1937,11 @@ paths:
   /api/v1/sessions/{id}/goal:
     patch:
       description: |
-        One control from the goal strip. Each action runs the same `/goal` slash
-        command the CLI issues (`start`, `pause`, `resume`, `edit`, `clear`), so
-        there is one implementation of goal control. Answered 202 because a slash
-        command is a kernel prompt; the resulting goal arrives in the session
-        snapshot's `goal`.
+        One control from the summary board's goal section. Each action runs the
+        same `/goal` slash command the CLI issues (`start`, `pause`, `resume`,
+        `edit`, `clear`), so there is one implementation of goal control.
+        Answered 202 because a slash command is a kernel prompt; the resulting
+        goal arrives in the session snapshot's `goal`.
       parameters:
         - { $ref: "#/components/parameters/SessionId" }
       requestBody:
