@@ -288,7 +288,9 @@ export function ConversationStream() {
 											<CommandRow
 												item={row.item}
 												rewritableBefore={
-													items[lastUserIndex] === row.item ? (rewriteBefore ?? "") : undefined
+													!rewriteClosed && items[lastUserIndex] === row.item
+														? (rewriteBefore ?? "")
+														: undefined
 												}
 											/>
 										)
