@@ -244,9 +244,11 @@ export function Composer({ workspaceControl, branchControl, variant = "full" }: 
 		editLoaded.current = true;
 		const editor = prompt.current;
 		if (!editor) return;
+		// Focus before filling: setPromptText parks the caret at the end only when
+		// the editor already holds focus, so a fill-then-focus leaves it at the start.
+		editor.focus();
 		setPromptText(editor, editingPrompt.text);
 		setHasText(Boolean(editingPrompt.text.trim()));
-		editor.focus();
 	}, [edit, editingPrompt]);
 
 	const menu = (name: ComposerMenu) => ({
