@@ -22,6 +22,8 @@ import { openFeedback, type Sentiment } from "./feedback";
 import { clockTime } from "./message-meta";
 import { useFadeIn, useSmoothText } from "./streaming";
 import { ThinkingIndicator } from "./ThinkingIndicator";
+import { MessageAttachments } from "./TurnArtifacts";
+import type { TurnArtifact } from "./turn-artifacts";
 
 /** Same markup as the composer's chip (`prompt-editor.ts` `createChip`), so a sent message reads like its draft. */
 function fileChipHtml(file: AttachedFile | undefined): string {
@@ -37,12 +39,18 @@ function fileChipHtml(file: AttachedFile | undefined): string {
 export const MessageItem = memo(function MessageItem({
 	item,
 	files: pendingFiles,
+	attachments,
 	fileCwd,
 	rewritableBefore,
 }: {
 	readonly item: MessageTimelineItem;
 	/** The pending bubble's files: the host has not echoed the message (and its file blocks) yet. */
 	readonly files?: readonly AttachedFile[];
+	/**
+	 * The turn's deliverables, attached under this bubble when it is the reply
+	 * that closed the turn: the answer hands its files over where it ends.
+	 */
+	readonly attachments?: readonly TurnArtifact[];
 	/** Read-only child transcripts resolve references against their own workspace. */
 	readonly fileCwd?: string;
 	/**
@@ -129,6 +137,7 @@ export const MessageItem = memo(function MessageItem({
 					onFileReference={(path) => void openFileReference(cwd, path)}
 				/>
 			) : null}
+			{attachments?.length ? <MessageAttachments artifacts={attachments} cwd={cwd} /> : null}
 			{quoted ? <QuotedContext quote={quoted.quote} /> : null}
 			{role === "user" && item.content ? (
 				<div className="prompt-actions">

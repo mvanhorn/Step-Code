@@ -2488,6 +2488,7 @@ test("a subagent or workflow call opens its child agents' transcripts read-only 
     const listedChildren = $$(".session-row").filter((item) => /^(subagent|workflow)-/.test(item.dataset.sessionId)).length;
     row.click();
     const link = await until(() => $('.tool-child-link[data-child-session-id="${subagentId}"]'), "subagent link");
+
     link.click();
     const view = $("#childAgentView");
     await until(() => !view.hidden && view.textContent.includes("Wombat audit finished."), "child transcript");
@@ -2497,9 +2498,12 @@ test("a subagent or workflow call opens its child agents' transcripts read-only 
       readOnlyBadge: Boolean(view.querySelector(".child-agent-badge")),
       actions: view.querySelectorAll(".message-actions, textarea, input").length,
       activeRow: $(".session-row.active")?.dataset.sessionId,
-      // The task is the child's first user message; the header must not print it again.
+      // The task is the child's first user message: it must appear once, as the
+      // task block, and never as a chat bubble (which reads as an input field in
+      // this read-only panel).
       taskCopies: (view.textContent.match(/audit wombat/g) ?? []).length,
-      headerTask: Boolean(view.querySelector(".subagent-task-detail .subagent-task")),
+      taskBlock: Boolean(view.querySelector(".subagent-task-detail .subagent-task")),
+      userBubbles: view.querySelectorAll(".message.user").length,
       usage: usageStrip
         ? {
             input: usageStrip.querySelector("[data-usage='input']")?.textContent ?? "",
@@ -2531,14 +2535,15 @@ test("a subagent or workflow call opens its child agents' transcripts read-only 
     return { ...single, tabs: agentTabs, tabHints, railOpened };
   `)
   assert.equal(seen.taskCopies, 1, `the task was printed ${seen.taskCopies} times`)
-  assert.equal(seen.headerTask, false, "the header repeats the task the transcript already shows")
+  assert.equal(seen.taskBlock, true, "the task block is missing")
+  assert.equal(seen.userBubbles, 0, "the task is drawn as a chat bubble, which reads as an input box")
   assert.deepEqual(seen.usage, {
     input: "输入 1k",
     cacheRead: "缓存读 8k",
     contextRate: "上下文命中率 87.9%",
     totalRate: "总 Token 命中率 86.0%",
   })
-  const { usage: _usage, taskCopies: _taskCopies, headerTask: _headerTask, ...rest } = seen
+  const { usage: _usage, taskCopies: _taskCopies, taskBlock: _taskBlock, userBubbles: _userBubbles, ...rest } = seen
   assert.deepEqual(rest, {
     listedChildren: 0,
     readOnlyBadge: true,

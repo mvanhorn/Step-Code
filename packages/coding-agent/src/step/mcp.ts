@@ -1,5 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import path from "node:path";
 import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
@@ -829,7 +831,7 @@ export async function connectStepMcpServer(
 		transport = new StdioClientTransport({
 			command,
 			args: input.declaration.args,
-			cwd: input.declaration.cwd,
+			cwd: input.declaration.cwd ?? stdioServerCwd(),
 			env,
 			stderr: "pipe",
 		});
@@ -877,6 +879,25 @@ export async function connectStepMcpServer(
 	} finally {
 		signal.removeEventListener("abort", closeOnAbort);
 	}
+}
+
+/**
+ * Working directory for a stdio server that declares none: the host's own, by
+ * path. Inheriting it implicitly breaks once that directory is removed and
+ * recreated (a Desktop dev host runs from apps/web/dist, which every web build
+ * deletes): the child starts inside the deleted directory and Node exits on
+ * its first process.cwd(), so the handshake ends in "MCP connection closed".
+ * Node keeps the cwd path, so passing it re-resolves to the directory there
+ * now; a path that no longer exists falls back to the home directory.
+ */
+export function stdioServerCwd(): string {
+	let cwd: string | undefined;
+	try {
+		cwd = process.cwd();
+	} catch {
+		// uv_cwd fails when the directory is gone and the path was never cached.
+	}
+	return cwd && existsSync(cwd) ? cwd : homedir();
 }
 
 /** Clamp a declared timeout to a usable range, falling back to the product default. */

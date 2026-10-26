@@ -161,21 +161,28 @@ export function ChildAgentView({ embedded = false }: { readonly embedded?: boole
 	);
 	const items = useMemo(() => timelineFromEntries(transcript.value?.entries ?? []), [transcript.value]);
 	/**
-	 * Whether the transcript already shows the task.
+	 * The transcript row that repeats the dispatch task.
 	 *
-	 * The child is started with the task as its first user message, so printing
-	 * `task.task` in the header as well made a single dispatch read as two
-	 * prompts. Compare on collapsed whitespace: the transcript can wrap or indent
-	 * the same text.
+	 * The child is started with the task as its first user message. Rendering it
+	 * as a chat bubble made the read-only panel look like it contained a prompt
+	 * input — a soft, rounded, full-width box with the task text in it — and it
+	 * duplicated the task block above. The task is shown once, in that block, and
+	 * the matching transcript row is skipped. Comparison collapses whitespace,
+	 * because the transcript may wrap or indent the same text.
 	 */
-	const showsTaskInTranscript = useMemo(() => {
+	const taskRowIndex = useMemo(() => {
 		const taskText = task?.task?.replace(/\s+/gu, " ").trim();
-		if (!taskText) return false;
-		const firstUser = items.find((item) => item.kind === "message" && item.role === "user");
-		if (!firstUser || firstUser.kind !== "message") return false;
-		const spoken = firstUser.content.replace(/\s+/gu, " ").trim();
-		return spoken.includes(taskText) || taskText.includes(spoken);
+		if (!taskText) return -1;
+		return items.findIndex((item) => {
+			if (item.kind !== "message" || item.role !== "user") return false;
+			const spoken = item.content.replace(/\s+/gu, " ").trim();
+			return spoken.includes(taskText) || taskText.includes(spoken);
+		});
 	}, [items, task?.task]);
+	const shownItems = useMemo(
+		() => (taskRowIndex < 0 ? items : items.filter((_, index) => index !== taskRowIndex)),
+		[items, taskRowIndex],
+	);
 	/**
 	 * The run's token totals.
 	 *
@@ -290,14 +297,11 @@ export function ChildAgentView({ embedded = false }: { readonly embedded?: boole
 								</span>
 							</div>
 							{/*
-							 * The child's first user message is the task itself, so the transcript
-							 * already shows it once it is drawn; repeating it here read as the
-							 * prompt being sent twice. It stays for the window before a transcript
-							 * exists, and for a run that produced none.
+							 * The task, once. Its transcript row is skipped below, so this block is
+							 * the only place it appears — as a labelled static block rather than a
+							 * chat bubble, which in a read-only panel reads as an input field.
 							 */}
-							{showsTaskInTranscript ? null : (
-								<p className="subagent-task">{task.task || t("subagentNoTask")}</p>
-							)}
+							<p className="subagent-task">{task.task || t("subagentNoTask")}</p>
 							{task.error ? (
 								<p className="subagent-error" role="alert">
 									{task.error}
@@ -307,8 +311,8 @@ export function ChildAgentView({ embedded = false }: { readonly embedded?: boole
 					) : null}
 					{!task && view?.label ? <p className="subagent-task">{view.label}</p> : null}
 					<SubagentUsageStrip task={task} tasks={tasks} transcriptUsage={transcriptUsage} />
-					{items.length ? (
-						items.map((item) =>
+					{shownItems.length ? (
+						shownItems.map((item) =>
 							item.kind === "message" ? (
 								<MessageItem key={item.itemId} item={item} fileCwd={transcript.value?.cwd} />
 							) : item.kind === "tool" ? (

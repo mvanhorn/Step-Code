@@ -406,17 +406,19 @@ Task summaries live in the DFSC-style floating Summary board instead of the orig
 floating banner. Task completion comes from canonical task state, not completed
 `task_create` / `task_update` calls.
 
-Settled turns also expose a compact Outputs strip for supported document,
+A settled turn's deliverables render as an attachment area under the
+answer that closed it — no label, no count, an eye glyph per row saying the
+click previews the file. The recognized kinds are supported document,
 image, website, spreadsheet, presentation, audio and video references.
-It combines explicit local Markdown links with successful structured
+Recognition combines explicit local Markdown links with successful structured
 write/edit paths. Code-styled basenames qualify only when they identify an
 unambiguous observed output; fenced examples, failed tools, reads and shell
-prose do not prove delivery. The strip initially shows three entries and can
+prose do not prove delivery. The area initially shows three entries and can
 expand. These are references or observed writes, not proof that files still
 exist; opening a missing file shows the existing preview error.
 
-Assistant local links and delivery buttons open the same workspace-bound
-Files inspector. Repeating a delivery button closes its selected preview
+Assistant local links and attachment rows open the same workspace-bound
+Files inspector. Repeating an attachment row closes its selected preview
 while preserving tabs and trigger focus; selecting another file switches the
 preview. Markdown opens rendered, and links inside it resolve relative to the
 document. Windows paths, encoded file URLs and line suffixes normalize before
@@ -979,7 +981,7 @@ available in expanded multi-thought groups.
 Prose, images, failures, approvals, retry rows and dedicated Subagent/workflow,
 plan and clarification calls end a process group. Calls awaiting approval and
 unresolved historical calls are never summarized as completed or running.
-User-turn boundaries, file-delivery strips, change cards and settled footers
+User-turn boundaries, reply attachment areas, change cards and settled footers
 remain outside process folds. Search can reveal recorded thinking inside a
 folded group. This grouping changes no session entries or model context.
 

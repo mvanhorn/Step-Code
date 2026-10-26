@@ -1,21 +1,28 @@
-.turn-artifacts { display: flex; align-items: center; gap: 12px; min-height: 44px; margin-top: 20px; padding: 5px 0; }
-.artifact-strip-label { color: var(--ink-2); font-size: 12px; flex: none; }
-.artifact-entries { display: flex; align-items: center; flex-wrap: wrap; gap: 7px 8px; flex: 1; min-width: 0; }
-.artifact-row { display: flex; align-items: center; min-width: 0; max-width: 100%; padding: 2px 3px 2px 5px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-soft); }
-.artifact-row:hover { border-color: var(--ink-2); }
-.artifact-row:has(.artifact-main[aria-expanded="true"]) { border-color: var(--focus-border); background: var(--selection); }
-.artifact-main { display: flex; align-items: center; gap: 7px; min-width: 0; min-height: 28px; padding: 5px; border: 0; border-radius: 4px; background: transparent; color: var(--ink); font-size: 12px; text-align: left; }
-.artifact-main > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 230px; }
-.artifact-main > .icon { color: var(--ink-2); }
-.artifact-row .artifact-copy { flex: none; width: 26px; height: 24px; margin-left: 3px; padding: 0; border: 0; border-left: 1px solid var(--line); border-radius: 0 3px 3px 0; background: transparent; color: var(--ink-2); }
-.artifact-count { flex: none; font-size: 12px; color: var(--ink-2); }
-.artifact-more { padding: 3px 5px; min-height: 26px; border: 0; font-size: 12px; color: var(--ink-2); background: transparent; }
-.turn-artifacts + .turn-changes { margin-top: 6px; }
+/*
+ * The finished answer's attachments (MessageAttachments, TurnArtifacts.tsx): a
+ * soft shelf under the closing reply bubble. Borderless and unlabeled, so the
+ * rows read as part of the answer handing files over — unlike the bordered
+ * turn-changes card below, which reviews code edits.
+ */
+.message-attachments { display: flex; flex-direction: column; gap: 2px; width: 100%; margin-top: 10px; padding: 4px; border-radius: var(--radius-overlay); background: var(--surface-soft); }
+.attachment-row { display: flex; align-items: center; min-width: 0; min-height: 32px; border-radius: var(--radius-chip); }
+.attachment-row:hover { background: var(--hover); }
+.attachment-row:has(.attachment-main[aria-expanded="true"]) { background: var(--selection); }
+.attachment-main { display: flex; flex: 1; align-items: center; gap: 8px; min-width: 0; min-height: 32px; padding: 0 8px; border: 0; border-radius: var(--radius-chip); background: transparent; color: var(--ink); font-size: 13px; text-align: left; }
+.attachment-main > .icon { flex: none; color: var(--ink-2); }
+.attachment-row:has(.attachment-main[aria-expanded="true"]) .attachment-main > .icon { color: var(--accent); }
+.attachment-name { flex: none; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.attachment-dir { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-3); font-size: 12px; }
+.attachment-row .attachment-copy { flex: none; width: 26px; height: 26px; margin-right: 2px; padding: 0; border: 0; border-radius: var(--radius-tiny); background: transparent; color: var(--ink-2); opacity: 0; transition: opacity var(--fast); }
+.attachment-row:hover .attachment-copy, .attachment-row .attachment-copy:focus-visible { opacity: 1; }
+.attachment-more { display: inline-flex; align-items: center; gap: 4px; align-self: flex-start; min-height: 26px; margin-left: 8px; padding: 0; border: 0; background: transparent; color: var(--ink-2); font-size: 12px; }
+.attachment-more > .icon { transition: transform var(--fast) var(--ease-out); }
+.attachment-more[aria-expanded="true"] > .icon { transform: rotate(180deg); }
+/* The shelf ends the answer; the changes card below is a different thing and keeps its own distance. */
+.message:has(.message-attachments) + .turn-changes { margin-top: 12px; }
 .md-file-reference { display: inline; max-width: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; color: inherit; font: inherit; text-align: inherit; overflow-wrap: anywhere; text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
 .md-file-reference:hover { text-decoration-color: currentColor; }
 @media (max-width: 650px) {
-	.turn-artifacts { gap: 8px; }
-	.artifact-entries { gap: 3px 8px; }
-	.artifact-count { display: none; }
-	.artifact-main > span { max-width: 160px; }
+	.attachment-name { max-width: 50%; }
+	.attachment-dir { display: none; }
 }
