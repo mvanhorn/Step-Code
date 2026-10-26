@@ -29,6 +29,7 @@ import {
 	placeCaretAtPoint,
 	promptText,
 	refreshPlaceholderHint,
+	setPromptText,
 	tidyEmptyPrompt,
 } from "./prompt-editor";
 
@@ -83,6 +84,15 @@ export function PromptInput({
 	useEffect(() => {
 		if (focusRequest) promptRef.current?.focus();
 	}, [focusRequest, promptRef]);
+	// Rewrite: a message's text comes back into the prompt for editing.
+	const draftRequest = useAppStore((state) => state.ui.promptDraftRequest);
+	useEffect(() => {
+		const root = promptRef.current;
+		if (!root || !draftRequest) return;
+		setPromptText(root, draftRequest.text);
+		root.focus();
+		onValueInput?.(draftRequest.text);
+	}, [draftRequest, promptRef, onValueInput]);
 	useEffect(() => {
 		const root = promptRef.current;
 		if (!root) return;

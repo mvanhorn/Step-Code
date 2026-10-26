@@ -122,6 +122,21 @@ export const MessageItem = memo(function MessageItem({
 					onFileReference={(path) => void openFileReference(cwd, path)}
 				/>
 			) : null}
+			{role === "user" && item.content ? (
+				<div className="prompt-actions">
+					<button type="button" title={t("copy")} aria-label={t("copy")} onClick={() => void copyText(content)}>
+						<Icon name="copy" size="2xs" />
+					</button>
+					<button
+						type="button"
+						title={t("promptRewrite")}
+						aria-label={t("promptRewrite")}
+						onClick={() => setUi({ promptDraftRequest: { text: item.content, seq: Date.now() } })}
+					>
+						<Icon name="squarePen" size="2xs" />
+					</button>
+				</div>
+			) : null}
 			{role === "user" && item.timestamp ? <MessageMeta model={model} timestamp={item.timestamp} /> : null}
 		</article>
 	);

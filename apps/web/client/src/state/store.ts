@@ -220,6 +220,8 @@ export interface UiState {
 	readonly loginRequired: boolean;
 	/** Incremented to ask the composer to focus `#prompt` (legacy `$("#prompt").focus()`). */
 	readonly promptFocusRequest: number;
+	/** A message's text loaded back into the prompt for rewriting; `seq` re-fires for the same text. */
+	readonly promptDraftRequest?: { readonly text: string; readonly seq: number };
 	/** Mid-pane view covering the conversation: `#cronView` or `#marketView` (`.market-view.open`). */
 	readonly midView: "cron" | "market" | null;
 	/** Session whose snapshot is loading after a pick: its row highlights and the stream shows progress at once. */

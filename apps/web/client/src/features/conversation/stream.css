@@ -269,6 +269,34 @@
  * hovered or focused, so the transcript stays quiet; it reserves no space when
  * absent (a pending bubble has no timestamp yet).
  */
+/* A user bubble's copy / rewrite affordances, quiet until hovered. */
+.prompt-actions {
+	display: inline-flex;
+	gap: 2px;
+	margin-top: 3px;
+	opacity: 0;
+	transition: opacity var(--fast);
+}
+.message:hover .prompt-actions,
+.prompt-actions:focus-within {
+	opacity: 1;
+}
+.prompt-actions button {
+	display: grid;
+	place-items: center;
+	width: 24px;
+	height: 22px;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-control);
+	background: transparent;
+	color: var(--ink-3);
+	cursor: pointer;
+}
+.prompt-actions button:hover {
+	background: var(--surface-soft);
+	color: var(--ink);
+}
 .message-meta {
 	display: inline-flex;
 	align-items: center;
@@ -282,7 +310,35 @@
 	pointer-events: none;
 }
 .message:hover .message-meta,
-.message:focus-within .message-meta {
+.message:focus-within /* A user bubble's copy / rewrite affordances, quiet until hovered. */
+.prompt-actions {
+	display: inline-flex;
+	gap: 2px;
+	margin-top: 3px;
+	opacity: 0;
+	transition: opacity var(--fast);
+}
+.message:hover .prompt-actions,
+.prompt-actions:focus-within {
+	opacity: 1;
+}
+.prompt-actions button {
+	display: grid;
+	place-items: center;
+	width: 24px;
+	height: 22px;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-control);
+	background: transparent;
+	color: var(--ink-3);
+	cursor: pointer;
+}
+.prompt-actions button:hover {
+	background: var(--surface-soft);
+	color: var(--ink);
+}
+.message-meta {
 	opacity: 1;
 }
 .message-meta-model {
@@ -297,11 +353,67 @@
 	white-space: nowrap;
 }
 /* The turn row keeps it at the end of the actions, not under a step of the turn. */
+/* A user bubble's copy / rewrite affordances, quiet until hovered. */
+.prompt-actions {
+	display: inline-flex;
+	gap: 2px;
+	margin-top: 3px;
+	opacity: 0;
+	transition: opacity var(--fast);
+}
+.message:hover .prompt-actions,
+.prompt-actions:focus-within {
+	opacity: 1;
+}
+.prompt-actions button {
+	display: grid;
+	place-items: center;
+	width: 24px;
+	height: 22px;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-control);
+	background: transparent;
+	color: var(--ink-3);
+	cursor: pointer;
+}
+.prompt-actions button:hover {
+	background: var(--surface-soft);
+	color: var(--ink);
+}
 .message-meta {
 	margin-top: 0;
 }
 @media (prefers-reduced-motion: reduce) {
-	.message-meta {
+	/* A user bubble's copy / rewrite affordances, quiet until hovered. */
+.prompt-actions {
+	display: inline-flex;
+	gap: 2px;
+	margin-top: 3px;
+	opacity: 0;
+	transition: opacity var(--fast);
+}
+.message:hover .prompt-actions,
+.prompt-actions:focus-within {
+	opacity: 1;
+}
+.prompt-actions button {
+	display: grid;
+	place-items: center;
+	width: 24px;
+	height: 22px;
+	padding: 0;
+	border: 0;
+	border-radius: var(--radius-control);
+	background: transparent;
+	color: var(--ink-3);
+	cursor: pointer;
+}
+.prompt-actions button:hover {
+	background: var(--surface-soft);
+	color: var(--ink);
+}
+.message-meta {
 		transition: none;
 	}
 }
