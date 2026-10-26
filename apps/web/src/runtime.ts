@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, realpath, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import {
 	type AgentSession,
@@ -2062,15 +2062,31 @@ export class WebSessionStore {
 				.filter((session) => !isChildAgentSession(session))
 				.map(async (session) => {
 					let cwdAvailable = false;
-					try {
-						cwdAvailable = session.cwd ? (await stat(session.cwd)).isDirectory() : false;
-					} catch {
-						// A session with a removed cwd remains readable and appears under Recent.
+					// The folder name a session row carries is the key the sidebar groups
+					// by, so it has to be spelled the way the workspace registry stores it.
+					// Otherwise removing a workspace under one name leaves its sessions
+					// grouped under another and the project stays listed.
+					let cwd = session.cwd;
+					if (cwd) {
+						try {
+							cwd = await realpath(cwd);
+							cwdAvailable = (await stat(cwd)).isDirectory();
+						} catch {
+							// A session with a removed cwd remains readable and appears under
+							// Recent; the recorded spelling is all that is left of the folder.
+							cwdAvailable = false;
+						}
 					}
 					// Full message text is for searching only; the session index serves search now.
 					const { allMessagesText: _allMessagesText, ...summary } = session;
 					const live = this.sessions.get(session.id)?.liveStatus();
-					return { ...summary, archived: this.metadata.isArchived(session.id), cwdAvailable, ...live };
+					return {
+						...summary,
+						...(cwd ? { cwd } : {}),
+						archived: this.metadata.isArchived(session.id),
+						cwdAvailable,
+						...live,
+					};
 				}),
 		);
 	}
