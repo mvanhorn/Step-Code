@@ -185,23 +185,23 @@ export function IconSprite() {
 			{/*
 			 * The StepCode mark (the sign-in logo): two colours, so it does not use
 			 * currentColor. `--mark-arc` / `--mark-chevron` recolour it, and
-			 * `--mark-draw` (0..1, registered in stream.css) draws the chevron in.
+			 * `--mark-draw` (0..1, registered in stream.css) draws the arrow in.
 			 */}
 			<symbol id="i-stepcode" viewBox="0 0 48 48" fill="none">
 				<path
 					d="M34.6 13.4A15 15 0 1 0 34.6 34.6"
 					strokeWidth="7"
 					strokeLinecap="round"
-					style={{ stroke: "var(--mark-arc, #8f7cff)" }}
+					style={{ stroke: "var(--mark-arc, #7c5cff)" }}
 				/>
 				<path
-					d="m21 17.5 6.5 6.5-6.5 6.5"
+					d="M20.5 17.8 31 24 20.5 30.2Z"
 					pathLength={1}
-					strokeWidth="4.2"
+					strokeWidth="6.5"
 					strokeLinecap="round"
 					strokeLinejoin="round"
 					style={{
-						stroke: "var(--mark-chevron, #f6b73c)",
+						stroke: "var(--mark-chevron, #ffc940)",
 						strokeDasharray: 1,
 						strokeDashoffset: "calc(1 - var(--mark-draw, 1))",
 					}}
