@@ -3,7 +3,7 @@ import { useLocale, useT } from "../../i18n";
 import { collectTurnChanges } from "../../lib/turn-changes";
 import { showToast } from "../../state/session";
 import { setUi, useAppStore } from "../../state/store";
-import type { SteeringMessage, TimelineItem } from "../../state/types";
+import type { MessageTimelineItem, SteeringMessage, TimelineItem } from "../../state/types";
 import { Icon } from "../../ui";
 import { Composer } from "../composer";
 import { ClarificationPanel } from "./ClarificationPanel";
@@ -23,9 +23,8 @@ import { RetryRow } from "./RetryRow";
 import { ThinkingDisclosure } from "./ThinkingDisclosure";
 import { ThinkingIndicator } from "./ThinkingIndicator";
 import { ApprovalCard, ToolRow } from "./TimelineRows";
-import { TurnArtifacts } from "./TurnArtifacts";
 import { TurnChangesCard } from "./TurnChangesCard";
-import { turnArtifacts } from "./turn-artifacts";
+import { type TurnArtifact, turnArtifacts } from "./turn-artifacts";
 import { collectTurnFooters } from "./turn-footers";
 
 /**
@@ -113,6 +112,21 @@ export function ConversationStream() {
 		() => new Map([...footerAfter].map(([index, footer]) => [index, turnArtifacts(items, footer, cwd)])),
 		[footerAfter, items, cwd],
 	);
+	/*
+	 * Each turn's deliverables attach to the bubble that closed it, as the
+	 * answer handing its files over, instead of a strip after the whole turn.
+	 */
+	const attachmentsFor = useMemo(() => {
+		const perMessage = new Map<MessageTimelineItem, readonly TurnArtifact[]>();
+		let closing: MessageTimelineItem | null = null;
+		items.forEach((item, index) => {
+			if (item.kind === "message" && item.role === "user") closing = null;
+			if (item.kind === "message" && item.role === "assistant") closing = item;
+			const artifacts = footerAfter.get(index) ? artifactsAfter.get(index) : undefined;
+			if (artifacts?.length && closing) perMessage.set(closing, artifacts);
+		});
+		return perMessage;
+	}, [footerAfter, artifactsAfter, items]);
 
 	// A new session or a sent message: follow the bottom again.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: the session id and the pending messages are the triggers.
@@ -230,6 +244,9 @@ export function ConversationStream() {
 										) : (
 											<MessageItem
 												item={row.item}
+												attachments={
+													row.item.role === "assistant" ? attachmentsFor.get(row.item) : undefined
+												}
 												rewritableBefore={
 													items[lastUserIndex] === row.item ? (rewriteBefore ?? "") : undefined
 												}
@@ -251,13 +268,6 @@ export function ConversationStream() {
 									) : (
 										<ApprovalCard approval={row.item.approval} />
 									)}
-									{footer ? (
-										<TurnArtifacts
-											key={`outputs-${sessionId}-${footer.turnId}`}
-											artifacts={artifactsAfter.get(row.lastIndex) ?? []}
-											cwd={cwd}
-										/>
-									) : null}
 									{card ? (
 										<TurnChangesCard turn={card} reverted={Boolean(revertedTurns?.includes(card.turnId))} />
 									) : null}

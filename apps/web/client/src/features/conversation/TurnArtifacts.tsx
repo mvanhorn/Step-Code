@@ -1,13 +1,19 @@
 import { useState } from "react";
 import { useT } from "../../i18n";
+import { basename } from "../../lib/format";
 import { activeRightPanel } from "../../state/right-panel";
 import { copyText } from "../../state/session";
 import { useAppStore } from "../../state/store";
-import { Icon, IconButton, type IconName, Tooltip } from "../../ui";
+import { Icon, IconButton, Tooltip } from "../../ui";
 import { toggleDeliveryFile } from "../files/actions";
 import type { TurnArtifact } from "./turn-artifacts";
 
-export function TurnArtifacts({
+/**
+ * The finished answer's deliverables, attached under its closing bubble like a
+ * chat attachment area: one row per file, the eye says clicking previews it.
+ * No label and no count — the rows are the reply handing files over.
+ */
+export function MessageAttachments({
 	artifacts,
 	cwd,
 }: {
@@ -22,57 +28,49 @@ export function TurnArtifacts({
 	});
 	if (!artifacts.length) return null;
 	return (
-		<section className="turn-artifacts" aria-label={t("turnOutputs")}>
-			<span className="artifact-strip-label">{t("outputs")}</span>
-			<div className="artifact-entries">
-				{(showAll ? artifacts : artifacts.slice(0, 3)).map((artifact) => {
-					const icon: IconName =
-						artifact.kind === "image"
-							? "image"
-							: artifact.kind === "website"
-								? "globe"
-								: artifact.kind === "document"
-									? "fileText"
-									: "file";
-					return (
-						<div className="artifact-row" key={artifact.path}>
-							<Tooltip content={artifact.path}>
-								<button
-									type="button"
-									className="artifact-main"
-									aria-controls="rightPanel"
-									aria-expanded={activePath === artifact.path}
-									onClick={() => void toggleDeliveryFile(cwd, artifact.path)}
-								>
-									<Icon name={icon} size="xs" />
-									<span>{artifact.label}</span>
-									<Icon name="open" size="xs" />
-								</button>
-							</Tooltip>
-							<Tooltip content={t("copyPath")}>
-								<IconButton
-									className="artifact-copy"
-									icon="copy"
-									iconSize="xs"
-									aria-label={`${t("copyPath")}: ${artifact.path}`}
-									onClick={() => void copyText(artifact.path)}
-								/>
-							</Tooltip>
-						</div>
-					);
-				})}
-				{artifacts.length > 3 ? (
-					<button
-						type="button"
-						className="artifact-more"
-						aria-expanded={showAll}
-						onClick={() => setShowAll(!showAll)}
-					>
-						{t(showAll ? "outputsLess" : "outputsMore", { count: artifacts.length - 3 })}
-					</button>
-				) : null}
-			</div>
-			<span className="artifact-count">{t("outputsCount", { count: artifacts.length })}</span>
+		<section className="message-attachments" aria-label={t("turnOutputs")}>
+			{(showAll ? artifacts : artifacts.slice(0, 3)).map((artifact) => {
+				const name = basename(artifact.path);
+				const dir = artifact.path.slice(0, artifact.path.length - name.length).replace(/[\\/]+$/, "");
+				return (
+					<div className="attachment-row" key={artifact.path}>
+						<Tooltip content={artifact.path}>
+							<button
+								type="button"
+								className="attachment-main"
+								aria-controls="rightPanel"
+								aria-expanded={activePath === artifact.path}
+								aria-label={`${t("toolOpenFile")}: ${artifact.path}`}
+								onClick={() => void toggleDeliveryFile(cwd, artifact.path)}
+							>
+								<Icon name="eye" size="xs" />
+								<span className="attachment-name">{name}</span>
+								{dir ? <span className="attachment-dir">{dir}</span> : null}
+							</button>
+						</Tooltip>
+						<Tooltip content={t("copyPath")}>
+							<IconButton
+								className="attachment-copy"
+								icon="copy"
+								iconSize="xs"
+								aria-label={`${t("copyPath")}: ${artifact.path}`}
+								onClick={() => void copyText(artifact.path)}
+							/>
+						</Tooltip>
+					</div>
+				);
+			})}
+			{artifacts.length > 3 ? (
+				<button
+					type="button"
+					className="attachment-more"
+					aria-expanded={showAll}
+					onClick={() => setShowAll(!showAll)}
+				>
+					<Icon name="chevronDown" size="2xs" />
+					{t(showAll ? "outputsLess" : "outputsMore", { count: artifacts.length - 3 })}
+				</button>
+			) : null}
 		</section>
 	);
 }
