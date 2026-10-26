@@ -37,12 +37,20 @@ function subagentUsage(usage: Record<string, unknown> | undefined): { usage?: Su
 	return { usage: { ...totals, records } };
 }
 
-/** Only structured tool records define task state; prose and exit codes are not a lifecycle protocol. */
+/**
+ * Only structured tool records define task state; prose and exit codes are not a
+ * lifecycle protocol. One exception: a dispatch the kernel *rejected* never
+ * started a child, so there are no structured per-task results — the planned
+ * rows are kept, as failed attempts carrying the tool's own error, instead of
+ * disappearing from the agent list as if nothing had been asked for.
+ */
 export function subagentTasks(
 	input: unknown,
 	details: unknown,
 	toolState: ToolState,
 	previous: readonly SubagentTask[] = [],
+	/** The tool result's text when the dispatch itself failed; ignored otherwise. */
+	failure?: string,
 ): readonly SubagentTask[] {
 	const value = record(details);
 	const backgroundAgentId = typeof value?.agentId === "string" ? value.agentId : undefined;
@@ -70,8 +78,18 @@ export function subagentTasks(
 		];
 	});
 	if (tasks.length) return tasks;
-	// A rejected dispatch must remain an ordinary failed tool, including its original error.
-	if (toolState === "failed") return [];
+	const rejected = toolState === "failed";
+	const error = rejected ? failure?.trim() : "";
+	if (rejected) {
+		// Only a step that never settled can be called failed; a chain step that
+		// already completed stays completed, and its own result is untouched.
+		const carried = previous.map((task) =>
+			task.status === "queued" || task.status === "running"
+				? { ...task, status: "failed" as const, ...(error ? { error } : {}) }
+				: task,
+		);
+		if (carried.length) return carried;
+	}
 	if (previous.length)
 		return previous.map((task) => ({
 			...task,
@@ -95,8 +113,10 @@ export function subagentTasks(
 			{
 				agent: typeof task.agent === "string" ? task.agent : "",
 				task: typeof task.task === "string" ? task.task : "",
-				// Planned arguments do not prove execution started.
-				status: toolState === "pending" ? "queued" : "unknown",
+				// Planned arguments do not prove execution started; a rejected dispatch
+				// proves it did not finish, and its own error is the reason.
+				status: toolState === "pending" ? "queued" : rejected ? "failed" : "unknown",
+				...(error ? { error } : {}),
 			},
 		];
 	});

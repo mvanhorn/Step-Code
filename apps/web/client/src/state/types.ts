@@ -681,6 +681,10 @@ export interface BootstrapPayload {
 	readonly login?: LoginReport | null;
 	/** A custom models.json model runs without a Step credential, so no sign-in gate is needed. */
 	readonly customModels?: boolean;
+	/** The running build's product version, e.g. `0.1.0`. */
+	readonly version?: string;
+	/** When the installed build was produced; absent for a source checkout. */
+	readonly buildTime?: string;
 }
 
 export interface TreeEntry {

@@ -275,6 +275,25 @@
 	border-radius: var(--radius-menu);
 	background: var(--surface-soft);
 }
+/* The running build: a version chip, then when it was made, in tabular figures. */
+.settings-build {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	gap: 8px;
+	font-size: 12px;
+	font-variant-numeric: tabular-nums;
+}
+.settings-build-version {
+	padding: 1px 7px;
+	border: 1px solid var(--line);
+	border-radius: 999px;
+	color: var(--ink-2);
+	font-weight: 500;
+}
+.settings-build-time {
+	color: var(--ink-3);
+}
 .settings-choice {
 	min-width: 84px;
 	height: 30px;

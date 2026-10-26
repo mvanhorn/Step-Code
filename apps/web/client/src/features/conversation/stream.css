@@ -1768,6 +1768,15 @@ button.compaction-head:focus-visible {
 .edit-prompt-slot {
 	margin: 6px 0 14px;
 }
+/*
+ * Rewriting a message happens in place, so the bottom composer is a second,
+ * competing input while it is open: two editable boxes, one above the other.
+ * The rewritten draft is the only input then; cancelling or sending brings the
+ * composer back.
+ */
+.main:has(.edit-prompt-slot) > .composer-zone {
+	display: none;
+}
 
 .message-skill .tool-glyph {
 	color: inherit;
