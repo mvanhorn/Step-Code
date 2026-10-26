@@ -101,6 +101,38 @@
 	cursor: not-allowed;
 	opacity: 0.6;
 }
+/*
+ * The prompt deck: the rendered Markdown preview lies over the editor in the
+ * same box. The editor keeps its place via `visibility` (not `display`), so the
+ * draft still sizes the card and the send path can still read it while the
+ * preview is shown.
+ */
+.prompt-deck {
+	position: relative;
+}
+.prompt-deck[data-preview] .prompt-editor {
+	visibility: hidden;
+}
+.prompt-preview {
+	position: absolute;
+	inset: 0;
+	padding: 2px var(--textarea-pad-x);
+	overflow-y: auto;
+	outline: 0;
+	cursor: text;
+}
+/* The preview reads at the composer's size, not the conversation's. */
+.prompt-preview.message-body {
+	font-size: 15px;
+	line-height: 1.65;
+}
+.prompt-preview.message-body > :first-child {
+	margin-top: 0;
+}
+.prompt-preview.message-body :is(h2, h3, h4) {
+	font-size: 17px;
+	margin: 14px 0 6px;
+}
 /* A pasted or dropped file, inline in the text; the message names its stored path. */
 .prompt-file {
 	display: inline-flex;

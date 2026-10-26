@@ -788,9 +788,15 @@ Crash recovery and durable site-profile persistence are not implemented.
 page at a time owns a 15-second input lease; polling every five seconds renews
 it. The page's sessionStorage client id allows refresh to rotate the token,
 and a late old-page release cannot remove its replacement. A competing page
-gets 409 rather than silently moving another page's tabs or viewport. Closing
-or hiding the inspector releases input/stream ownership, not tabs. A lost
-connection exposes Reconnect; its lease expires if the page cannot release it.
+gets 409 rather than silently moving another page's tabs or viewport. The
+attached frame stream is the page's own connection, so a missed heartbeat
+renews the lease instead of ending the stream: a sleeping window, a stalled
+renderer or a busy Host can outlast the interval, and frames resume when the
+page does. A page whose socket closed has no consumer and loses control when
+the lease lapses. Closing or hiding the inspector releases input/stream
+ownership, not tabs. An unexpected stream end reconnects with backoff before
+the manual Reconnect control is needed, and two consecutive heartbeat misses
+do not count as a lost Host.
 Initial reads, command replies, heartbeat reads and SSE snapshots share one
 revision gate per connection. Duplicate/older revisions and replies arriving
 after connection close cannot replace current state.
@@ -821,8 +827,11 @@ it. The host ACKs Chromium frames locally,
 caps delivery at 15 fps and keeps at most one newest scheduled frame. A blocked
 response drops frames and keeps only the newest metadata; the client keeps
 one decoding image plus one pending latest frame. Input is serialized and
-bounded (48 client / 64 host operations); pointer moves are coalesced. Hidden
-inspectors disconnect the stream instead of decoding background frames.
+bounded (48 client / 64 host operations); pointer moves and wheel deltas are
+coalesced. One coalesced wheel command carries the accumulated delta for a
+frame, because Chromium needs about two frames per wheel dispatch; a fast
+trackpad therefore keeps its scroll distance instead of filling the queue.
+Hidden inspectors disconnect the stream instead of decoding background frames.
 
 Mouse clicks/dragging, wheel, editing/navigation keys, text paste and committed
 Chinese composition text are forwarded. Copy selection reads selected text in

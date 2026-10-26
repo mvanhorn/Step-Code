@@ -1,7 +1,8 @@
 /**
  * `#prompt`: the composer's contenteditable editor. Enter sends (IME-safe), Shift+Enter breaks the line
  * (legacy app.js 3256-3273, 3576-3583). It is contenteditable rather than a textarea so files pasted or
- * dropped from Finder / Explorer sit inline as chips (see prompt-editor.ts); everything else stays plain text.
+ * dropped from Finder / Explorer sit inline as chips (see prompt-editor.ts); everything else stays plain
+ * text, with pasted rich text converted to Markdown source (see html-to-markdown.ts).
  */
 
 import {
@@ -21,12 +22,17 @@ import { showError } from "../../state/session";
 import { getState, useAppStore } from "../../state/store";
 import { addAttachments, applyLeadingCommand, uploadFile } from "./actions";
 import { FileDropOverlay } from "./FileDropOverlay";
+import { htmlToMarkdown } from "./html-to-markdown";
+import { planInlineFormat, planLink } from "./markdown-format";
 import {
+	applyPromptEdit,
+	formatPromptSelection,
 	insertFileChip,
 	insertLineBreak,
 	insertTextAtCaret,
 	placeCaretAtEnd,
 	placeCaretAtPoint,
+	promptSelection,
 	promptText,
 	refreshPlaceholderHint,
 	setPromptText,
@@ -58,6 +64,8 @@ export interface PromptInputProps {
 	readonly onCompositionChange?: (composing: boolean) => void;
 	/** Offered each key first; returning true means an open menu used it. */
 	readonly onMenuKey?: (key: string) => boolean;
+	/** Cmd/Ctrl+Shift+M: the composer swaps the editor for the rendered Markdown preview. */
+	readonly onTogglePreview?: () => void;
 	/**
 	 * Filled with the editor's file stager, so files picked elsewhere (`#attachInput` in `#plusMenu`) are staged
 	 * exactly like pasted or dropped ones: images as attachments, every other file as an inline chip.
@@ -76,6 +84,7 @@ export function PromptInput({
 	onCaretChange,
 	onCompositionChange,
 	onMenuKey,
+	onTogglePreview,
 	stageFilesRef,
 }: PromptInputProps) {
 	const t = useT();
@@ -219,14 +228,33 @@ export function PromptInput({
 		if (!root) return;
 		const data = event.clipboardData;
 		const files = [...data.files];
-		// Rich markup is never pasted: the message is plain text.
+		const html = data.getData("text/html");
+		const plain = data.getData("text/plain");
+		// Only text and chips enter the editor: markup is converted, never inserted as HTML.
 		event.preventDefault();
-		// Office documents and spreadsheets put a rendered image next to their
-		// rich and plain text; the user meant the text. A screenshot, an image
-		// copied from a page, or files copied in Finder / Explorer have no such pair.
-		const officeCopy = data.types.includes("text/html") && data.getData("text/plain").trim();
-		if (files.length && !officeCopy) stageFiles(files);
-		else insertTextAtCaret(root, data.getData("text/plain"));
+		// Office documents and spreadsheets pair their rich text with a rendered
+		// image file; the user meant the text. A screenshot, an image copied from a
+		// page, or files copied in Finder / Explorer have no such pair.
+		const officeCopy = files.length > 0 && Boolean(html) && Boolean(plain.trim());
+		if (officeCopy) {
+			insertTextAtCaret(root, plain);
+			return;
+		}
+		if (files.length) {
+			stageFiles(files);
+			return;
+		}
+		// A rich copy keeps its emphasis, lists, code and links as Markdown source
+		// (see html-to-markdown.ts); anything unconvertible falls back to plain text.
+		let markdown: string | null = null;
+		if (html) {
+			try {
+				markdown = htmlToMarkdown(html);
+			} catch {
+				markdown = null;
+			}
+		}
+		insertTextAtCaret(root, markdown ?? plain);
 	};
 
 	const onDrop = (event: DragEvent<HTMLDivElement>) => {
@@ -245,6 +273,36 @@ export function PromptInput({
 		if (!event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey && onMenuKey?.(event.key)) {
 			event.preventDefault();
 			return;
+		}
+		const mod = event.metaKey || event.ctrlKey;
+		const key = event.key.toLowerCase();
+		// Cmd/Ctrl+Shift+M swaps in the rendered Markdown preview (see `Composer`).
+		if (mod && event.shiftKey && !event.altKey && key === "m" && onTogglePreview) {
+			event.preventDefault();
+			onTogglePreview();
+			return;
+		}
+		if (mod && !event.shiftKey && !event.altKey) {
+			const marker = key === "b" ? "**" : key === "i" ? "*" : key === "e" ? "`" : null;
+			if (marker) {
+				// The browser's own rich-text formatting stays blocked (see `beforeinput`);
+				// the shortcut writes Markdown markers into the plain text instead.
+				event.preventDefault();
+				const root = promptRef.current;
+				if (root) formatPromptSelection(root, (range) => planInlineFormat(range, marker));
+				return;
+			}
+			if (key === "k") {
+				// A bare Cmd/Ctrl+K remains the global search; a link needs a selection.
+				const root = promptRef.current;
+				const range = root ? promptSelection(root) : null;
+				if (!root || !range || range.start === range.end) return;
+				const edit = planLink(range);
+				if (!edit) return;
+				event.preventDefault();
+				applyPromptEdit(root, edit);
+				return;
+			}
 		}
 		if (event.key !== "Enter") return;
 		event.preventDefault();

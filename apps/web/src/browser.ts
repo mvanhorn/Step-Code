@@ -61,6 +61,8 @@ function gesture(tab: OwnedTab): void {
 
 /** How long one queued browser command may hold the queue. */
 export const BROWSER_COMMAND_TIMEOUT_MS = 10_000;
+/** How long a page may go without a heartbeat before it loses control. */
+const LEASE_MS = 15_000;
 /** Creating the first tab also launches Chromium (up to 15s) before it opens a page. */
 export const BROWSER_CREATE_TIMEOUT_MS = 30_000;
 
@@ -123,10 +125,30 @@ export class WebBrowser {
 	touch(token: string): void {
 		if (this.disposed || !this.lease || this.lease.token !== token || this.lease.until <= Date.now())
 			throw new BrowserRequestError("Browser control expired; reconnect", 409);
-		this.lease.until = Date.now() + 15_000;
+		this.renew(token);
+	}
+
+	private renew(token: string): void {
+		if (!this.lease || this.lease.token !== token) return;
+		this.lease.until = Date.now() + LEASE_MS;
 		clearTimeout(this.leaseTimer);
-		this.leaseTimer = setTimeout(() => this.release(token), 15_001);
+		this.leaseTimer = setTimeout(() => this.expire(token), LEASE_MS + 1);
 		this.leaseTimer.unref();
+	}
+
+	/**
+	 * The lease lapsed without a heartbeat. An attached frame stream is that page's own
+	 * connection: a sleeping window, a stalled renderer or a busy Host can outlast the heartbeat
+	 * interval, so control is renewed instead of ending the stream. With no consumer (the page's
+	 * socket closed) control is released for the next page.
+	 */
+	private expire(token: string): void {
+		if (this.lease?.token !== token) return;
+		if (this.consumer?.token === token) {
+			this.renew(token);
+			return;
+		}
+		this.release(token);
 	}
 
 	release(token: string): void {

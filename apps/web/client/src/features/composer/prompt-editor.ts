@@ -14,6 +14,7 @@
 import type { AttachedFile } from "../../lib/attached-files";
 import type { UploadedFile } from "../../state/types";
 import { type FileCompletionText, type FileQuery, fileQuery, sameFileQuery } from "./file-completion";
+import type { PlannedEdit, PromptRange } from "./markdown-format";
 
 const CHIP_CLASS = "prompt-file";
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -313,6 +314,126 @@ export function insertFileChip(
 /** Resolve once every chip inserted so far has its upload id or has been removed. */
 export async function waitForUploads(): Promise<void> {
 	await Promise.all(pendingUploads.values());
+}
+
+/* ── Markdown formatting ─────────────────────────────────────────────────── */
+
+/**
+ * Plain-text offset of a DOM boundary, using the same projection as
+ * `completionProjection`: chips are one U+FFFC and a block start begins a line.
+ * `null` means the boundary is outside the prompt.
+ */
+function promptOffset(root: HTMLElement, node: Node, offset: number): number | null {
+	if (node !== root && !root.contains(node)) return null;
+	let total = 0;
+	let last: string | null = null;
+	let found: number | null = null;
+	const walk = (parent: Node): boolean => {
+		for (let index = 0; index < parent.childNodes.length; index += 1) {
+			if (parent === node && index === offset) {
+				found = total;
+				return true;
+			}
+			const child = parent.childNodes[index];
+			if (child instanceof Text) {
+				if (child === node) {
+					found = total + Math.min(offset, child.data.length);
+					return true;
+				}
+				const value = child.data.replace(/\u00a0/g, " ");
+				total += value.length;
+				last = value.slice(-1) || last;
+				continue;
+			}
+			if (!(child instanceof HTMLElement)) continue;
+			if (child.classList.contains(CHIP_CLASS) || child.contentEditable === "false") {
+				if (child === node) {
+					found = total;
+					return true;
+				}
+				total += 1;
+				last = "\ufffc";
+				continue;
+			}
+			if (child.tagName === "BR") {
+				if (child === node) {
+					found = total;
+					return true;
+				}
+				total += 1;
+				last = "\n";
+				continue;
+			}
+			// A block starts a new line unless one just ended (the projection's rule).
+			if ((child.tagName === "DIV" || child.tagName === "P") && total > 0 && last !== "\n") {
+				total += 1;
+				last = "\n";
+			}
+			if (walk(child)) return true;
+		}
+		if (parent === node && offset >= parent.childNodes.length) {
+			found = total;
+			return true;
+		}
+		return false;
+	};
+	walk(root);
+	return found;
+}
+
+/** The current selection as plain-text offsets, with the prompt's projected text. */
+export function promptSelection(root: HTMLElement): PromptRange | null {
+	const selection = getSelection();
+	if (!selection?.rangeCount) return null;
+	const range = selection.getRangeAt(0);
+	if (!root.contains(range.commonAncestorContainer)) return null;
+	const start = promptOffset(root, range.startContainer, range.startOffset);
+	const end = promptOffset(root, range.endContainer, range.endOffset);
+	if (start === null || end === null || start > end) return null;
+	return { text: completionProjection(root).text, start, end };
+}
+
+/** Select the projected text between two offsets; an empty prompt has only its start. */
+function selectPromptRange(root: HTMLElement, start: number, end: number): boolean {
+	const projection = completionProjection(root);
+	const empty = root.childNodes.length === 0;
+	const from = projectionPoint(projection, start) ?? (empty && start === 0 ? { node: root, offset: 0 } : null);
+	const to = projectionPoint(projection, end) ?? (empty && end === 0 ? { node: root, offset: 0 } : null);
+	if (!from || !to) return false;
+	const range = document.createRange();
+	range.setStart(from.node, from.offset);
+	range.setEnd(to.node, to.offset);
+	select(range);
+	return true;
+}
+
+/**
+ * Apply a planned Markdown edit. Runs are applied from the highest offset down,
+ * so each run's pre-edit offsets are still valid; `execCommand` keeps the
+ * browser's undo history. Only marker text changes — the selected content and
+ * its line breaks are never rewritten.
+ */
+export function applyPromptEdit(root: HTMLElement, edit: PlannedEdit): boolean {
+	const runs = [...edit.runs].sort((left, right) => right.start - left.start);
+	for (const run of runs) {
+		if (!selectPromptRange(root, run.start, run.end)) return false;
+		const applied =
+			run.start === run.end ? document.execCommand("insertText", false, run.text) : document.execCommand("delete");
+		if (!applied) return false;
+	}
+	// The restored selection follows the caret adjustments above; the composer
+	// reads the prompt's text on this event (the last execCommand's input ran first).
+	selectPromptRange(root, edit.selectionStart, edit.selectionEnd);
+	root.dispatchEvent(new InputEvent("input", { bubbles: true }));
+	return true;
+}
+
+/** Insert a marker pair around the selection (or drop an existing one). */
+export function formatPromptSelection(root: HTMLElement, plan: (range: PromptRange) => PlannedEdit | null): boolean {
+	const range = promptSelection(root);
+	if (!range) return false;
+	const edit = plan(range);
+	return edit ? applyPromptEdit(root, edit) : false;
 }
 
 /* ── The staged session mode's lead chip ─────────────────────────────────── */
