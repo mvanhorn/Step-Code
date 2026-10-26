@@ -70,6 +70,11 @@
   --success: #237a4b;
   --danger-surface: #fdf0ee;
   --attention-surface: #fdf6e2;
+  /* A search match: find-in-page, not a status. Its own wash so scanning results
+     reads like Chrome's highlight, and so neither the accent (focus) nor the
+     attention tint (a warning) is borrowed to mean "your query is here". */
+  --match-surface: #ffe27a;
+  --match-ink: #241c00;
   /* ── Brand and accent ────────────────────────────────────────────── */
   --brand-violet: #8f7cff;
   --brand-amber: #f6b73c;
@@ -231,6 +236,10 @@ html[data-theme="dark"] {
   --success: #62cc8f;
   --danger-surface: #3a2024;
   --attention-surface: #33291a;
+  /* The same wash on the dark plane: saturated enough to find at a glance,
+     dark enough that the light ink keeps its contrast on top of it. */
+  --match-surface: #7a5c0e;
+  --match-ink: #ffedb6;
   --brand-tile: #232327;
   --accent: #a08fff;
   --accent-hover: #b3a5ff;

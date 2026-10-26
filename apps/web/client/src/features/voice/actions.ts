@@ -99,6 +99,10 @@ export class VoiceRecorder {
 	private worklet: AudioWorkletNode | undefined;
 	private source: MediaStreamAudioSourceNode | undefined;
 	private stopping = false;
+	/** A cancel arrived while a start or a transcription was in flight. */
+	private cancelled = false;
+	/** Chunk uploads still on the wire; `stop` waits for them so the tail is not lost. */
+	private readonly pending = new Set<Promise<void>>();
 
 	constructor(handlers: VoiceHandlers) {
 		this.handlers = handlers;
@@ -108,14 +112,38 @@ export class VoiceRecorder {
 		return this.stream !== undefined;
 	}
 
+	/**
+	 * Open the microphone first, then the host session.
+	 *
+	 * The order matters twice over. A refused permission is the most common
+	 * failure, and it must not leave a session behind that only the host can
+	 * clear — the next click would then answer 409 forever. And the session needs
+	 * the context's real `sampleRate` before it can label the WAV it will build,
+	 * which is only known once the microphone is open.
+	 */
 	async start(): Promise<void> {
-		if (this.active) return;
+		// A stop or cancel still on the wire owns the microphone and the host
+		// session; a second start would be torn down by its `finally`.
+		if (this.active || this.stopping) return;
+		this.cancelled = false;
 		this.handlers.onPhase("connecting");
 		try {
-			await api(`${ROOT}/start`, { method: "POST" });
-			await this.openMicrophone();
+			const sampleRate = await this.openMicrophone();
+			if (this.cancelled) {
+				await this.teardown();
+				return;
+			}
+			await api(`${ROOT}/start`, { method: "POST", body: JSON.stringify({ sampleRate }) });
+			if (this.cancelled) {
+				await this.releaseHost();
+				await this.teardown();
+				return;
+			}
 			this.handlers.onPhase("listening");
 		} catch (error) {
+			// Whatever was opened, give it back: a half-open microphone or a host
+			// session nobody will ever stop is worse than starting over.
+			await this.releaseHost();
 			await this.teardown();
 			this.handlers.onError(errorCode(error), errorMessage(error));
 			this.handlers.onPhase("idle");
@@ -129,30 +157,57 @@ export class VoiceRecorder {
 		this.releaseMicrophone();
 		this.handlers.onPhase("transcribing");
 		try {
+			// Every slice recorded has to reach the host before it is asked to
+			// transcribe: the last one is the last syllable.
+			await Promise.allSettled([...this.pending]);
 			const transcript = await api<{ text: string }>(`${ROOT}/stop`, { method: "POST" });
+			if (this.cancelled) return;
 			if (transcript.text) this.handlers.onFinal(transcript.text);
 			else this.handlers.onError("no-speech", "no-speech");
 		} catch (error) {
-			this.handlers.onError(errorCode(error), errorMessage(error));
+			if (!this.cancelled) this.handlers.onError(errorCode(error), errorMessage(error));
 		} finally {
 			await this.teardown();
 			this.stopping = false;
+			this.cancelled = false;
 		}
 	}
 
-	/** Discard the recording: nothing is transcribed, nothing is inserted. */
+	/**
+	 * Discard the recording: nothing is transcribed, nothing is inserted.
+	 *
+	 * Also the way out of `connecting` and `transcribing`: the microphone may not
+	 * be open yet, and a stop already on the wire has its text dropped instead of
+	 * landing in the composer.
+	 */
 	async cancel(): Promise<void> {
-		if (!this.active || this.stopping) return;
+		if (this.stopping) {
+			// The stop request is in flight; its reply must not be inserted.
+			this.cancelled = true;
+			return;
+		}
+		this.cancelled = true;
+		if (!this.active) {
+			await this.releaseHost();
+			await this.teardown();
+			return;
+		}
 		this.stopping = true;
 		this.releaseMicrophone();
 		try {
-			await api(`${ROOT}/cancel`, { method: "POST" }).catch(() => {
-				// The host may already have dropped the session; cancelling is local anyway.
-			});
+			await this.releaseHost();
 		} finally {
 			await this.teardown();
 			this.stopping = false;
+			this.cancelled = false;
 		}
+	}
+
+	/** Drop the host's buffered session; nothing to do when there is none. */
+	private async releaseHost(): Promise<void> {
+		await api(`${ROOT}/cancel`, { method: "POST" }).catch(() => {
+			// The host may already have dropped the session; cancelling is local anyway.
+		});
 	}
 
 	private releaseMicrophone(): void {
@@ -167,7 +222,7 @@ export class VoiceRecorder {
 		this.context = undefined;
 	}
 
-	private async openMicrophone(): Promise<void> {
+	private async openMicrophone(): Promise<number> {
 		this.stream = await navigator.mediaDevices.getUserMedia({
 			audio: { channelCount: 1, echoCancellation: true, autoGainControl: true, noiseSuppression: true },
 		});
@@ -189,8 +244,17 @@ export class VoiceRecorder {
 				return;
 			}
 			if (typeof event.data.level === "number") this.handlers.onLevel?.(event.data.level);
-			if (event.data.data) void this.sendChunk(event.data.data);
+			if (event.data.data) this.track(this.sendChunk(event.data.data));
 		};
+		// The context's own rate, not the one asked for: a browser that refuses the
+		// request would otherwise have its audio labelled at the wrong rate.
+		return this.context.sampleRate;
+	}
+
+	/** Keep a chunk upload observable so `stop` can wait for the tail. */
+	private track(task: Promise<void>): void {
+		this.pending.add(task);
+		void task.finally(() => this.pending.delete(task));
 	}
 
 	private async sendChunk(data: string): Promise<void> {
@@ -209,8 +273,10 @@ export class VoiceRecorder {
 
 	/** A service-side failure ends the recording; the user may start again. */
 	private async fail(code: string, reason: string): Promise<void> {
-		if (!this.active) return;
+		if (this.stopping || !this.active) return;
 		this.releaseMicrophone();
+		// The host is holding a session that will never be stopped otherwise.
+		await this.releaseHost();
 		await this.teardown();
 		this.handlers.onError(code, reason);
 		this.handlers.onPhase("idle");

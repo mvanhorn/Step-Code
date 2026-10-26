@@ -79,8 +79,11 @@ export function MicButton({ onTranscript }: MicButtonProps) {
 	}, [onTranscript, t]);
 
 	// Escape discards a live recording from the shell's chain (repo convention 9).
+	// Bound for `connecting` and `transcribing` too: the documented promise is
+	// that Escape cancels the dictation, and during those waits it is the only
+	// way out — the pill shows a spinner, not a cancel button.
 	useEffect(() => {
-		if (phase !== "listening") return;
+		if (phase === "idle") return;
 		const voice = ensureRecorder();
 		setVoiceStopHook(() => voice.cancel());
 		return () => setVoiceStopHook(undefined);

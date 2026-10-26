@@ -49,7 +49,10 @@ export async function voiceRoute(
 		const method = request.method || "GET";
 		if (parts.length === 0 && method === "GET") return reply(response, 200, voice.status());
 		if (parts.length === 1 && parts[0] === "start" && method === "POST") {
-			const session = voice.start();
+			// A body is optional: an older client starts without one and gets the
+			// capture default rate in its WAV header.
+			const input = await readBody(request);
+			const session = voice.start({ sampleRate: input.sampleRate });
 			return reply(response, 200, session);
 		}
 		if (parts.length === 1 && parts[0] === "audio" && method === "POST") {

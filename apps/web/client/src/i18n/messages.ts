@@ -133,6 +133,7 @@ const zhCN = {
 	noSearchResults: "没有匹配的会话",
 	searchIndexing: "正在建立搜索索引（{indexed}/{total}），结果可能不全",
 	searchIndexDegraded: "搜索索引不可用，只按会话匹配",
+	revealNotFound: "匹配内容不在当前对话分支上（该轮已被撤回或重试），已回到会话末尾",
 	recentFolders: "最近的文件夹",
 	chooseFolder: "选择文件夹…",
 	addWorkspace: "添加工作区",
@@ -1036,6 +1037,8 @@ const enUS: Record<MessageKey, string> = {
 	noSearchResults: "No matching conversations",
 	searchIndexing: "Building the search index ({indexed}/{total}); results may be incomplete",
 	searchIndexDegraded: "Search index unavailable; matching whole conversations only",
+	revealNotFound:
+		"That match is not on this conversation's current branch (the turn was reverted or retried); showing the end instead",
 	recentFolders: "Recent folders",
 	chooseFolder: "Choose folder…",
 	addWorkspace: "Add workspace",

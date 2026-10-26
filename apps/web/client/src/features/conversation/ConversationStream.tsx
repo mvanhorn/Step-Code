@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useLocale, useT } from "../../i18n";
 import { collectTurnChanges } from "../../lib/turn-changes";
+import { showToast } from "../../state/session";
 import { setUi, useAppStore } from "../../state/store";
 import type { SteeringMessage, TimelineItem } from "../../state/types";
 import { Icon } from "../../ui";
@@ -75,6 +76,7 @@ const STICK_THRESHOLD = 48;
  * Opening a session or sending a message pins it again.
  */
 export function ConversationStream() {
+	const t = useT();
 	const items = useAppStore((state) => state.timelineItems);
 	const pendingTurn = useAppStore((state) => state.pendingTurn);
 	// Sent with "立即" or Cmd/Ctrl+Enter: the kernel reads them after the current tool call; shown already.
@@ -123,18 +125,29 @@ export function ConversationStream() {
 		if (stick.current) scrollToEnd(streamRef.current);
 	}, [items, locale]);
 	// A search hit: once its session's timeline is drawn, centre the entry and stop following the end.
+	// The reveal is cleared only after the lookup. Clearing it first and giving up
+	// when the row is absent left the reader at the newest message with no
+	// explanation, which reads as "the jump went to the end".
 	useLayoutEffect(() => {
 		if (!reveal || reveal.sessionId !== sessionId || !items.length) return;
-		setUi({ revealEntry: null });
 		const target = innerRef.current?.querySelector<HTMLElement>(`[data-entry-id="${CSS.escape(reveal.entryId)}"]`);
-		if (!target) return;
+		setUi({ revealEntry: null });
+		if (!target) {
+			// A hit can name a row this transcript does not draw: the message belongs
+			// to a branch the user rewound or retried away from (the file keeps those
+			// rows, the page renders the live branch), or the entry is one the index
+			// covers but the transcript has no row for. Say which, and say where the
+			// reader ended up.
+			showToast(t("revealNotFound"));
+			return;
+		}
 		stick.current = false;
 		target.scrollIntoView({ block: reveal.block ?? "center", behavior: reveal.behavior });
 		target.animate([{ backgroundColor: "var(--selection)" }, { backgroundColor: "transparent" }], {
 			duration: 1600,
 			easing: "ease-out",
 		});
-	}, [reveal, sessionId, items]);
+	}, [reveal, sessionId, items, t]);
 	// The live reply grows between store updates (smooth reveal), so watch the size too.
 	useEffect(() => {
 		const inner = innerRef.current;
