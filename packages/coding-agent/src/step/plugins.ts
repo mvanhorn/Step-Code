@@ -1056,7 +1056,7 @@ export async function addMarketplaceSource(input: {
 			await fs.cp(local, target, { recursive: true, errorOnExist: true, force: false });
 		} else {
 			report(`Cloning repository (timeout: 120s): ${cloneSource}`);
-			await cloneMarketplace(cloneSource!, target, report, input.signal);
+			await cloneMarketplace(cloneSource!, target, marketplacesDir, report, input.signal);
 		}
 	} catch (error) {
 		await fs.rm(target, { recursive: true, force: true }).catch(() => undefined);
@@ -1084,10 +1084,16 @@ export async function addMarketplaceSource(input: {
  * `--progress` is what makes git emit percentage updates to stderr when it is
  * not attached to a terminal; without it a large clone is silent until it
  * finishes, which is indistinguishable from a hang.
+ *
+ * git runs in `cwd` (the marketplaces folder, which exists by now) rather than
+ * the host's working directory: a long-lived host can outlive its own cwd (the
+ * Web host's build folder is deleted and recreated on rebuild), and git's https
+ * helper then fails with "Unable to read current working directory".
  */
 async function cloneMarketplace(
 	cloneSource: string,
 	target: string,
+	cwd: string,
 	report: (message: string) => void,
 	signal?: AbortSignal,
 ): Promise<void> {
@@ -1095,7 +1101,7 @@ async function cloneMarketplace(
 		const child = execFile(
 			"git",
 			["clone", "--depth", "1", "--progress", "--", cloneSource, target],
-			{ timeout: 120_000, ...(signal ? { signal } : {}) },
+			{ cwd, timeout: 120_000, ...(signal ? { signal } : {}) },
 			(error) => (error ? reject(error) : resolve()),
 		);
 		let pending = "";
@@ -1156,7 +1162,7 @@ export async function updateMarketplaceSource(input: {
 		return { warnings: [`Marketplace '${name}' is a local checkout and cannot be updated automatically.`] };
 	}
 	try {
-		await execFileText("git", ["-C", target, "pull", "--ff-only", "--quiet"], { timeout: 120_000 });
+		await execFileText("git", ["-C", target, "pull", "--ff-only", "--quiet"], { cwd: target, timeout: 120_000 });
 	} catch (error) {
 		return { warnings: [`Could not update marketplace '${name}': ${describe(error)}`] };
 	}
@@ -1749,7 +1755,10 @@ function deriveMarketplaceName(source: string): string | undefined {
 
 async function readGitOrigin(dir: string): Promise<string | null> {
 	try {
-		const result = await execFileText("git", ["-C", dir, "remote", "get-url", "origin"], { timeout: 10_000 });
+		const result = await execFileText("git", ["-C", dir, "remote", "get-url", "origin"], {
+			cwd: dir,
+			timeout: 10_000,
+		});
 		return result.stdout.trim() || null;
 	} catch {
 		return null;
