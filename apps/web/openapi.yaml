@@ -2114,8 +2114,9 @@ paths:
     post:
       description: >-
         File feedback about this session. The kernel assembles the body and the session archive, redacts them, and
-        delivers both; the host never assembles its own payload. Without a feedback endpoint configured the host
-        answers 400 with the reason.
+        delivers both; the host never assembles its own payload. The built-in collector route is used unless
+        `STEPCODE_FEEDBACK_ENDPOINT` overrides it. A report the kernel rejects (unknown category, invalid body) answers
+        400 with the reason.
       parameters:
         - { $ref: "#/components/parameters/SessionId" }
       requestBody:
@@ -2132,7 +2133,7 @@ paths:
                 token: { type: string, description: "The token of the evidence the dialog displayed" }
       responses:
         "200": { description: Submitted; `message` states the feedback id and any skipped archive }
-        "400": { description: "Feedback is not configured, the category is unknown, or the kernel rejected the body" }
+        "400": { description: "The kernel rejected the report, or delivery failed and the outcome is not a submission" }
   /api/v1/sessions/{id}/model:
     patch:
       parameters:

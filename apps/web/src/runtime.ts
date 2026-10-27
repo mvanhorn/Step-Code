@@ -1698,9 +1698,6 @@ export class WebSession {
 		readonly feedbackId?: string;
 	}> {
 		const endpoint = resolveFeedbackEndpoint();
-		if (!endpoint) {
-			return { ok: false, message: "Feedback is not configured for this build." };
-		}
 		// An opt-out is a decision about sending anything at all, not just about
 		// the dialog: refuse here too, so a caller that skipped the preview cannot
 		// file a report the user disabled.
@@ -1737,7 +1734,7 @@ export class WebSession {
 			storageRootDir: resolveStepStorageRoot(),
 			sessionId: bundle?.status === "ready" ? bundle.bundle.sessionId : this.id,
 			endpoint,
-			...(bundleEndpoint ? { bundleEndpoint } : {}),
+			bundleEndpoint,
 			username: readFeedbackUsername(),
 			surface: this.feedbackSurface(),
 			env: process.env,
@@ -1784,9 +1781,6 @@ export class WebSession {
 			...(sessionFile ? { sessionFile } : { sessionId: this.id }),
 			cwd: this.cwd,
 			env: process.env,
-			// Nothing can receive the archive without a bundle endpoint; building it
-			// would read and compress up to 24 MiB and promise it on the review page.
-			withoutBundle: resolveFeedbackEndpoint(process.env, true) === undefined,
 			runtime: {
 				...(this.livePermission ? { permissionPreset: this.livePermission } : {}),
 				...(usage ? { contextUsed: usage.tokens, contextWindow: usage.contextWindow } : {}),
@@ -1812,7 +1806,6 @@ export class WebSession {
 	private assertFeedbackEnabled(): void {
 		const disabled = this.feedbackDisabledReason();
 		if (disabled) throw new Error(disabled);
-		if (!resolveFeedbackEndpoint()) throw new Error("Feedback is not configured for this build.");
 	}
 
 	/** Which product filed the report; Desktop runs this same host under Electron. */
