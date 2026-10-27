@@ -291,6 +291,36 @@ test("a closed session refuses new prompts instead of spending a model call", { 
 	});
 });
 
+test("a goal start is tracked and refuses to start after close", { timeout: 60_000 }, async () => {
+	await withWorkspace(1, async (base, fixture) => {
+		const store = new WebSessionStore();
+		const session = await store.create(base);
+		await session.send("warm up");
+
+		// `/goal <objective>` runs a real turn, but through the goal strip rather
+		// than `send`. It must count as a pending turn from the moment it is
+		// accepted, or a shutdown in its pre-run window disposes the session with
+		// the turn still in memory.
+		const starting = session.controlGoal("start", "keep the transcript whole").catch(() => undefined);
+		assert.equal(session.isBusy(), true, "a goal start counts as a pending turn");
+		await fixture.started;
+		await store.interruptAndClose({ graceMs: 3_000, reason: "host shutdown" });
+		await starting;
+
+		const transcript = await readFile(session.sessionFile()!, "utf8");
+		assert.ok(transcript.includes("keep the transcript whole"), "the goal objective must be journaled");
+	});
+
+	await withWorkspace(1, async (base) => {
+		const store = new WebSessionStore();
+		const session = await store.create(base);
+		await session.send("warm up");
+		await session.close();
+		await assert.rejects(() => session.controlGoal("start", "too late"), /closing/u);
+		await assert.rejects(() => session.setMode("goal", true, "too late"), /closing/u);
+	});
+});
+
 test("hasInterruptedTurn reads the newest turn, not the newest message kind", () => {
 	const user = (id: string): SessionEntry =>
 		({ type: "message", id, timestamp: "", message: { role: "user", content: "hi" } }) as SessionEntry;
@@ -320,10 +350,19 @@ test("hasInterruptedTurn reads the newest turn, not the newest message kind", ()
 		"an interrupted turn the user retried is no longer the newest",
 	);
 	assert.equal(hasInterruptedTurn([], false), false);
-	// Tool work: the loop always answers a batch with another reply, so these tails
-	// only happen when the turn was cut off (a killed host leaves exactly this).
+	// Tool work: a killed host leaves an assistant whose calls never answered.
 	assert.equal(hasInterruptedTurn([user("u"), assistant("a", "toolUse", [call])], false), true);
-	assert.equal(hasInterruptedTurn([user("u"), assistant("a", "toolUse", [call]), toolResult("r")], false), true);
+	assert.equal(
+		hasInterruptedTurn([user("u"), assistant("a", "toolUse", [call]), toolResult("r")], false),
+		false,
+		"a settled batch answers every call, so a trailing result is not an interruption",
+	);
+	const twoCalls = { type: "toolCall", id: "call-2", name: "bash", arguments: {} };
+	assert.equal(
+		hasInterruptedTurn([user("u"), assistant("a", "toolUse", [call, twoCalls]), toolResult("r")], false),
+		true,
+		"a batch cut off mid-way leaves a call unanswered",
+	);
 	// A settled tool turn's newest entry is the assistant that answered it.
 	assert.equal(
 		hasInterruptedTurn(

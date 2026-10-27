@@ -674,20 +674,51 @@ function commandEchoOf(entry: SessionEntry): string | undefined {
 }
 
 /**
+ * Whether a tool batch that ends the branch is missing a result.
+ *
+ * A settled batch can end the transcript: a tool or permission hook can
+ * terminate the run, and a manual `/clm` stops after the turn whose context edit
+ * was accepted. Only a call without its result proves the run was cut off while
+ * the tool was still running.
+ */
+function hasUnansweredToolCall(entries: readonly SessionEntry[], resultIndex: number): boolean {
+	let batchIndex = -1;
+	for (let index = resultIndex - 1; index >= 0; index--) {
+		const entry = entries[index];
+		if (entry?.type !== "message") continue;
+		if (entry.message.role !== "assistant") continue;
+		if (!entry.message.content.some((block) => block.type === "toolCall")) continue;
+		batchIndex = index;
+		break;
+	}
+	const batch = batchIndex < 0 ? undefined : entries[batchIndex];
+	if (batch?.type !== "message" || batch.message.role !== "assistant") return false;
+	const calls = batch.message.content.flatMap((block) => (block.type === "toolCall" ? [block.id] : []));
+	if (!calls.length) return false;
+	const answered = new Set<string>();
+	for (let index = batchIndex + 1; index < entries.length; index++) {
+		const entry = entries[index];
+		if (entry?.type === "message" && entry.message.role === "toolResult") answered.add(entry.message.toolCallId);
+	}
+	return calls.some((id) => !answered.has(id));
+}
+
+/**
  * Whether the newest turn on this branch was cut off rather than finished.
  *
- * A host that stops mid-turn now records the partial reply as `aborted`, and a
- * crash leaves the branch ending in something only an unfinished turn produces.
- * Both used to read as a conversation that simply ended early; this lets the
- * page say a run was interrupted. Derived from entries so the answer survives a
- * restart, and false while a turn runs, where an unanswered prompt is just the
- * turn still starting.
+ * A host that stops mid-turn records the partial reply as `aborted`, and a crash
+ * leaves the branch ending in a shape only an unfinished turn produces. Both used
+ * to read as a conversation that simply ended early; this lets the page say a run
+ * was interrupted. Derived from entries so the answer survives a restart, and
+ * false while a turn runs, where an unanswered prompt is just the turn still
+ * starting.
  *
- * The loop always follows a tool batch with another assistant reply, so a branch
- * whose newest message is a tool result, or an assistant that stopped with tool
- * calls, was cut off during tool work — a stopped run records `aborted` there,
- * but a killed host leaves exactly this shape. Errors and truncated replies are
- * not "interrupted": they are rendered as what they are.
+ * Tool work needs care: a branch may legitimately end on a tool result (a tool or
+ * permission hook terminated the run, or a manual `/clm` stopped after its
+ * accepted edit), so a trailing result only counts when its call never answered.
+ * A trailing tool-use assistant has no results at all, which is the killed-host
+ * shape. Errors and truncated replies are not "interrupted": they are rendered
+ * as what they are.
  */
 export function hasInterruptedTurn(entries: readonly SessionEntry[], running: boolean): boolean {
 	if (running) return false;
@@ -696,7 +727,7 @@ export function hasInterruptedTurn(entries: readonly SessionEntry[], running: bo
 		if (entry?.type !== "message") continue;
 		const message = entry.message;
 		if (message.role === "user") return true;
-		if (message.role === "toolResult") return true;
+		if (message.role === "toolResult") return hasUnansweredToolCall(entries, index);
 		if (message.role === "assistant") return message.stopReason === "aborted" || message.stopReason === "toolUse";
 	}
 	return false;
@@ -1367,12 +1398,29 @@ export class WebSession {
 	 * it instead of rejecting it.
 	 */
 	async send(text: string, attachments: readonly WebAttachment[] = [], followUp = false): Promise<void> {
-		if (this.closing) throw new Error("This session is closing");
 		if (this.isReverting()) throw new Error("Wait for the revert to finish");
-		this.unread = false;
+		await this.promptTracked(() => {
+			this.unread = false;
+			return this.sendWithinTurn(text, attachments, followUp);
+		});
+	}
+
+	/**
+	 * Run one kernel prompt under the session's lifecycle.
+	 *
+	 * The composer's path is `send`, but session control reaches the kernel
+	 * directly: `/goal <objective>` starts a real turn, and `/plan` /
+	 * `/ultraloop` can too. All of them must refuse work once closing and count
+	 * as a pending turn until their run starts, or shutdown disposes the session
+	 * with the prompt still in memory — the same loss `send` guards against.
+	 * Commands that only configure the session (`/permissions`, `/goal pause`)
+	 * settle without a run; waiting for one exits as soon as they do.
+	 */
+	private async promptTracked(start: () => Promise<void>): Promise<void> {
+		if (this.closing) throw new Error("This session is closing");
 		this.pendingPrompts += 1;
 		try {
-			await this.sendWithinTurn(text, attachments, followUp);
+			await start();
 		} finally {
 			this.pendingPrompts -= 1;
 		}
@@ -2098,8 +2146,10 @@ export class WebSession {
 						? `/goal ${(goal ?? "").trim()}`
 						: "/goal clear";
 		// Starting a goal is user input; the other toggles carry no text to title.
-		if (mode === "goal" && enabled) this.maybeGenerateSessionTitle(prompt);
-		await this.session.prompt(prompt, { source: "rpc", streamingBehavior: "followUp" });
+		await this.promptTracked(() => {
+			if (mode === "goal" && enabled) this.maybeGenerateSessionTitle(prompt);
+			return this.session.prompt(prompt, { source: "rpc", streamingBehavior: "followUp" });
+		});
 	}
 
 	/**
@@ -2124,8 +2174,10 @@ export class WebSession {
 						: action === "resume"
 							? "/goal resume"
 							: "/goal clear";
-		if (action === "start") this.maybeGenerateSessionTitle(prompt);
-		await this.session.prompt(prompt, { source: "rpc", streamingBehavior: "followUp" });
+		await this.promptTracked(() => {
+			if (action === "start") this.maybeGenerateSessionTitle(prompt);
+			return this.session.prompt(prompt, { source: "rpc", streamingBehavior: "followUp" });
+		});
 	}
 
 	snapshot(): Record<string, unknown> {
