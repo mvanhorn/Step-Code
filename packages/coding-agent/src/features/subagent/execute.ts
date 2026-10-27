@@ -70,6 +70,11 @@ const LIVE_UPDATE_INTERVAL_MS = 100;
 const LIVE_TEXT_CHARS = 2_000;
 const LIVE_TOOL_OUTPUT_CHARS = 1_000;
 const LIVE_TOOL_ARGS_CHARS = 500;
+const LIVE_TASK_CHARS = 600;
+const LIVE_STDERR_CHARS = 2_000;
+const LIVE_ERROR_CHARS = 2_000;
+const LIVE_PROMPT_CHARS = 200;
+const LIVE_CANCELLED_PROMPTS = 20;
 
 /**
  * Final-result budget for the child transcript embedded in the tool result.
@@ -82,6 +87,9 @@ const LIVE_TOOL_ARGS_CHARS = 500;
  * repository apply to a persisted command result.
  */
 const FINAL_MESSAGES_BYTES = 64 * 1024;
+/** Display-only bounds on the final record; `content` carries the model-facing text. */
+const FINAL_TEXT_CHARS = 8_000;
+const FINAL_TASK_CHARS = 2_000;
 
 export interface StepSubagentTaskInput {
 	agent: string;
@@ -187,39 +195,124 @@ function buildDetails(
 	};
 }
 
-/** Keep the tail of a streamed field: the UI renders the newest lines. */
+/** Keep the tail of a streamed field within `max` characters, marker included. */
 function tailChars(value: string | undefined, max: number): string | undefined {
 	if (value === undefined || value.length <= max) return value;
-	return `\u2026${value.slice(-max)}`;
+	return `\u2026${value.slice(-(max - 1))}`;
+}
+
+/** Keep both ends of a prompt: the opening instruction and the inserted context. */
+function clipMiddle(value: string, max: number): string {
+	if (value.length <= max) return value;
+	const half = Math.max(1, Math.floor((max - 1) / 2));
+	return `${value.slice(0, half)}\u2026${value.slice(-half)}`;
 }
 
 /**
- * Project one record for a live update. `messages` is deliberately empty: the
- * transcript changes only at `message_end`, so a per-event copy re-sends the
- * same array hundreds of times between two of them.
+ * Project one record for a live update.
+ *
+ * This is an explicit allowlist, not a spread with a few fields patched: a
+ * custom runner (or a future field) must not be able to smuggle unbounded state
+ * into a payload that is emitted at 10 Hz. `messages` is deliberately empty —
+ * the transcript changes only at `message_end`, so copying it per event
+ * re-sends the same array hundreds of times between two of them.
+ *
+ * `task` matters most for a chain: `{previous}` splices the previous step's
+ * entire output into the next step's task, so the expanded prompt can be as
+ * large as the child's whole answer.
  */
 function liveRecord(record: StepSubagentResultRecord): StepSubagentResultRecord {
 	return {
-		...record,
+		agent: record.agent,
+		agentSource: record.agentSource,
+		task: clipMiddle(record.task, LIVE_TASK_CHARS),
+		status: record.status,
+		exitCode: record.exitCode,
 		messages: [],
-		activeText: tailChars(record.activeText, LIVE_TEXT_CHARS),
-		activeToolArgs: tailChars(record.activeToolArgs, LIVE_TOOL_ARGS_CHARS),
-		activeToolOutput: tailChars(record.activeToolOutput, LIVE_TOOL_OUTPUT_CHARS),
+		stderr: tailChars(record.stderr, LIVE_STDERR_CHARS) ?? "",
 		usage: cloneUsage(record.usage),
+		...(record.model === undefined ? {} : { model: record.model }),
+		...(record.stopReason === undefined ? {} : { stopReason: record.stopReason }),
+		...(record.errorMessage === undefined ? {} : { errorMessage: tailChars(record.errorMessage, LIVE_ERROR_CHARS) }),
+		...(record.activeText === undefined ? {} : { activeText: tailChars(record.activeText, LIVE_TEXT_CHARS) }),
+		...(record.activeTool === undefined ? {} : { activeTool: record.activeTool }),
+		...(record.activeToolArgs === undefined
+			? {}
+			: { activeToolArgs: tailChars(record.activeToolArgs, LIVE_TOOL_ARGS_CHARS) }),
+		...(record.activeToolOutput === undefined
+			? {}
+			: { activeToolOutput: tailChars(record.activeToolOutput, LIVE_TOOL_OUTPUT_CHARS) }),
+		...(record.lastEvent === undefined ? {} : { lastEvent: record.lastEvent }),
+		...(record.startedAt === undefined ? {} : { startedAt: record.startedAt }),
+		...(record.updatedAt === undefined ? {} : { updatedAt: record.updatedAt }),
+		...(record.step === undefined ? {} : { step: record.step }),
+		...(record.worktreePath === undefined ? {} : { worktreePath: record.worktreePath }),
+		...(record.worktreeBranch === undefined ? {} : { worktreeBranch: record.worktreeBranch }),
+		...(record.sessionId === undefined ? {} : { sessionId: record.sessionId }),
+		...(record.sessionFile === undefined ? {} : { sessionFile: record.sessionFile }),
+		...(record.pendingReply === undefined ? {} : { pendingReply: record.pendingReply }),
+		...boundedPrompts(record.cancelledPrompts),
 	};
 }
 
-/** Newest messages that fit the final-result budget, oldest first. */
-function boundedMessages(messages: readonly unknown[]): StepSubagentRunResult["messages"] {
+function boundedPrompts(prompts: string[] | undefined): { cancelledPrompts?: string[] } {
+	if (!prompts || prompts.length === 0) return {};
+	return {
+		cancelledPrompts: prompts
+			.slice(-LIVE_CANCELLED_PROMPTS)
+			.map((prompt) => tailChars(prompt, LIVE_PROMPT_CHARS) ?? ""),
+	};
+}
+
+/** Final transcript projection: newest messages that fit, plus why they were cut. */
+function boundedMessages(messages: readonly unknown[]): {
+	messages: StepSubagentRunResult["messages"];
+	truncated: boolean;
+} {
+	if (messages.length === 0) return { messages: [], truncated: false };
 	const kept: unknown[] = [];
-	let bytes = 0;
+	// Reserve the brackets and count each retained element's separating comma so
+	// the check is on the serialized array, not on the sum of its members.
+	let bytes = 2;
 	for (let index = messages.length - 1; index >= 0; index -= 1) {
-		const size = Buffer.byteLength(JSON.stringify(messages[index]) ?? "", "utf8");
+		const size = Buffer.byteLength(JSON.stringify(messages[index]) ?? "", "utf8") + 1;
 		if (bytes + size > FINAL_MESSAGES_BYTES) break;
 		bytes += size;
 		kept.push(messages[index]);
 	}
-	return kept.reverse() as StepSubagentRunResult["messages"];
+	return {
+		messages: kept.reverse() as StepSubagentRunResult["messages"],
+		truncated: kept.length < messages.length,
+	};
+}
+
+/**
+ * Final record projection.
+ *
+ * The transcript is bounded, and so is every other field a consumer renders: a
+ * runner that reports a multi-hundred-KB final answer must not put it in the
+ * details, which several terminal events then echo. `activeText` is filled from
+ * the transcript when a runner did not set it, so trimming `messages` can never
+ * turn a completed record into "(no output)".
+ */
+function finalRecord(record: StepSubagentResultRecord): StepSubagentResultRecord {
+	const bounded = boundedMessages(record.messages);
+	// Fall back to the full transcript, not the bounded copy: one message larger
+	// than the budget leaves `messages` empty, and the result must still render.
+	const fallbackText = finalOutput(record.messages);
+	return {
+		...record,
+		task: clipMiddle(record.task, FINAL_TASK_CHARS),
+		messages: bounded.messages,
+		activeText: tailChars(record.activeText || fallbackText, FINAL_TEXT_CHARS),
+		activeToolArgs: tailChars(record.activeToolArgs, LIVE_TOOL_ARGS_CHARS),
+		activeToolOutput: tailChars(record.activeToolOutput, LIVE_TOOL_OUTPUT_CHARS),
+		stderr: tailChars(record.stderr, LIVE_STDERR_CHARS) ?? "",
+		...(record.errorMessage === undefined ? {} : { errorMessage: tailChars(record.errorMessage, LIVE_ERROR_CHARS) }),
+		...boundedPrompts(record.cancelledPrompts),
+		...(bounded.truncated ? { messagesTruncated: true } : {}),
+		usage: cloneUsage(record.usage),
+	};
 }
 
 async function mapWithConcurrency<T, R>(
@@ -236,7 +329,11 @@ async function mapWithConcurrency<T, R>(
 			results[index] = await fn(items[index], index);
 		}
 	});
-	await Promise.all(workers);
+	// Settle every worker before returning: a fail-fast rejection would otherwise
+	// leave the other lanes running against an emitter the caller already closed.
+	const settled = await Promise.allSettled(workers);
+	const failed = settled.find((entry) => entry.status === "rejected");
+	if (failed) throw failed.reason;
 	return results;
 }
 
@@ -470,13 +567,39 @@ export async function runPreparedSubagent(
 	let lastStatusKey = "";
 	let lastPublishAt = 0;
 	let pendingPublish: ReturnType<typeof setTimeout> | undefined;
+	/**
+	 * Emission ownership. A consumer's `onUpdate` can throw, and after the timer
+	 * fires that rejection no longer belongs to the caller's await chain. Capture
+	 * it, stop emitting, and rethrow from the call's own path below, so one
+	 * failing host cannot leave a timer publishing into a dead session.
+	 */
+	let closed = false;
+	let publishError: unknown;
+
+	const closeEmitter = (): void => {
+		closed = true;
+		if (pendingPublish) {
+			clearTimeout(pendingPublish);
+			pendingPublish = undefined;
+		}
+	};
 
 	const publish = (mode: StepSubagentDetails["mode"]): void => {
-		if (!onUpdate) return;
+		if (closed || !onUpdate) return;
 		lastPublishAt = Date.now();
 		lastStatusKey = statusKey();
 		const live = buildDetails(mode, discovery, scope, records.map(liveRecord));
 		onUpdate(makeToolResult(live, resultDetailsText(live)));
+	};
+
+	/** Run `publish`, attributing a failure to the call instead of the timer. */
+	const publishSafely = (mode: StepSubagentDetails["mode"]): void => {
+		try {
+			publish(mode);
+		} catch (error) {
+			publishError ??= error;
+			closeEmitter();
+		}
 	};
 
 	/**
@@ -486,31 +609,39 @@ export async function runPreparedSubagent(
 	 * live list shows besides the token counter, and readers rely on seeing every
 	 * one of them. Everything in between (a streamed delta, a tool-output chunk)
 	 * waits for the interval, with the latest records winning.
+	 *
+	 * Never throws; a consumer failure is surfaced once by `flushEmit`.
 	 */
 	const emit = (mode: StepSubagentDetails["mode"]): void => {
-		if (!onUpdate) return;
+		if (closed || !onUpdate) return;
 		const wait = LIVE_UPDATE_INTERVAL_MS - (Date.now() - lastPublishAt);
 		if (statusKey() !== lastStatusKey || wait <= 0) {
 			if (pendingPublish) {
 				clearTimeout(pendingPublish);
 				pendingPublish = undefined;
 			}
-			publish(mode);
+			publishSafely(mode);
 			return;
 		}
 		pendingPublish ??= setTimeout(() => {
 			pendingPublish = undefined;
-			publish(mode);
+			publishSafely(mode);
 		}, wait);
 		pendingPublish.unref?.();
 	};
 
-	/** Publish the last coalesced update so the caller's final state is not dropped. */
+	/** Publish the last coalesced update, close the emitter, and rethrow a consumer failure. */
 	const flushEmit = (mode: StepSubagentDetails["mode"]): void => {
 		if (pendingPublish) {
 			clearTimeout(pendingPublish);
 			pendingPublish = undefined;
-			publish(mode);
+			publishSafely(mode);
+		}
+		closeEmitter();
+		if (publishError !== undefined) {
+			const error = publishError;
+			publishError = undefined;
+			throw error instanceof Error ? error : new Error(String(error));
 		}
 	};
 
@@ -688,12 +819,7 @@ export async function runPreparedSubagent(
 		// A trailing coalesced update must not outlive the call or be lost.
 		flushEmit(mode);
 	}
-	const finalDetails = buildDetails(
-		mode,
-		discovery,
-		scope,
-		records.map((record) => ({ ...record, messages: boundedMessages(record.messages) })),
-	);
+	const finalDetails = buildDetails(mode, discovery, scope, records.map(finalRecord));
 	if (mode === "parallel") {
 		const success = records.filter((record) => record.status === "completed").length;
 		const summaries = records.map(

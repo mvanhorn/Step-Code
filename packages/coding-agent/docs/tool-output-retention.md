@@ -39,17 +39,28 @@ typed `details` payloads. No new permission bypass or external upload is added.
 A tool's `onUpdate` callbacks are progress, not results. They run while the call
 is in flight and each one becomes a `tool_execution_update` session event, which
 the `json` and `rpc` modes write as one JSONL line — so a host that redirects
-that stream to a file turns progress into log volume. Two bounds keep that
-volume proportional to wall-clock time instead of to the work already done:
+that stream to a file turns progress into log volume. The bound is
+`O(elapsed time x bounded payload)`, not a constant log size:
 
 - A producer sends at most one update per 100 ms (the same cadence the bash tool
   uses) and publishes state transitions immediately.
-- A live update carries no `messages` transcript, and its streamed text is held
-  to a short tail. The complete transcript is published once, in the final
-  result, itself capped at 64 KiB of the newest messages. Older messages stay
-  readable through the child session id or `sessionFile`.
+- A live update is an explicit projection, never the accumulated call state. The
+  subagent orchestrator drops `messages`, keeps a short tail of the streamed
+  text / tool output / stderr, and clips a task prompt at both ends, because a
+  chain splices the previous step's whole answer into the next step's task.
+- The final record is also a display projection: the newest messages that fit
+  64 KiB, an 8,000-character `activeText`, and every other rendered field
+  bounded. `messagesTruncated` says when the transcript tail was cut, and the
+  full transcript stays in the child session (`sessionId` / `sessionFile`).
+  The model-facing `content` is unaffected and still passes through this
+  document's 50 KiB retention.
 
-`toJsonEvent` additionally bounds a single `tool_execution_update` at 256 KiB
-and replaces anything larger with the tail of its text plus a truncation marker.
-That backstop exists for third-party tools that re-send accumulated state; it
-never applies to `tool_execution_end`, which carries the real result.
+`toJsonEvent` additionally bounds a single `tool_execution_update` at 256 KiB of
+*serialized* bytes. That backstop exists for third-party tools that re-send
+accumulated state; it never applies to `tool_execution_end`, which carries the
+real result. The budget is measured after JSON escaping on purpose: a control
+character or a lone surrogate becomes a six-byte escape, so counting raw
+characters under-counts the bytes the host writes.
+
+These bounds limit payload size. They do not add backpressure: a slow stdout
+reader can still queue updates, just far smaller ones.

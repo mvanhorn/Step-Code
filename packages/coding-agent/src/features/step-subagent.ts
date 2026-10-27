@@ -212,6 +212,12 @@ export interface StepSubagentResultRecord extends StepSubagentRunResult {
 	step?: number;
 	worktreePath?: string;
 	worktreeBranch?: string;
+	/**
+	 * True when `messages` holds only the newest part of the child transcript.
+	 * The record is a display projection, not the child's authoritative history:
+	 * the full transcript stays in the child session (`sessionId`/`sessionFile`).
+	 */
+	messagesTruncated?: boolean;
 }
 
 export interface StepSubagentDetails {

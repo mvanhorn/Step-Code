@@ -85,27 +85,33 @@ type ToolExecutionUpdateEvent = Extract<AgentSessionEvent, { type: "tool_executi
 
 function isTextPart(value: unknown): value is { type: "text"; text: string } {
 	if (!value || typeof value !== "object") return false;
-	const part = value as { type?: unknown; text?: unknown };
+	const part = value as { type?: unknown; text?: string };
 	return part.type === "text" && typeof part.text === "string";
+}
+
+function serializedBytes(value: unknown): number {
+	return Buffer.byteLength(JSON.stringify(value), "utf8");
 }
 
 /**
  * Keep a live update under the wire budget.
  *
- * The tail of the streamed text is retained because that is what a live view
- * renders; `details` and `args` are dropped because they are already on the
- * matching `tool_execution_start`/`tool_execution_end` events.
+ * The budget applies to the *serialized* event, envelope included, because that
+ * is what the host writes. Measuring the raw text instead would under-count:
+ * a control character or a lone surrogate becomes a six-byte JSON escape, so a
+ * 64 KiB string can serialize to 384 KiB. The tail is retained because that is
+ * what a live view renders; `details` and `args` are dropped because they are
+ * already on the matching `tool_execution_start`/`tool_execution_end` events.
  */
 function boundLiveUpdate(event: ToolExecutionUpdateEvent): JsonAgentSessionEvent {
-	const bytes = Buffer.byteLength(JSON.stringify(event), "utf8");
-	if (bytes <= MAX_LIVE_UPDATE_BYTES) return event;
+	if (serializedBytes(event) <= MAX_LIVE_UPDATE_BYTES) return event;
 	const content: unknown[] = Array.isArray(event.partialResult?.content) ? event.partialResult.content : [];
 	const text = content
 		.filter(isTextPart)
 		.map((part) => part.text)
 		.join("\n");
-	const tail = text.length > MAX_LIVE_UPDATE_BYTES / 4 ? text.slice(-(MAX_LIVE_UPDATE_BYTES / 4)) : text;
-	return {
+
+	const candidate = (tail: string): JsonAgentSessionEvent => ({
 		type: "tool_execution_update",
 		toolCallId: event.toolCallId,
 		toolName: event.toolName,
@@ -114,10 +120,22 @@ function boundLiveUpdate(event: ToolExecutionUpdateEvent): JsonAgentSessionEvent
 			content: [
 				{
 					type: "text",
-					text: tail ? `${tail}\n${TRUNCATED_MARKER}` : TRUNCATED_MARKER,
+					text: tail.length > 0 ? `${tail}\n${TRUNCATED_MARKER}` : TRUNCATED_MARKER,
 				},
 			],
 			details: undefined,
 		},
-	};
+	});
+
+	// Halve the retained tail until the whole serialized event fits. Starts at
+	// the full text so a moderately oversized update keeps as much as it can.
+	let kept = text;
+	let bounded = candidate(kept);
+	while (kept.length > 0 && serializedBytes(bounded) > MAX_LIVE_UPDATE_BYTES) {
+		kept = kept.slice(-Math.floor(kept.length / 2));
+		bounded = candidate(kept);
+	}
+	// The envelope alone can still exceed the budget for a pathological id or
+	// name; the marker-only form is the smallest this function can produce.
+	return serializedBytes(bounded) <= MAX_LIVE_UPDATE_BYTES ? bounded : candidate("");
 }
