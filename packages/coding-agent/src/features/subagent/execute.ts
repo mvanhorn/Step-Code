@@ -387,6 +387,16 @@ function finalRecords(records: readonly StepSubagentResultRecord[]): StepSubagen
 	return records.map((record) => {
 		const fallbackText = finalOutput(record.messages);
 		const text = record.activeText || fallbackText;
+		// A failed record's diagnostics are worth more than its progress text, so
+		// they are claimed first. Otherwise the budget the earlier records spent
+		// would leave later failures with no reason at all.
+		const failed = record.status === "failed" || record.status === "aborted";
+		const candidateStderr = tailChars(record.stderr, FINAL_STDERR_CHARS) ?? "";
+		const candidateError = tailChars(record.errorMessage, FINAL_ERROR_CHARS);
+		const stderrFirst = failed ? candidateStderr : "";
+		const stderrReserved = failed ? take(budget, stderrFirst) : false;
+		const errorReserved = failed ? take(budget, candidateError) : false;
+
 		// Six-byte JSON escapes are the worst case per character, so a quarter of
 		// the remaining bytes as characters is already conservative once the
 		// serialized check below has the final say.
@@ -401,11 +411,12 @@ function finalRecords(records: readonly StepSubagentResultRecord[]): StepSubagen
 		// A field the budget rejects is dropped, not silently kept at full size.
 		const candidateTask = clipMiddle(record.task, FINAL_TASK_CHARS);
 		const task = take(budget, candidateTask) ? candidateTask : clipMiddle(record.task, 0);
-		const candidateStderr = tailChars(record.stderr, FINAL_STDERR_CHARS) ?? "";
-		const stderr = take(budget, candidateStderr) ? candidateStderr : "";
-		// A field the budget rejects is dropped, not silently kept at full size.
-		const candidateError = tailChars(record.errorMessage, FINAL_ERROR_CHARS);
-		const errorMessage = take(budget, candidateError) ? candidateError : undefined;
+		const stderr = stderrReserved ? stderrFirst : take(budget, candidateStderr) ? candidateStderr : "";
+		const errorMessage = errorReserved ? candidateError : take(budget, candidateError) ? candidateError : undefined;
+		const candidateArgs = tailChars(record.activeToolArgs, LIVE_TOOL_ARGS_CHARS);
+		const activeToolArgs = take(budget, candidateArgs) ? candidateArgs : undefined;
+		const candidateOutput = tailChars(record.activeToolOutput, LIVE_TOOL_OUTPUT_CHARS);
+		const activeToolOutput = take(budget, candidateOutput) ? candidateOutput : undefined;
 		const prompts = boundedPrompts(record.cancelledPrompts);
 		const cancelledPrompts = take(budget, prompts.cancelledPrompts) ? prompts.cancelledPrompts : undefined;
 
@@ -427,12 +438,8 @@ function finalRecords(records: readonly StepSubagentResultRecord[]): StepSubagen
 			...(record.activeTool === undefined
 				? {}
 				: { activeTool: clipMiddle(record.activeTool, FINAL_IDENTIFIER_CHARS) }),
-			...(record.activeToolArgs === undefined
-				? {}
-				: { activeToolArgs: tailChars(record.activeToolArgs, LIVE_TOOL_ARGS_CHARS) }),
-			...(record.activeToolOutput === undefined
-				? {}
-				: { activeToolOutput: tailChars(record.activeToolOutput, LIVE_TOOL_OUTPUT_CHARS) }),
+			...(activeToolArgs === undefined ? {} : { activeToolArgs }),
+			...(activeToolOutput === undefined ? {} : { activeToolOutput }),
 			...(record.lastEvent === undefined ? {} : { lastEvent: clipMiddle(record.lastEvent, FINAL_IDENTIFIER_CHARS) }),
 			...(record.startedAt === undefined ? {} : { startedAt: record.startedAt }),
 			...(record.updatedAt === undefined ? {} : { updatedAt: record.updatedAt }),
