@@ -320,6 +320,15 @@ Web session objects from appending to the same JSONL file. This is not a
 cross-process lock. An older CLI that does not participate in a lease protocol  
 must be closed before the Web Host opens the same session.
 
+Desktop and Web are separate Host processes over the same `~/.stepcode`, on the
+same machine. Each page reads the session and workspace lists when it loads, so
+a conversation the other Host created, archived or deleted is only on disk. The
+client re-reads both lists when its window regains focus or its tab becomes
+visible (`features/shell/ShellEffects.tsx`, coalesced to one read per second),
+which is how a session started in one appears in the other without a reload.
+Nothing pushes between Hosts and no state is shared beyond the files, so a Web
+Host on another machine cannot see a local Desktop's conversations.
+
 Workspaces are folders the user registered through "Add workspace" (sidebar  
 button, or Alt+Cmd+O / Ctrl+Alt+O). The Host opens the operating system's  
 folder chooser when that dialog would appear on the machine in front of the  

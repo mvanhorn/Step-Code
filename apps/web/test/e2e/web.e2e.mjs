@@ -2402,6 +2402,59 @@ test("conversation search finds message content written outside the page and ope
   assert.deepEqual(listed, [sessionId])
 })
 
+test("a conversation another Host started appears when this window regains focus", { skip }, async () => {
+  // Desktop and Web are separate Host processes over one ~/.stepcode. A turn run
+  // in the other one writes a transcript this page never hears about; the row has
+  // to appear without a reload when the user comes back to the window.
+  const seededId = "e2e-other-host-seeded"
+  const sessionId = "e2e-other-host-session"
+  const usage = { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, totalTokens: 3, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }
+  const transcript = (id, text) => {
+    const now = new Date().toISOString()
+    return [
+      { type: "session", version: 3, id, timestamp: now, cwd: join(base, "other-host-project") },
+      { type: "message", id: `${id}-user`, parentId: null, timestamp: now, message: { role: "user", content: text, timestamp: Date.now() } },
+      {
+        type: "message",
+        id: `${id}-answer`,
+        parentId: `${id}-user`,
+        timestamp: now,
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "written by the other host" }],
+          api: "openai-completions",
+          provider: "e2e",
+          model: "e2e",
+          usage,
+          stopReason: "stop",
+          timestamp: Date.now(),
+        },
+      },
+    ]
+  }
+  const dir = join(base, "agent", "sessions", "--e2e-other-host--")
+  await mkdir(dir, { recursive: true })
+  const writeSession = (id, text) =>
+    writeFile(join(dir, `${id}.jsonl`), transcript(id, text).map((line) => JSON.stringify(line)).join("\n") + "\n")
+
+  // A conversation the other Host wrote before this page loaded: seeing its row
+  // proves the page read the list, so the next write cannot race the bootstrap.
+  await writeSession(seededId, "seeded before the page loaded")
+  await browser.goto(`${origin}/`)
+  await browser.run(`await until(() => $("[data-session-id='${seededId}']"), "the seeded row");`)
+
+  await writeSession(sessionId, "started in the other host")
+  const seen = await browser.run(`
+    const row = () => $("[data-session-id='${sessionId}']");
+    const before = Boolean(row());
+    window.dispatchEvent(new Event("focus"));
+    const found = await until(() => row(), "the other host's session row");
+    return { before, title: found.querySelector(".session-title")?.textContent };
+  `)
+  assert.equal(seen.before, false, "no row exists until the list is re-read")
+  assert.equal(seen.title, "started in the other host")
+})
+
 test("the conversation locator rail jumps to a query and follows the viewport", { skip }, async () => {
   const sessionId = "e2e-nav-session"
   const now = new Date().toISOString()
