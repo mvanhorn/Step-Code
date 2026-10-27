@@ -122,6 +122,11 @@
   /* Horizontal inset shared by the message column and the composer, so their
      left edges line up instead of drifting apart by a few pixels. */
   --gutter: 32px;
+  /* The floating show-sidebar button's start, and the inline band the bars
+     under it (session, market, cron headers) keep clear while the sidebar is
+     hidden. The macOS desktop host overrides only the start (below). */
+  --sidebar-show-left: 14px;
+  --sidebar-show-clearance: calc(var(--sidebar-show-left) + var(--control-h) + 14px);
   --radius-control: 8px;
   --radius-card: 16px;
   --fast: 120ms;
@@ -822,6 +827,8 @@ html[data-theme="dark"] .sidebar {
 }
 [data-host="desktop"][data-platform="darwin"] {
   --titlebar-inset: 28px;
+  /* Traffic lights end near x 68: the show-sidebar button starts after them. */
+  --sidebar-show-left: 84px;
 }
 [data-host="desktop"][data-platform="darwin"] .sidebar {
   padding-top: var(--titlebar-inset);
@@ -901,11 +908,6 @@ html[data-theme="dark"] .sidebar {
   :is(.main, .right-panel, .right-tool-rail)
   :is(button, a, input, textarea, select, [role="button"], [role="tab"], [contenteditable="true"]) {
   -webkit-app-region: no-drag;
-}
-[data-host="desktop"][data-platform="darwin"]
-  .app.sidebar-hidden
-  .sidebar-show {
-  left: 84px;
 }
 /* The sign-in gate covers the title strip: its backdrop drags the window, the card does not. */
 [data-host="desktop"] .login-gate {

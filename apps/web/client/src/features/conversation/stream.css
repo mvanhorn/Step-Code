@@ -15,7 +15,7 @@
 }
 /* The floating show-sidebar button sits over the bar's start. */
 .app.sidebar-hidden .session-header {
-	padding-left: 60px;
+	padding-left: var(--sidebar-show-clearance);
 }
 .session-header-title {
 	/* A long first message must not squeeze the project and branch chips: the title gives way first. */
