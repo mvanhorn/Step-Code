@@ -456,7 +456,10 @@ export function ModelEditor({
 		setDiscoverLoading(true);
 		setSelected(new Set());
 		try {
+			// A blank key field means "keep the stored key": the host falls back to
+			// the credential stored for this provider id, as the connection test does.
 			const reply = await apiSend<{ models: DiscoveredModelEntry[] }>(`${MODELS_PATH}/discover`, "POST", {
+				providerId: editing ? editor.id : form.id.trim(),
 				baseUrl: form.baseUrl.trim(),
 				api: form.api,
 				apiKey: form.apiKey.trim() || undefined,
@@ -468,7 +471,7 @@ export function ModelEditor({
 		} finally {
 			setDiscoverLoading(false);
 		}
-	}, [form.baseUrl, form.api, form.apiKey]);
+	}, [editing, editor.id, form.id, form.baseUrl, form.api, form.apiKey]);
 
 	const openDiscover = () => {
 		setDiscoverOpen(true);
