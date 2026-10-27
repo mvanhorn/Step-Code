@@ -297,6 +297,33 @@ test("IME Enter never picks/sends, Shift+Enter keeps newlines, and mail text has
 		await page.waitForFunction(() => !document.querySelector("#slashMenu").hidden);
 		await page.keyboard.press("Enter");
 		assert.equal(await promptValue(page), "/plan ");
+		// A `/word` typed after other text opens the menu too; the pick moves to the
+		// front as the lead chip and the text typed before it stays as its arguments.
+		await setPrompt(page, "fix /pl");
+		await page.waitForFunction(() => !document.querySelector("#slashMenu").hidden);
+		await page.keyboard.press("Enter");
+		assert.equal(await promptValue(page), "/plan fix ");
+		await setPrompt(page, "and/or");
+		assert.equal(await page.locator("#slashMenu").isVisible(), false);
+		// Without a leading command, a plain command picked mid-text moves to the
+		// front so it runs; the words before it become its arguments.
+		await setPrompt(page, "fix /comp");
+		await page.waitForFunction(() => !document.querySelector("#slashMenu").hidden);
+		await page.keyboard.press("Enter");
+		assert.equal(await promptValue(page), "/compact fix ");
+		// With a command already leading, a second pick stays where it was typed:
+		// only the first command runs, so moving it would just reorder the words.
+		await setPrompt(page, "");
+		await page.keyboard.type("/compact ");
+		await page.waitForFunction(() => document.querySelector("#prompt .prompt-command"));
+		await page.keyboard.type("和 /in");
+		await page.waitForFunction(() => !document.querySelector("#slashMenu").hidden);
+		await page.keyboard.press("Enter");
+		assert.equal(await promptValue(page), "/compact 和 /init ");
+		assert.equal(await page.locator("#prompt .prompt-command").count(), 2);
+		// Typing continues right after the chip that was placed.
+		await page.keyboard.type("x");
+		assert.equal(await promptValue(page), "/compact 和 /init x");
 	} finally { await page.close(); }
 });
 

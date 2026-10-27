@@ -39,8 +39,12 @@ import {
 	insertModeLead,
 	MODE_LEAD_CLASS,
 	type PromptFile,
+	promptHasLeadingCommand,
+	removeSlashToken,
+	replaceSlashTokenWithCommand,
 	stripLeadingCommand,
 } from "./prompt-editor";
+import type { SlashToken } from "./slash-groups";
 
 export async function replyToClarification(
 	request: ClarificationRequest,
@@ -306,6 +310,23 @@ export function stageCommandLead(editor: HTMLElement, command: string): void {
 		return;
 	}
 	insertCommandLead(editor, { command, icon: commandLeadIcon(name) });
+}
+
+/**
+ * Place a command picked for a `/word` typed mid-text. The kernel runs only the
+ * message's first command: when one already leads it, the pick stays where it
+ * was typed (`/skill:a 和 /` keeps 和 between the two); otherwise it becomes
+ * the lead so it runs, and the text typed before it becomes its arguments.
+ * Modes always lead. False when the `/word` is no longer at the caret.
+ */
+export function stageCommandAtSlashToken(editor: HTMLElement, token: SlashToken, command: string): boolean {
+	const name = command.replace(/^\//u, "");
+	if (!modeFromCommand(name.replace(/:$/u, "")) && promptHasLeadingCommand(editor)) {
+		return replaceSlashTokenWithCommand(editor, token, { command, icon: commandLeadIcon(name) });
+	}
+	if (!removeSlashToken(editor, token)) return false;
+	stageCommandLead(editor, command);
+	return true;
 }
 
 /**
