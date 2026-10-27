@@ -222,6 +222,12 @@ export interface SessionSnapshot extends SessionSummary {
 	 * `lastRunAborted`). Such a turn has no finished reply to credit.
 	 */
 	readonly lastRunAborted?: boolean;
+	/**
+	 * The host's newest published revision when this snapshot was serialized
+	 * (runtime.ts `revision`). A read answered after a newer event describes an
+	 * older state and must not be painted over it.
+	 */
+	readonly revision?: number;
 	/** Messages sent during a turn, waiting for it to end (src/message-queue.ts). */
 	readonly queuedMessages?: readonly QueuedMessage[];
 	/** Steered messages the kernel has not delivered to the running turn yet. */

@@ -191,6 +191,10 @@ When to add or change one:
   `server.ts`; the server listens on `127.0.0.1` only. Never log the launch token or the cookie secret.
 - Adding or changing a route or payload: update `openapi.yaml` in the same change, update `client/src/state/types.ts`,
   and add a unit test.
+- Session snapshots and every SSE event carry `revision`, monotonic per bound session. `renderSnapshot` ignores a
+  snapshot older than the newest revision the page has applied, so a read answered late cannot repaint a stopped turn
+  as running (or restore its stop control); each stream connection starts a new order, and its opening snapshot is
+  authoritative. Never apply an HTTP snapshot without that gate.
 - Anything a reloaded page must show again belongs in the session snapshot (e.g. `pendingApprovals`), not only in
   an SSE event.
 - Thinking elapsed time is host-observed presentation metadata (`src/thinking-timing.ts`), persisted through
@@ -241,11 +245,14 @@ When to add or change one:
   `features/terminal` renders xterm in `#terminalDock`, a resizable bottom dock
   under the conversation toggled from the rail (`data-terminal-toggle`) or
   Ctrl+`; it is independent of the exclusive inspector. Keys typed in the shell
-  stay there (Escape, Ctrl chords). Only opening an empty dock or explicit tab
-  creation starts a shell; ending the last tab hides the dock. Hiding/switching tabs
-  disconnects streams without killing processes; closing a tab awaits owned
-  process-tree cleanup. Refresh replays bounded sequenced output, never creates
-  replacement shells. Shell exit retains helper ownership until Host cleanup;
+  stay there (Escape, Ctrl chords). Cmd/Ctrl+V is left to the browser's native
+  paste event — the dock never reads the clipboard, so no clipboard-read
+  permission is needed — and an oversized paste is refused before xterm sends
+  it. Only opening an empty dock or explicit tab creation starts a shell;
+  ending the last tab hides the dock. Hiding/switching tabs disconnects streams
+  without killing processes; closing a tab awaits owned process-tree cleanup.
+  Refresh replays bounded sequenced output, never creates replacement shells.
+  Shell exit retains helper ownership until Host cleanup;
   Windows descendant discovery checks creation times, not just reusable PIDs.
   Startup cancellation waits for a shell identity or startup failure before
   terminating the helper. Retention gaps must be visible; do not claim full-screen

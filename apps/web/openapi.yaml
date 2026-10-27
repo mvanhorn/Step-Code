@@ -1038,11 +1038,16 @@ paths:
             settings (a "this session" Full Access grant is not persisted).
             `goal` is the running goal the client steers from the summary board (absent when the session has none), and
             `planMode` reports whether plan mode is active; both are read from the session branch, not from UI state.
+            `revision` is the newest event revision the host had published when this snapshot was serialized; a client
+            that has already applied a newer stream event must ignore this answer.
           content:
             application/json:
               schema:
                 type: object
                 properties:
+                  revision:
+                    type: integer
+                    description: Newest published event revision at serialization time (see the SSE `agent`/`status` events)
                   permissionPreset: { type: string, enum: [ask, approve-for-me, full-access] }
                   goal:
                     type: object
@@ -1201,6 +1206,8 @@ paths:
             a message. queue carries a QueueState (queued, steering).
             Agent envelopes optionally carry thinkingTimings, keyed by original content-block index, with host-observed
             epoch-millisecond startedAt/endedAt fields. Live intervals may omit endedAt; saved intervals are complete.
+            Every event (and the session snapshot) carries `revision`, monotonic per bound session; a snapshot whose
+            revision is older than an event the page has already applied describes a state it has left.
   /api/v1/sessions/{id}/messages:
     post:
       parameters:
