@@ -83,7 +83,9 @@ export async function selectPolicy(preset: string): Promise<void> {
 	}
 	setState({ draftPolicy: preset });
 	try {
-		renderSnapshot(await apiSend<SessionSnapshot>(`/api/v1/sessions/${current.id}/policy`, "PATCH", { preset }));
+		renderSnapshot(await apiSend<SessionSnapshot>(`/api/v1/sessions/${current.id}/policy`, "PATCH", { preset }), {
+			fromAction: true,
+		});
 	} catch (error) {
 		showError(errorMessage(error));
 	}
@@ -130,7 +132,7 @@ export async function answerSelection(request: SelectionRequest, value: string |
 			{ id: request.id, ...(value === undefined ? {} : { value }) },
 		);
 		forgetSelection(request.id);
-		renderSnapshot(snapshot);
+		renderSnapshot(snapshot, { fromAction: true });
 		return true;
 	} catch (error) {
 		showError(errorMessage(error));
@@ -164,7 +166,7 @@ export async function answerTextInput(request: TextInputRequest, value: string |
 			"POST",
 			{ id: request.id, ...(value === undefined ? {} : { value }) },
 		);
-		renderSnapshot(snapshot);
+		renderSnapshot(snapshot, { fromAction: true });
 		return true;
 	} catch (error) {
 		showError(errorMessage(error));
@@ -189,6 +191,7 @@ export async function selectModel(value: string): Promise<boolean> {
 	try {
 		renderSnapshot(
 			await apiSend<SessionSnapshot>(`/api/v1/sessions/${current.id}/model`, "PATCH", { provider, modelId }),
+			{ fromAction: true },
 		);
 		return true;
 	} catch (error) {
@@ -205,7 +208,9 @@ export async function selectEffort(level: string): Promise<boolean> {
 		return true;
 	}
 	try {
-		renderSnapshot(await apiSend<SessionSnapshot>(`/api/v1/sessions/${current.id}/thinking`, "PATCH", { level }));
+		renderSnapshot(await apiSend<SessionSnapshot>(`/api/v1/sessions/${current.id}/thinking`, "PATCH", { level }), {
+			fromAction: true,
+		});
 		return true;
 	} catch (error) {
 		showError(errorMessage(error));

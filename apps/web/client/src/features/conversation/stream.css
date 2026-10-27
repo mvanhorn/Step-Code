@@ -214,14 +214,18 @@
  * instead of the raw command — the same hues the composer's pick chips use:
  * the wrench (skills) is light blue, the puzzle (plugins) light purple.
  */
-/* An svg has no text baseline: without help its bottom edge rests ON the
- * baseline, which reads low. Lift it onto the x-height instead. */
+/*
+ * An svg has no text baseline: a flex chip whose first item is the glyph takes
+ * the glyph's bottom edge as its baseline, which lifts the label ~3px above the
+ * message text it sits beside. So the label alone sets the chip's baseline
+ * (baseline alignment), the glyph is centred on the label's line instead
+ * (`align-self` below), and the chip rides the surrounding text's baseline.
+ */
 .message-skill {
 	--message-kind-accent: var(--ink-2);
 	display: inline-flex;
-	/* Centre the chip on the line's x-height; the label rides the text. */
-	align-items: center;
-	vertical-align: middle;
+	align-items: baseline;
+	vertical-align: baseline;
 	gap: 5px;
 	max-width: 100%;
 	color: var(--message-kind-accent);
@@ -1779,6 +1783,8 @@ button.compaction-head:focus-visible {
 }
 
 .message-skill .tool-glyph {
+	/* Out of baseline alignment: centred on the label's line (see `.message-skill`). */
+	align-self: center;
 	color: inherit;
 }
 

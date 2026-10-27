@@ -361,12 +361,13 @@ export function Composer({ workspaceControl, branchControl, variant = "full" }: 
 				clearModes();
 				openFeedback();
 			} else {
-				// The kernel runs `/<command> [args]` and expands `/skill:<name> [request]`
-				// into the skill's instructions on send. The pick becomes the prompt's
+				// The kernel runs `/<command> [args]`, expands a prompt command
+				// `/<name> [args]` into its template and `/skill:<name> [request]` into
+				// the skill's instructions on send. The pick becomes the prompt's
 				// lead chip — the same chip typing that command produces — appended after
 				// the leads already staged; only the typed `/word` goes.
 				clearPromptBody(editor);
-				stageCommandLead(editor, item.kind === "command" ? `/${item.key}` : `/skill:${item.key}`);
+				stageCommandLead(editor, item.kind === "skill" ? `/skill:${item.key}` : `/${item.key}`);
 				syncHasText();
 				setUi({ slashMenu: null });
 			}

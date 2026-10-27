@@ -3225,3 +3225,295 @@ test("a streaming reply never turns into a second prompt field", { skip }, async
   const zones = [...new Set(settled.map((frame) => frame.zone))]
   assert.equal(zones.length, 1, `the composer moved while the reply streamed: ${zones.join(",")}`)
 })
+
+test(
+  "the terminal pastes the clipboard without reading it from script",
+  { skip },
+  async (t) => {
+    // The dock cannot be opened at all when the native PTY is unavailable.
+    const support = await browser.run(`
+      const cwd = (await (await fetch("/api/v1/bootstrap")).json()).cwd;
+      const list = await (await fetch("/api/v1/terminals?" + new URLSearchParams({ cwd }))).json();
+      return list.support;
+    `)
+    if (!support.available) {
+      t.skip(`terminal unavailable: ${support.reason}`)
+      return
+    }
+
+    // The page may put text on the clipboard, but a scripted read stays denied,
+    // as it always is in Desktop. Granting read back would hide the regression:
+    // the dock used to call navigator.clipboard.readText() inside the keydown
+    // handler and showed a red error when the browser refused.
+    await browser.send(
+      "Browser.grantPermissions",
+      { origin, permissions: ["clipboardReadWrite", "clipboardSanitizedWrite"] },
+      false,
+    )
+    await browser.goto(`${origin}/`)
+    await browser.run(`
+      await until(() => $("#newSession"), "shell");
+      await navigator.clipboard.writeText("echo PASTE_MARKER");
+      $("[data-terminal-toggle]").click();
+      await until(() => !$("#terminalDock").hidden, "terminal dock");
+      await until(() => !$("#terminalDock .terminal-status"), "terminal connection");
+      // The shell process is connected before its login files have drawn a
+      // prompt; text sent into that gap is swallowed by the line editor.
+      const rows = () => $$("#terminalDock .xterm-rows > div").map((row) => row.textContent.trim());
+      await until(() => rows().some((row) => row.length > 1 && /[$%#>]$/.test(row)), "shell prompt");
+      await until(() => document.activeElement?.classList.contains("xterm-helper-textarea"), "terminal focus");
+      return true;
+    `)
+    await browser.send(
+      "Browser.grantPermissions",
+      { origin, permissions: ["clipboardSanitizedWrite"] },
+      false,
+    )
+    // Headless CDP cannot press the OS paste accelerator (that lives in the
+    // browser process), so the edit command rides on the same key event. It runs
+    // only when the page leaves the keydown uncancelled — which is the fix.
+    const pasteKey = {
+      code: "KeyV",
+      key: "v",
+      modifiers: 4,
+      windowsVirtualKeyCode: 86,
+    }
+    await browser.send("Input.dispatchKeyEvent", {
+      type: "keyDown",
+      ...pasteKey,
+      commands: ["paste"],
+    })
+    await browser.send("Input.dispatchKeyEvent", { type: "keyUp", ...pasteKey })
+    await browser.send("Input.dispatchKeyEvent", {
+      type: "keyDown",
+      code: "Enter",
+      key: "Enter",
+      windowsVirtualKeyCode: 13,
+    })
+    await browser.send("Input.dispatchKeyEvent", {
+      type: "keyUp",
+      code: "Enter",
+      key: "Enter",
+      windowsVirtualKeyCode: 13,
+    })
+    const seen = await browser.run(`
+      const rows = () => $$("#terminalDock .xterm-rows > div").map((row) => row.textContent);
+      const output = await until(
+        () => rows().some((row) => row.trim() === "PASTE_MARKER"),
+        "pasted command output",
+      ).catch(() => false);
+      return {
+        output,
+        screen: rows().join("\\n"),
+        error: $("#terminalDock .terminal-error")?.textContent ?? "",
+      };
+    `)
+    assert.equal(seen.error, "", `no clipboard error: ${seen.screen}`)
+    assert.equal(seen.output, true, `the pasted command ran: ${seen.screen}`)
+  },
+)
+
+test("stopping a long streaming turn settles it and a late snapshot cannot restart it", { skip }, async () => {
+  // A turn that inspects the folder, then streams thinking and a long reply.
+  // While it runs the page reads a snapshot; the host answers it late, after the
+  // reader stopped the turn. Such an answer describes the running turn, so it
+  // must not repaint the status, the stop control or a live thought back.
+  await browser.goto(`${origin}/`)
+  const seen = await browser.run(`
+    await until(() => $("#newSession"), "shell");
+    $("#newSession").click();
+    await until(() => !$("#workspaceControl").hidden, "new draft");
+    // Hold each snapshot read the page issues while the turn runs, the way a
+    // large transcript answers slowly, and release it only after the stop has
+    // settled in the page. The answer therefore describes the running turn and
+    // arrives when the page has already left it.
+    const reads = [];
+    let clickedAt = Number.NaN;
+    const gate = { holding: true };
+    let releaseHeld;
+    const released = new Promise((resolve) => { releaseHeld = resolve; });
+    const realFetch = window.fetch;
+    window.fetch = (input, init) => {
+      const url = String(typeof input === "string" ? input : input.url);
+      const read = /\\/api\\/v1\\/sessions\\/[^/?]+$/.test(url);
+      if (!read || (init && init.method && init.method !== "GET") || !gate.holding) return realFetch(input, init);
+      const issuedAt = Math.round(performance.now());
+      return realFetch(input, init).then(async (response) => {
+        const body = await response.clone().json();
+        await released;
+        reads.push({ issuedAt, status: body.status, revision: body.revision, deliveredAt: Math.round(performance.now() - clickedAt) });
+        return response;
+      });
+    };
+    const editor = $("#prompt");
+    editor.textContent = "stop-fixture"; editor.focus();
+    editor.dispatchEvent(new Event("input", { bubbles: true }));
+    $("#sendButton").click();
+    // The stop control replaces the send arrow for the whole run, thinking included.
+    const stop = await until(() => $("#stopRun"), "stop button during the turn");
+    const thinking = await until(() => $(".thinking[data-running='true']"), "live thinking block");
+    const running = {
+      sendButton: Boolean($("#sendButton")),
+      stopLabel: stop.getAttribute("aria-label"),
+      header: $(".session-header-status")?.textContent ?? "",
+      thinking: thinking.querySelector(".tool-verb")?.textContent ?? "",
+    };
+    await until(() => $$("#stream .message.assistant").some((row) => row.textContent.length > 300), "streamed prose");
+    const id = await until(() => $(".session-row.active")?.dataset.sessionId, "created session");
+    clickedAt = performance.now();
+    gate.holding = false;
+    $("#stopRun").click();
+    // Let the stop reach the page first: the held answers must arrive after it.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    releaseHeld();
+    await until(() => !$("#stopRun") && $("#sendButton"), "send button returns", 1500);
+    const settledIn = Math.round(performance.now() - clickedAt);
+    const tokensOf = (snapshot) =>
+      snapshot.entries
+        .filter((entry) => entry.type === "message" && entry.message?.role === "assistant")
+        .map((entry) => entry.message.content.map((part) => part.text ?? part.thinking ?? "").join(""))
+        .join("\\n");
+    const tokensAtStop = tokensOf(await (await fetch("/api/v1/sessions/" + id)).json()).length;
+    // What the page already showed: a snapshot from before the stop would roll
+    // the transcript back to a shorter reply.
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    const shownAtStop = $$("#stream .message.assistant").map((row) => row.textContent).join("\\n");
+    // Watch past the late answers: the stopped turn must stay stopped.
+    const samples = [];
+    for (let index = 0; index < 40; index += 1) {
+      const snapshot = await (await fetch("/api/v1/sessions/" + id)).json();
+      samples.push({
+        at: Math.round(performance.now() - clickedAt),
+        stop: Boolean($("#stopRun")),
+        send: Boolean($("#sendButton")),
+        header: $(".session-header-status")?.textContent ?? "",
+        runningThinking: $$(".thinking[data-running='true']").length,
+        tokens: tokensOf(snapshot).length,
+        chars: $$("#stream .message.assistant, #stream .thinking-body").reduce((total, row) => total + row.textContent.length, 0),
+        keptShown: $$("#stream .message.assistant").map((row) => row.textContent).join("\\n").includes(shownAtStop),
+        revision: snapshot.revision,
+        status: snapshot.status,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    return { running, settledIn, tokensAtStop, samples, reads, shownLength: shownAtStop.length };
+  `)
+  assert.deepEqual(seen.running, { sendButton: false, stopLabel: "停止", header: "运行中", thinking: "正在思考" })
+  assert.ok(seen.settledIn <= 1000, `the turn stopped in ${seen.settledIn}ms`)
+  // The scenario is the reported one only if a read issued during the run was
+  // answered after the stop: the fixture's tool prelude makes the page refresh
+  // its snapshot mid-turn, and that read is held until past the click.
+  const inFlight = seen.reads.filter((read) => read.status === "running")
+  assert.ok(
+    inFlight.length > 0,
+    `a read issued during the run must be answered late: ${JSON.stringify(seen.reads)}`,
+  )
+  assert.ok(
+    inFlight.every((read) => read.deliveredAt > 0 && read.revision < seen.samples.at(-1).revision),
+    `the late reads must arrive after the stop and describe an older state: ${JSON.stringify(seen.reads)}`,
+  )
+  assert.ok(seen.shownLength > 300, "the page had rendered the reply before the stop")
+  const after = seen.samples.at(-1)
+  assert.ok(after && after.at > 3000, "the page was watched past the late answer")
+  assert.equal(after.tokens, seen.tokensAtStop, "no new tokens arrived after the stop")
+  assert.equal(after.send, true, "the send arrow is back")
+  const rendered = seen.samples.find((sample) => sample.at >= 1000)
+  for (const sample of seen.samples) {
+    assert.equal(sample.stop, false, `the stop control stayed gone: ${JSON.stringify(sample)}`)
+    assert.equal(sample.header, "空闲", `the header reports idle: ${JSON.stringify(sample)}`)
+    assert.equal(sample.status, "idle", `the host stays idle: ${JSON.stringify(sample)}`)
+    assert.equal(sample.tokens, seen.tokensAtStop, `the transcript kept growing: ${JSON.stringify(sample)}`)
+    assert.equal(sample.keptShown, true, `the transcript was rolled back: ${JSON.stringify(sample)}`)
+    assert.equal(sample.runningThinking, 0, `the stop left a thought running: ${JSON.stringify(sample)}`)
+    // The already-received text may finish revealing, but it must stop within 1s.
+    if (rendered && sample.at >= rendered.at)
+      assert.equal(sample.chars, rendered.chars, `the reply kept rendering: ${JSON.stringify(sample)}`)
+  }
+})
+
+test("forking from the middle of a conversation branches there and leaves the parent usable", { skip }, async () => {
+  // The reported regression: clicking 「从此处分叉」 on an earlier turn produced a
+  // conversation the page could not open (a toast instead), and the original
+  // stopped answering. The branch must end at the clicked turn, and the parent
+  // must keep its own history, file and ability to take another turn.
+  const sessionId = "e2e-fork-here"
+  const usage = { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, totalTokens: 3, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }
+  const now = new Date().toISOString()
+  const lines = [{ type: "session", version: 3, id: sessionId, timestamp: now, cwd: workspace }]
+  let leaf = null
+  for (let turn = 1; turn <= 4; turn += 1) {
+    lines.push({ type: "message", id: "fork-u" + turn, parentId: leaf, timestamp: now, message: { role: "user", content: "question " + turn, timestamp: Date.now() } })
+    lines.push({ type: "message", id: "fork-a" + turn, parentId: "fork-u" + turn, timestamp: now, message: { role: "assistant", content: [{ type: "text", text: "answer " + turn }], api: "openai-completions", provider: "e2e", model: "e2e", usage, stopReason: "stop", timestamp: Date.now() } })
+    leaf = "fork-a" + turn
+  }
+  const dir = join(base, "agent", "sessions", "--e2e-fork-here--")
+  await mkdir(dir, { recursive: true })
+  await writeFile(join(dir, sessionId + ".jsonl"), lines.map((line) => JSON.stringify(line)).join("\n") + "\n")
+  const before = await readFile(join(dir, sessionId + ".jsonl"), "utf8")
+  await browser.goto(`${origin}/`)
+  const idLiteral = JSON.stringify(sessionId)
+  const seen = await browser.run(`
+    const parentId = ${idLiteral};
+    const parentRow = () => $(".session-row[data-session-id='" + parentId + "']");
+    (await until(() => parentRow(), "seeded row")).click();
+    await until(() => $$("#stream .message").length === 8, "eight messages");
+    const original = {
+      count: $$("#stream .message").length,
+      last: $$("#stream .message").at(-1).textContent,
+    };
+    // The second turn's footer carries the fork action for that turn.
+    const button = await until(() => $$(".fork-message")[1], "fork action on the second turn");
+    button.click();
+    await until(() => {
+      const id = $(".session-row.active")?.dataset.sessionId;
+      return Boolean(id) && id !== parentId;
+    }, "the branch opens in the page");
+    await until(() => $$("#stream .message").length === 4, "the branch ends at the clicked turn");
+    const branch = {
+      count: $$("#stream .message").length,
+      last: $$("#stream .message").at(-1).textContent,
+      toast: $("#errorToast").hidden ? "" : $("#errorToast").textContent,
+      title: $("#sessionHeader .session-header-title")?.textContent,
+      hasComposer: Boolean($("#prompt")),
+    };
+    parentRow().click();
+    await until(() => $(".session-row.active")?.dataset.sessionId === parentId, "the parent opens again");
+    await until(() => $$("#stream .message").length === 8, "the parent keeps its history");
+    const back = {
+      count: $$("#stream .message").length,
+      last: $$("#stream .message").at(-1).textContent,
+      toast: $("#errorToast").hidden ? "" : $("#errorToast").textContent,
+    };
+    const editor = $("#prompt");
+    editor.textContent = "stream-fixture after fork";
+    editor.focus();
+    editor.dispatchEvent(new Event("input", { bubbles: true }));
+    $("#sendButton").click();
+    // The parent answers again: the turn really runs in the original conversation.
+    await until(() => $("#stream").textContent.includes("streamed reply 11"), "the parent's own reply");
+    await until(
+      async () => (await (await fetch("/api/v1/sessions/" + parentId)).json()).status === "completed",
+      "the parent's turn settles",
+    );
+    const continued = {
+      count: $$("#stream .message").length,
+      reply: $$("#stream .message.assistant").at(-1).textContent.includes("streamed reply 11"),
+      toast: $("#errorToast").hidden ? "" : $("#errorToast").textContent,
+    };
+    return { original, branch, back, continued };
+  `)
+  assert.deepEqual(seen.original, { count: 8, last: "answer 4" })
+  assert.deepEqual(seen.branch, {
+    count: 4,
+    last: "answer 2",
+    toast: "",
+    title: "question 1_fork",
+    hasComposer: true,
+  })
+  assert.deepEqual(seen.back, { count: 8, last: "answer 4", toast: "" })
+  assert.deepEqual(seen.continued, { count: 10, reply: true, toast: "" })
+  // Forking writes a new file; the parent's own transcript keeps its bytes. The
+  // continued turn appends after that prefix, so only the prefix is compared.
+  const after = await readFile(join(base, "agent", "sessions", "--e2e-fork-here--", sessionId + ".jsonl"), "utf8")
+  assert.ok(after.startsWith(before), "the parent's transcript kept every original record")
+})

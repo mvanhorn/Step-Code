@@ -63,6 +63,8 @@ export function SidebarActions() {
 				className="sidebar-action"
 				id="marketButton"
 				type="button"
+				// The plugin market is hidden on every host for now; plugins stay manageable in Settings.
+				hidden
 				aria-current={midView === "market" ? "page" : undefined}
 				title={t("pluginMarket")}
 				onClick={() => openMidView("market")}
