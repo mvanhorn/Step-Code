@@ -177,6 +177,14 @@ session answers correctly before the extension replays `session_start`.
 Both are read from `getStepGoal` / `getStepPlanState` in the package, never  
 inferred from UI text.
 
+Snapshots and every SSE event carry `revision`, monotonic per bound session. The
+client keeps the newest revision it has applied, stream events included, and
+ignores a snapshot that was serialized before it: a slow read that was issued
+while a turn ran would otherwise repaint the running status, the stop control
+and a live thought after the reader stopped that turn. Each stream connection
+starts a new order — its opening snapshot is authoritative — so a reconnected
+page, a restarted Host and a host that predates revisions all still render.
+
 ### Plan review card
 
 An `exit_plan_mode` result without a host dialog is a decision waiting for the  
@@ -1045,12 +1053,18 @@ Network backpressure reads from the bounded ring rather than accumulating a
 subscriber queue. Input is bounded to 64 KiB per request, 32 outstanding Host  
 commands and 64 client commands. Timed-out input is not automatically repeated.
 
-The client fits the PTY to the panel, supports ANSI rendering, selection,  
-explicit clipboard copy/paste, Ctrl+C and normal terminal input including IME.  
-OSC 52 clipboard writes and link activation are disabled. Clear affects the  
-local display only and does not stop the shell or erase the Host replay buffer.  
-Clipboard access still requires browser permission. Native PTY startup has been  
-verified on Windows and macOS; Linux requires its own acceptance.  
+The client fits the PTY to the panel, supports ANSI rendering, selection,
+Cmd/Ctrl+C copy, Cmd/Ctrl+V paste and normal terminal input including IME.
+Paste is the browser's native `paste` event, which carries the clipboard text
+with the event: the client never reads the clipboard from script, so pasting
+needs no clipboard-read permission (Desktop grants none) and a refused read can
+no longer surface as a transient error. A paste over the Host's 64 KiB input
+limit is refused before xterm forwards it, because the Host would close the
+stream. Copy still uses the clipboard API and reports a refusal. OSC 52
+clipboard writes and link activation are disabled. Clear affects the local
+display only and does not stop the shell or erase the Host replay buffer.
+Native PTY startup has been verified on Windows and macOS; Linux requires its
+own acceptance.
 Dependencies are pinned and installed without lifecycle scripts. The list route  
 reports `support` before any shell starts, so the dock can explain a missing  
 native build instead of offering a broken button. A missing or incompatible  

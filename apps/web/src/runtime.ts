@@ -153,7 +153,8 @@ async function refreshStepModelCatalog(modelRuntime: ModelRuntime): Promise<void
 	}
 }
 
-export type WebEvent =
+/** What this session's listeners are told; `emit` stamps each one with its revision. */
+export type WebEventBody =
 	| ClarificationEvent
 	| SelectionEvent
 	| TextInputEvent
@@ -189,6 +190,13 @@ export type WebEvent =
 	| { type: "status"; status: WebSessionStatus; unread: boolean }
 	| ({ type: "queue" } & WebQueueState)
 	| { type: "error"; message: string };
+
+/**
+ * One published event, ordered by `revision`. The number is monotonic per bound
+ * session and lets a reader tell an HTTP snapshot from before an event it has
+ * already applied (see the client's `renderSnapshot`).
+ */
+export type WebEvent = WebEventBody & { readonly revision: number };
 
 /**
  * Messages the user sent during a turn and nothing has run yet: `queued` waits
@@ -802,6 +810,12 @@ export class WebSession {
 	private readonly retry = new RetryTracker();
 	/** Prompt-command lines sent but not yet seen as a user `message_start`. */
 	private readonly livePromptCommands = new LivePromptCommands();
+	/**
+	 * Counts what this session's listeners have been told. A snapshot stamped
+	 * with an older revision describes a state the page has already moved past;
+	 * a reader that still applied it would resurrect a stopped turn's status.
+	 */
+	private revision = 0;
 	/** Settles when the bound session's `session_start` handlers (MCP startup included) have finished. */
 	private extensionsReady: Promise<void> = Promise.resolve();
 	/** Startup of the bound session; replaced on fork or /new so a stale binding cannot report into it. */
@@ -1214,8 +1228,10 @@ export class WebSession {
 		this.emit({ type: "status", status, unread });
 	}
 
-	private emit(event: WebEvent): void {
-		for (const listener of this.listeners) listener(event);
+	private emit(event: WebEventBody): void {
+		this.revision += 1;
+		const stamped: WebEvent = { ...event, revision: this.revision };
+		for (const listener of this.listeners) listener(stamped);
 	}
 
 	publishError(message: string): void {
@@ -1994,6 +2010,7 @@ export class WebSession {
 			name: this.session.sessionName,
 			status: this.status,
 			unread: this.unread,
+			revision: this.revision,
 			sessionFile: manager.getSessionFile(),
 			archived: this.archived,
 			revertedTurns: revertedTurnIds(manager.getBranch()),

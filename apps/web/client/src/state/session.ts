@@ -195,13 +195,18 @@ export function showAuthBanner(): void {
 
 setUnauthorizedHandler(showAuthBanner);
 
-/** Copy to the clipboard and report the outcome in the toast (legacy `copyText`, 2098-2105). */
-export async function copyText(value: string, successText: string = t("copied")): Promise<void> {
+/**
+ * Copy to the clipboard and report the outcome in the toast (legacy `copyText`, 2098-2105).
+ * `successText: null` skips the success toast for a button that confirms in place.
+ */
+export async function copyText(value: string, successText: string | null = t("copied")): Promise<boolean> {
 	try {
 		await writeClipboard(value);
-		showError(successText, false);
+		if (successText !== null) showError(successText, false);
+		return true;
 	} catch {
 		showError(t("browserCopyDenied"));
+		return false;
 	}
 }
 
@@ -683,6 +688,13 @@ const resolvedClarifications = new Set<string>();
 /** Kernel selections already answered; ids are unique per host process. */
 const resolvedSelections = new Set<string>();
 
+/**
+ * Newest stream revision seen per session. Status and agent events are pushed,
+ * so they are newer than an HTTP snapshot that was serialized before them; the
+ * revision is what tells the two apart (see `renderSnapshot`).
+ */
+const streamRevisions = new Map<string, number>();
+
 /** Record an answered selection so a snapshot that raced the answer does not reopen it. */
 export function forgetSelection(id: string): void {
 	resolvedSelections.add(id);
@@ -712,8 +724,33 @@ function approvalItems(snapshot: SessionSnapshot): TimelineItem[] {
  * Everything the legacy function painted is derived from these fields.
  * `adoptDraft` marks the session a draft just became: what the draft opened in
  * the rail (files, a waiting side answer) is that session's, so it stays.
+ * `fromStream` marks the snapshot this page's own stream opened with: it is the
+ * connection's current state, not a read that may have been overtaken.
+ * `fromAction` marks the answer to a mutation this page asked for (a policy or
+ * model change, answering a dialog): its fields carry that action, so a stream
+ * event that overtook it makes the page re-read rather than discard it.
  */
-export function renderSnapshot(snapshot: SessionSnapshot, options: { readonly adoptDraft?: boolean } = {}): void {
+export function renderSnapshot(
+	snapshot: SessionSnapshot,
+	options: { readonly adoptDraft?: boolean; readonly fromStream?: boolean; readonly fromAction?: boolean } = {},
+): void {
+	const newest = streamRevisions.get(snapshot.id);
+	// A stop is a stream event: a snapshot read issued while the turn still ran
+	// describes a state the page has already left. Painting it back restored the
+	// running status and the stop control after the stop.
+	const overtaken =
+		!options.fromStream && snapshot.revision !== undefined && newest !== undefined && snapshot.revision < newest;
+	// An answer to this page's own action still carries the change the user asked
+	// for, so it is applied even when a stream event overtook it; only the fields
+	// the stream owns (transcript, run status, its clock) are held back.
+	if (overtaken && !options.fromAction) return;
+	const holdStream = overtaken;
+	if (snapshot.revision !== undefined) {
+		streamRevisions.set(
+			snapshot.id,
+			options.fromStream ? snapshot.revision : Math.max(snapshot.revision, newest ?? 0),
+		);
+	}
 	const pending = new Map((snapshot.pendingClarifications ?? []).map((request) => [request.id, request]));
 	for (const request of liveClarifications.values()) {
 		if (request.sessionId === snapshot.id) pending.set(request.id, request);
@@ -727,12 +764,30 @@ export function renderSnapshot(snapshot: SessionSnapshot, options: { readonly ad
 	};
 	const previousSessionId = getState().current?.id;
 	setState((state) => {
-		const timelineItems = [...timelineFromEntries(snapshot.entries, snapshot.retry), ...approvalItems(snapshot)];
-		const pendingTurn =
-			state.pendingTurn && countUserMessages(timelineItems) > state.pendingTurn.userCount ? null : state.pendingTurn;
+		const live = state.current?.id === snapshot.id ? state.current : undefined;
+		const timelineItems = holdStream
+			? state.timelineItems
+			: [...timelineFromEntries(snapshot.entries, snapshot.retry), ...approvalItems(snapshot)];
+		const pendingTurn = holdStream
+			? state.pendingTurn
+			: state.pendingTurn && countUserMessages(timelineItems) > state.pendingTurn.userCount
+				? null
+				: state.pendingTurn;
+		// The stream reported a newer run than this answer describes.
+		const current =
+			holdStream && live
+				? {
+						...snapshot,
+						status: live.status,
+						unread: live.unread,
+						compacting: live.compacting,
+						queuedMessages: live.queuedMessages,
+						steeringMessages: live.steeringMessages,
+					}
+				: snapshot;
 		return {
-			current: snapshot,
-			performanceRun: state.current?.id === snapshot.id ? state.performanceRun : null,
+			current,
+			performanceRun: !holdStream && state.current?.id !== snapshot.id ? null : state.performanceRun,
 			policiesCache: snapshot.policies ?? state.policiesCache,
 			draftCwd: snapshot.cwd,
 			draftPolicy: snapshot.permissionPreset || "approve-for-me",
@@ -744,14 +799,14 @@ export function renderSnapshot(snapshot: SessionSnapshot, options: { readonly ad
 			// as the global default). An explicit pick is persisted by the server.
 			draftModel: "",
 			draftThinking: "",
-			statusById: mapWith(state.statusById, snapshot.id, snapshot.status),
-			unreadById: mapWith(state.unreadById, snapshot.id, false),
-			sessions: mergeSessionSummary(state.sessions, snapshot),
+			statusById: holdStream ? state.statusById : mapWith(state.statusById, snapshot.id, snapshot.status),
+			unreadById: holdStream ? state.unreadById : mapWith(state.unreadById, snapshot.id, false),
+			sessions: mergeSessionSummary(state.sessions, current),
 			timelineItems,
 			pendingTurn,
 			// The snapshot is authoritative when the page (re)loads; live
 			// `compaction_start` / `compaction_end` events refine it afterwards.
-			compacting: snapshot.compacting === true,
+			compacting: holdStream ? state.compacting : snapshot.compacting === true,
 		};
 	});
 	// File tabs and side answers belong to one session, so the previous session's
@@ -791,6 +846,7 @@ export function closeStream(): void {
 	liveApprovals.clear();
 	liveClarifications.clear();
 	resolvedClarifications.clear();
+	streamRevisions.clear();
 }
 
 interface AgentStreamEvent {
@@ -806,6 +862,12 @@ interface AgentStreamEvent {
 	/** `compaction_start` / `compaction_end` carry the reason and, on failure, the message. */
 	readonly reason?: string;
 	readonly errorMessage?: string;
+}
+
+/** Remember the newest revision this page has applied for `id`. */
+function noteRevision(id: string, revision: number | undefined): void {
+	if (revision === undefined || !Number.isSafeInteger(revision)) return;
+	streamRevisions.set(id, Math.max(revision, streamRevisions.get(id) ?? 0));
 }
 
 function updateTimeline(update: (items: readonly TimelineItem[]) => readonly TimelineItem[]): void {
@@ -1087,10 +1149,13 @@ function handleAgentEvent(
 export function connectStream(id: string): void {
 	stream?.close();
 	setState({ performanceRun: null });
+	// A new stream is a new order: its own snapshot is the current state, and the
+	// revisions this page saw before it belong to a connection that is gone.
+	streamRevisions.delete(id);
 	const source = new EventSource(`/api/v1/sessions/${id}/events`);
 	stream = source;
 	source.addEventListener("snapshot", (event) => {
-		if (stream === source) renderSnapshot(JSON.parse((event as MessageEvent).data));
+		if (stream === source) renderSnapshot(JSON.parse((event as MessageEvent).data), { fromStream: true });
 	});
 	source.addEventListener("agent", (event) => {
 		if (stream !== source) return;
@@ -1098,16 +1163,21 @@ export function connectStream(id: string): void {
 			event: AgentStreamEvent;
 			thinkingTimings?: unknown;
 			promptCommand?: unknown;
+			revision?: number;
 		};
+		noteRevision(id, payload.revision);
 		const promptCommand =
 			typeof payload.promptCommand === "string" && payload.promptCommand ? payload.promptCommand : undefined;
 		handleAgentEvent(payload.event, readThinkingTimings(payload.thinkingTimings), promptCommand);
 	});
 	source.addEventListener("status", (event) => {
+		if (stream !== source) return;
 		const payload = JSON.parse((event as MessageEvent).data) as {
 			status: SessionStatus;
 			unread: boolean;
+			revision?: number;
 		};
+		noteRevision(id, payload.revision);
 		if (payload.status !== "waiting") liveApprovals.clear();
 		setState((state) => ({
 			// Only a running turn can still record the pending message.
@@ -1124,6 +1194,7 @@ export function connectStream(id: string): void {
 		if (stream === source) applyQueueState(id, JSON.parse((event as MessageEvent).data) as QueueState);
 	});
 	source.addEventListener("approval_required", (event) => {
+		if (stream !== source) return;
 		const approval = JSON.parse((event as MessageEvent).data).approval as ApprovalRequest;
 		liveApprovals.set(approval.id, approval);
 		updateTimeline((items) =>
@@ -1562,7 +1633,9 @@ export async function refreshModelCatalog(): Promise<void> {
 	const state = getState();
 	if (state.current) {
 		try {
-			renderSnapshot(await apiSend<SessionSnapshot>(`/api/v1/sessions/${state.current.id}/models/refresh`, "POST"));
+			renderSnapshot(await apiSend<SessionSnapshot>(`/api/v1/sessions/${state.current.id}/models/refresh`, "POST"), {
+				fromAction: true,
+			});
 		} catch (error) {
 			showError(errorMessage(error));
 		}
