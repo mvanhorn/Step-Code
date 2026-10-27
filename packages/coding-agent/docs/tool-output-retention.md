@@ -33,3 +33,23 @@ termination policy remains in force. Small results create no artifact and are un
 
 This bounds final model-facing text, not streaming progress updates or arbitrary
 typed `details` payloads. No new permission bypass or external upload is added.
+
+## Live tool updates
+
+A tool's `onUpdate` callbacks are progress, not results. They run while the call
+is in flight and each one becomes a `tool_execution_update` session event, which
+the `json` and `rpc` modes write as one JSONL line — so a host that redirects
+that stream to a file turns progress into log volume. Two bounds keep that
+volume proportional to wall-clock time instead of to the work already done:
+
+- A producer sends at most one update per 100 ms (the same cadence the bash tool
+  uses) and publishes state transitions immediately.
+- A live update carries no `messages` transcript, and its streamed text is held
+  to a short tail. The complete transcript is published once, in the final
+  result, itself capped at 64 KiB of the newest messages. Older messages stay
+  readable through the child session id or `sessionFile`.
+
+`toJsonEvent` additionally bounds a single `tool_execution_update` at 256 KiB
+and replaces anything larger with the tail of its text plus a truncation marker.
+That backstop exists for third-party tools that re-send accumulated state; it
+never applies to `tool_execution_end`, which carries the real result.

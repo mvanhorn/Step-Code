@@ -42,10 +42,18 @@ function toJsonAssistantMessageEvent(
  * `message_start` provides the initial message, deltas build it, and
  * `message_end` provides the final authoritative message. Cumulative usage,
  * tool-call ids, and tool names remain available because their size is constant.
+ *
+ * `tool_execution_update` gets the same treatment: it is live progress, but
+ * `json`/`rpc` hosts write every event as one JSONL line, so an unbounded
+ * `partialResult` turns progress into multi-megabyte log lines. The terminal
+ * `tool_execution_end` still carries the full result.
  */
 export function toJsonEvent(event: MessageUpdateEvent): JsonMessageUpdateEvent;
 export function toJsonEvent(event: AgentSessionEvent): JsonAgentSessionEvent;
 export function toJsonEvent(event: AgentSessionEvent): JsonAgentSessionEvent {
+	if (event.type === "tool_execution_update") {
+		return boundLiveUpdate(event);
+	}
 	if (event.type !== "message_update") {
 		return event;
 	}
@@ -57,5 +65,59 @@ export function toJsonEvent(event: AgentSessionEvent): JsonAgentSessionEvent {
 		type: "message_update",
 		usage: event.message.usage,
 		assistantMessageEvent: toJsonAssistantMessageEvent(event.assistantMessageEvent),
+	};
+}
+
+/**
+ * Byte ceiling for one live tool update on the wire.
+ *
+ * Chosen well above what a streaming tool legitimately sends per update (the
+ * bash tool's rolling snapshot is 50 KiB and already throttled to 100ms) so this
+ * only ever fires for a producer that re-sends accumulated state. It is a
+ * backstop, not the primary bound: the subagent orchestrator keeps its own live
+ * projection far below this.
+ */
+export const MAX_LIVE_UPDATE_BYTES = 256 * 1024;
+
+const TRUNCATED_MARKER = "[live output truncated]";
+
+type ToolExecutionUpdateEvent = Extract<AgentSessionEvent, { type: "tool_execution_update" }>;
+
+function isTextPart(value: unknown): value is { type: "text"; text: string } {
+	if (!value || typeof value !== "object") return false;
+	const part = value as { type?: unknown; text?: unknown };
+	return part.type === "text" && typeof part.text === "string";
+}
+
+/**
+ * Keep a live update under the wire budget.
+ *
+ * The tail of the streamed text is retained because that is what a live view
+ * renders; `details` and `args` are dropped because they are already on the
+ * matching `tool_execution_start`/`tool_execution_end` events.
+ */
+function boundLiveUpdate(event: ToolExecutionUpdateEvent): JsonAgentSessionEvent {
+	const bytes = Buffer.byteLength(JSON.stringify(event), "utf8");
+	if (bytes <= MAX_LIVE_UPDATE_BYTES) return event;
+	const content: unknown[] = Array.isArray(event.partialResult?.content) ? event.partialResult.content : [];
+	const text = content
+		.filter(isTextPart)
+		.map((part) => part.text)
+		.join("\n");
+	const tail = text.length > MAX_LIVE_UPDATE_BYTES / 4 ? text.slice(-(MAX_LIVE_UPDATE_BYTES / 4)) : text;
+	return {
+		type: "tool_execution_update",
+		toolCallId: event.toolCallId,
+		toolName: event.toolName,
+		args: undefined,
+		partialResult: {
+			content: [
+				{
+					type: "text",
+					text: tail ? `${tail}\n${TRUNCATED_MARKER}` : TRUNCATED_MARKER,
+				},
+			],
+			details: undefined,
+		},
 	};
 }

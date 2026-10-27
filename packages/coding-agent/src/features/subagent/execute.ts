@@ -48,6 +48,41 @@ import {
 import { truncateText } from "./lane-events.ts";
 import type { StepSubagentLaneRuntime } from "./lane-lifecycle.ts";
 
+/**
+ * Live-update budget.
+ *
+ * A blocking call mirrors every child event into one `onUpdate`, and the Agent
+ * Loop turns each of them into a `tool_execution_update` that hosts persist: the
+ * `json`/`rpc` modes write one JSONL line per event, so the parent's event log
+ * *is* this stream. Two independent properties keep that stream from growing
+ * with the child's transcript:
+ *
+ * - `LIVE_UPDATE_INTERVAL_MS` caps the rate (the bash tool throttles at the same
+ *   100ms; a faster cadence buys no visible UI change).
+ * - The live projection drops `messages` entirely and keeps only the tail of the
+ *   streamed text, so one update is bounded regardless of how much the child has
+ *   produced. The full transcript is published once, in the final result.
+ *
+ * Without both, a 20-turn child emits ~1.4k updates that each carry the whole
+ * transcript: 99% of the log is byte-identical repeats.
+ */
+const LIVE_UPDATE_INTERVAL_MS = 100;
+const LIVE_TEXT_CHARS = 2_000;
+const LIVE_TOOL_OUTPUT_CHARS = 1_000;
+const LIVE_TOOL_ARGS_CHARS = 500;
+
+/**
+ * Final-result budget for the child transcript embedded in the tool result.
+ *
+ * The final details are persisted once per call, so this is not a rate problem,
+ * but a long child can still hold megabytes of tool output that the parent never
+ * renders. Keep the newest messages that fit; the final assistant text stays in
+ * `activeText`, and `sessionFile`/`sessionId` point at the child's own
+ * transcript for anything older. 64 KiB matches the cap the other hosts in this
+ * repository apply to a persisted command result.
+ */
+const FINAL_MESSAGES_BYTES = 64 * 1024;
+
 export interface StepSubagentTaskInput {
 	agent: string;
 	task: string;
@@ -150,6 +185,41 @@ function buildDetails(
 		projectAgentsDir: discovery.projectAgentsDir,
 		results,
 	};
+}
+
+/** Keep the tail of a streamed field: the UI renders the newest lines. */
+function tailChars(value: string | undefined, max: number): string | undefined {
+	if (value === undefined || value.length <= max) return value;
+	return `\u2026${value.slice(-max)}`;
+}
+
+/**
+ * Project one record for a live update. `messages` is deliberately empty: the
+ * transcript changes only at `message_end`, so a per-event copy re-sends the
+ * same array hundreds of times between two of them.
+ */
+function liveRecord(record: StepSubagentResultRecord): StepSubagentResultRecord {
+	return {
+		...record,
+		messages: [],
+		activeText: tailChars(record.activeText, LIVE_TEXT_CHARS),
+		activeToolArgs: tailChars(record.activeToolArgs, LIVE_TOOL_ARGS_CHARS),
+		activeToolOutput: tailChars(record.activeToolOutput, LIVE_TOOL_OUTPUT_CHARS),
+		usage: cloneUsage(record.usage),
+	};
+}
+
+/** Newest messages that fit the final-result budget, oldest first. */
+function boundedMessages(messages: readonly unknown[]): StepSubagentRunResult["messages"] {
+	const kept: unknown[] = [];
+	let bytes = 0;
+	for (let index = messages.length - 1; index >= 0; index -= 1) {
+		const size = Buffer.byteLength(JSON.stringify(messages[index]) ?? "", "utf8");
+		if (bytes + size > FINAL_MESSAGES_BYTES) break;
+		bytes += size;
+		kept.push(messages[index]);
+	}
+	return kept.reverse() as StepSubagentRunResult["messages"];
 }
 
 async function mapWithConcurrency<T, R>(
@@ -396,22 +466,52 @@ export async function runPreparedSubagent(
 			duration_ms: Math.max(0, Date.now() - (createdAt[index] ?? Date.now())),
 		});
 	};
+	const statusKey = (): string => records.map((record) => record.status).join("\u0000");
+	let lastStatusKey = "";
+	let lastPublishAt = 0;
+	let pendingPublish: ReturnType<typeof setTimeout> | undefined;
+
+	const publish = (mode: StepSubagentDetails["mode"]): void => {
+		if (!onUpdate) return;
+		lastPublishAt = Date.now();
+		lastStatusKey = statusKey();
+		const live = buildDetails(mode, discovery, scope, records.map(liveRecord));
+		onUpdate(makeToolResult(live, resultDetailsText(live)));
+	};
+
+	/**
+	 * Publish the live roster, coalescing streamed updates.
+	 *
+	 * A status transition is always published at once: it is the only change the
+	 * live list shows besides the token counter, and readers rely on seeing every
+	 * one of them. Everything in between (a streamed delta, a tool-output chunk)
+	 * waits for the interval, with the latest records winning.
+	 */
 	const emit = (mode: StepSubagentDetails["mode"]): void => {
-		onUpdate?.(
-			makeToolResult(
-				buildDetails(
-					mode,
-					discovery,
-					scope,
-					records.map((record) => ({
-						...record,
-						messages: [...record.messages],
-						usage: cloneUsage(record.usage),
-					})),
-				),
-				resultDetailsText(buildDetails(mode, discovery, scope, records)),
-			),
-		);
+		if (!onUpdate) return;
+		const wait = LIVE_UPDATE_INTERVAL_MS - (Date.now() - lastPublishAt);
+		if (statusKey() !== lastStatusKey || wait <= 0) {
+			if (pendingPublish) {
+				clearTimeout(pendingPublish);
+				pendingPublish = undefined;
+			}
+			publish(mode);
+			return;
+		}
+		pendingPublish ??= setTimeout(() => {
+			pendingPublish = undefined;
+			publish(mode);
+		}, wait);
+		pendingPublish.unref?.();
+	};
+
+	/** Publish the last coalesced update so the caller's final state is not dropped. */
+	const flushEmit = (mode: StepSubagentDetails["mode"]): void => {
+		if (pendingPublish) {
+			clearTimeout(pendingPublish);
+			pendingPublish = undefined;
+			publish(mode);
+		}
 	};
 
 	const runOne = async (
@@ -552,35 +652,48 @@ export async function runPreparedSubagent(
 	// records are already seeded by makeEmptyResult, so this renders every lane
 	// at 0s, including ones still queued behind maxConcurrency.
 	emit(mode);
-	if (parallel) {
-		// The configured provider limit caps subagent batches the same way it caps workflows.
-		const ceiling = Math.min(options.maxConcurrency, clampWorkflowConcurrency(configuredWorkflowConcurrencyLimit()));
-		const lease = acquireWorkflowAdmission(ceiling);
-		try {
-			await mapWithConcurrency(parallel, ceiling, (task, index) => runOne(task, index, lease.semaphore));
-		} finally {
-			lease.release();
-		}
-	} else if (chain) {
-		let previous = "";
-		for (let index = 0; index < chain.length; index++) {
-			const task = {
-				...chain[index],
-				// Function replacement inserts `previous` verbatim. A string replacement would
-				// let $-patterns in the prior subagent's output ($&, $`, $', $$) be reinterpreted
-				// by String.prototype.replace, corrupting the next task's prompt.
-				task: chain[index].task.replace(/\{previous\}/g, () => previous),
-			};
-			const record = await runOne(task, index);
-			previous = finalOutput(record.messages) || resultText(record);
-			if (record.status !== "completed") {
-				for (let rest = index + 1; rest < chain.length; rest++) records[rest] = makeSkippedResult(records[rest]);
-				emit(mode);
-				break;
+	try {
+		if (parallel) {
+			// The configured provider limit caps subagent batches the same way it caps workflows.
+			const ceiling = Math.min(
+				options.maxConcurrency,
+				clampWorkflowConcurrency(configuredWorkflowConcurrencyLimit()),
+			);
+			const lease = acquireWorkflowAdmission(ceiling);
+			try {
+				await mapWithConcurrency(parallel, ceiling, (task, index) => runOne(task, index, lease.semaphore));
+			} finally {
+				lease.release();
 			}
-		}
-	} else await runOne(tasks[0], 0);
-	const finalDetails = buildDetails(mode, discovery, scope, records);
+		} else if (chain) {
+			let previous = "";
+			for (let index = 0; index < chain.length; index++) {
+				const task = {
+					...chain[index],
+					// Function replacement inserts `previous` verbatim. A string replacement would
+					// let $-patterns in the prior subagent's output ($&, $`, $', $$) be reinterpreted
+					// by String.prototype.replace, corrupting the next task's prompt.
+					task: chain[index].task.replace(/\{previous\}/g, () => previous),
+				};
+				const record = await runOne(task, index);
+				previous = finalOutput(record.messages) || resultText(record);
+				if (record.status !== "completed") {
+					for (let rest = index + 1; rest < chain.length; rest++) records[rest] = makeSkippedResult(records[rest]);
+					emit(mode);
+					break;
+				}
+			}
+		} else await runOne(tasks[0], 0);
+	} finally {
+		// A trailing coalesced update must not outlive the call or be lost.
+		flushEmit(mode);
+	}
+	const finalDetails = buildDetails(
+		mode,
+		discovery,
+		scope,
+		records.map((record) => ({ ...record, messages: boundedMessages(record.messages) })),
+	);
 	if (mode === "parallel") {
 		const success = records.filter((record) => record.status === "completed").length;
 		const summaries = records.map(
