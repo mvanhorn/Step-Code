@@ -32,23 +32,30 @@ function chipText(chip: HTMLElement): string {
 	return chip.dataset.name ?? "";
 }
 
-function serialize(parent: Node): string {
+/** A staged mode or command lead chip. */
+function isLeadChip(node: Node): boolean {
+	return (
+		node instanceof HTMLElement &&
+		(node.classList.contains(MODE_LEAD_CLASS) || node.classList.contains(COMMAND_LEAD_CLASS))
+	);
+}
+
+/** `withLeads: false` drops the lead chips' command text, leaving what the user typed beside them. */
+function serialize(parent: Node, withLeads = true): string {
 	let out = "";
 	for (const child of parent.childNodes) {
 		if (child instanceof Text) {
 			out += child.data.replace(/\u00a0/g, " ");
 		} else if (child instanceof HTMLElement) {
 			if (child.classList.contains(CHIP_CLASS)) out += chipText(child);
-			// A plain command chip is the inline rendering of the command text itself.
-			else if (child.classList.contains(COMMAND_LEAD_CLASS)) out += child.dataset.text ?? "";
-			// Every lead chip carries its exact command text, modes included.
-			else if (child.classList.contains(MODE_LEAD_CLASS)) out += child.dataset.text ?? "";
+			// Every lead chip (a plain command or a mode) is the inline rendering of its exact command text.
+			else if (isLeadChip(child)) out += withLeads ? (child.dataset.text ?? "") : "";
 			else if (child.tagName === "BR") out += "\n";
 			else if (child.tagName === "DIV" || child.tagName === "P") {
 				// A block starts a new line unless one just ended.
 				if (out && !out.endsWith("\n")) out += "\n";
-				out += serialize(child);
-			} else out += serialize(child);
+				out += serialize(child, withLeads);
+			} else out += serialize(child, withLeads);
 		}
 	}
 	return out;
@@ -57,6 +64,30 @@ function serialize(parent: Node): string {
 /** The prompt as message text: chips become their file names. */
 export function promptText(root: HTMLElement): string {
 	return serialize(root);
+}
+
+/**
+ * The prompt's text without its staged lead chips. Commands stack, so the slash
+ * menu reads this: a `/word` typed after `/skill:a` is the next command to pick.
+ */
+export function promptBodyText(root: HTMLElement): string {
+	return serialize(root, false);
+}
+
+/**
+ * Remove everything the user typed beside the staged lead chips, keeping the
+ * chips and the spaces that separate them: a slash pick replaces only the
+ * `/word` it completes, never the commands already staged.
+ */
+export function clearPromptBody(root: HTMLElement): void {
+	for (const child of [...root.childNodes]) {
+		if (isLeadChip(child)) continue;
+		if (child instanceof Text) {
+			const spaces = child.data.replace(/[^\s\u00a0]/g, "");
+			if (spaces) child.data = spaces;
+			else child.remove();
+		} else child.remove();
+	}
 }
 
 interface CompletionProjection {
