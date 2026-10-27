@@ -256,7 +256,7 @@ export function ConversationStream() {
 			aria-busy={opening || undefined}
 		>
 			<div className="stream-inner" id="streamInner" ref={innerRef}>
-				{items.length || pendingTurn || steering.length || compacting || sessionNotices.length ? (
+				{items.length || pendingTurn || steering.length || compacting || sessionNotices.length || interrupted ? (
 					<>
 						{presentation.map((row) => {
 							const card = cardAfter.get(row.lastIndex);
