@@ -1582,9 +1582,53 @@ test("approval cards show complete commands, restore on reload, and offer only d
   assert.match(await readFile(join(workspace, "approval-result.txt"), "utf8"), /approval command preview/);
   await browser.run(`
     await fetch("/api/v1/sessions/${id}/messages", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "approval-fixture-remembered" }) });
-    await until(async () => (await (await fetch("/api/v1/sessions/${id}")).json()).status === "completed" && $(".approval") === null, "later command reuses session grant");
+    // The post returns before the turn starts, so "completed" alone can still be
+    // the previous turn's state: wait for this turn's own command result too.
+    await until(async () => {
+      const value = await (await fetch("/api/v1/sessions/${id}")).json();
+      const results = value.entries.filter((entry) => entry.message?.role === "toolResult").length;
+      return value.status === "completed" && $(".approval") === null && results >= 2;
+    }, "later command reuses session grant");
   `);
   assert.match(await readFile(join(workspace, "approval-remembered.txt"), "utf8"), /approval command preview/);
+});
+
+test("a subagent's write asks for approval and runs in the child, not the main session", { skip }, async () => {
+  const report = await browser.run(`
+    const json = { "content-type": "application/json" };
+    const session = await (await fetch("/api/v1/sessions", { method: "POST", headers: json, body: JSON.stringify({ cwd: ${JSON.stringify(workspace)} }) })).json();
+    const base = "/api/v1/sessions/" + session.id;
+    await fetch(base + "/policy", { method: "PATCH", headers: json, body: JSON.stringify({ preset: "ask" }) });
+    await fetch(base + "/messages", { method: "POST", headers: json, body: JSON.stringify({ text: "delegate-subagent-fixture" }) });
+    const asked = [];
+    const snapshot = await until(async () => {
+      const value = await (await fetch(base)).json();
+      if (value.status === "failed") throw new Error(JSON.stringify(value));
+      for (const approval of value.pendingApprovals ?? []) {
+        asked.push({ tool: approval.toolName, content: approval.message });
+        await fetch(base + "/approvals/decision", { method: "POST", headers: json, body: JSON.stringify({ id: approval.id, verdict: "approve_for_session" }) });
+      }
+      return value.status === "completed" ? value : null;
+    }, "the delegated write settles", 180000);
+    const calls = [];
+    for (const entry of snapshot.entries) {
+      for (const part of entry.message?.content ?? []) {
+        if (part.type === "toolCall") calls.push(part.name);
+      }
+    }
+    const subagentResult = snapshot.entries.find((entry) => entry.message?.role === "toolResult" && entry.message.toolName === "subagent");
+    return { id: session.id, asked, calls, resultError: subagentResult?.message?.isError === true, resultText: subagentResult?.message?.content?.map((part) => part.text ?? "").join("") ?? "" };
+  `);
+  // The parent's delegation and the child's write each ask once, in this session.
+  assert.deepEqual(
+    report.asked.map((entry) => entry.tool),
+    ["subagent", "write_file"],
+  );
+  assert.match(report.asked[1].content, /write_file path=src\/sub\.txt/u, "the child's dialog body carries the file it wants to write");
+  // Only the delegated agent wrote the file: the parent's transcript has no write call.
+  assert.deepEqual(report.calls, ["subagent"]);
+  assert.equal(report.resultError, false, report.resultText);
+  assert.equal(await readFile(join(workspace, "src", "sub.txt"), "utf8"), "hello\n");
 });
 
 test("denying an approval never executes the command", { skip }, async () => {

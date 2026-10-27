@@ -140,6 +140,17 @@ Losing one is silent — its slash command and tools simply never register, and 
 typed `/goal` then reaches the model as ordinary text. Extensions are keyed by  
 command and tool name, so a duplicate would silently override the option above.
 
+A subagent child runs as its own `--mode rpc` process, so its Step permission
+controller cannot show anything by itself: without a handler the kernel cancels
+the child's confirmation as "nobody to answer", which reads as a denial — under
+Ask, a subagent's `write_file` then failed and the main agent retried the write
+itself. The host passes `subagent.requestApproval`, which routes the child's
+prompt into this session's `ApprovalBroker`; the card names the child's tool and
+shows the dialog body (path, content, command) the child summarized, and the
+verdict travels back over the child's rpc stream. Only `confirm` is forwarded:
+select/input/editor dialogs stay auto-cancelled. A host without a handler keeps
+the old cancel, never a silent approve.
+
 A host that renders no terminal must still answer `ExtensionUIContext.theme`:  
 extensions style status text unconditionally. The Web host returns the kernel's  
 identity-styled `plainTheme`, and `step-plan.ts` falls back to plain text when a  
