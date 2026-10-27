@@ -101,15 +101,20 @@ function getLaneSessions(sessionId: string, liveOnly = true): StepSubagentRpcSes
  * records we once saw but never ones we have not seen yet, so the count is
  * recomputed from the update's own total rather than cleared.
  */
-function rosterFields(
+export function rosterFields(
 	previous: StepSubagentDetails,
 	next: StepSubagentDetails,
 ): Pick<StepSubagentDetails, "results" | "omittedResults"> {
-	if (next.omittedResults === undefined) return { results: next.results };
-	const merged = mergeResults(previous.results, next.results);
+	// Always set `omittedResults` explicitly: the caller spreads the update under
+	// this result, so omitting the key would keep the update's own count and
+	// double-count the records the merge just recovered.
+	if (next.omittedResults === undefined) return { results: next.results, omittedResults: undefined };
 	const total = next.results.length + next.omittedResults;
+	// A reply reuses a lane; cap at this turn's total so an older, larger roster
+	// cannot leak into the count.
+	const merged = mergeResults(previous.results, next.results).slice(0, total);
 	const omitted = Math.max(0, total - merged.length);
-	return omitted === 0 ? { results: merged } : { results: merged, omittedResults: omitted };
+	return { results: merged, omittedResults: omitted === 0 ? undefined : omitted };
 }
 
 /** Overlay a bounded live roster onto the roster the lane already knows. */

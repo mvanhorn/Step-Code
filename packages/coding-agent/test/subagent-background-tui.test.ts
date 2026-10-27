@@ -5,10 +5,12 @@ import type { CustomMessage } from "../src/core/messages.ts";
 import {
 	type BackgroundAgentLane,
 	createStepSubagentExtension,
+	type StepSubagentDetails,
 	type StepSubagentRunInput,
 	type StepSubagentRunResult,
 } from "../src/features/step-subagent.ts";
 import { type AgentNotificationDetails, notifyLaneEvent } from "../src/features/subagent/lane-events.ts";
+import { rosterFields } from "../src/features/subagent/lane-lifecycle.ts";
 import { renderAgentNotification } from "../src/features/subagent/rendering.ts";
 import type { Theme } from "../src/theme/theme.ts";
 
@@ -287,4 +289,43 @@ test("a background lane reports the real task count while its roster is byte-bou
 		// Omitted tasks are reported as not shown, not as failures.
 		expect(header).not.toContain("failed");
 	}
+});
+
+function detailsWith(statuses: Array<"queued" | "running" | "completed">, omitted?: number): StepSubagentDetails {
+	return {
+		mode: "parallel",
+		agentScope: "user",
+		userAgentsDir: "/tmp/agents",
+		projectAgentsDir: null,
+		results: statuses.map((status, index) => ({
+			agent: "general",
+			agentSource: "builtin" as const,
+			task: `t${index}`,
+			status,
+			exitCode: status === "completed" ? 0 : -1,
+			messages: [],
+			stderr: "",
+			usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
+		})),
+		...(omitted === undefined ? {} : { omittedResults: omitted }),
+	};
+}
+
+test("a lane that recovers its whole roster drops the omitted count instead of keeping both", () => {
+	// The lane already holds the full three-task roster. A later update carries
+	// only one record plus "two omitted"; merging recovers all three, so the count
+	// must go to zero. Leaving the update's own count in place reported five.
+	const full = detailsWith(["running", "queued", "queued"]);
+	const partial = detailsWith(["running"], 2);
+
+	const next = { ...partial, ...rosterFields(full, partial) };
+	expect(next.results).toHaveLength(3);
+	expect(next.omittedResults).toBeUndefined();
+	expect((next.results.length ?? 0) + (next.omittedResults ?? 0)).toBe(3);
+
+	// And when the lane starts empty, the merge cannot recover the records it was
+	// never sent, so the count is recomputed from this update's total.
+	const fromEmpty = { ...partial, ...rosterFields(detailsWith([]), partial) };
+	expect(fromEmpty.results).toHaveLength(1);
+	expect(fromEmpty.omittedResults).toBe(2);
 });
