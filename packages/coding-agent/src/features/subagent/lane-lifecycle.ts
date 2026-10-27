@@ -273,6 +273,9 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
 						partial.details.omittedResults === undefined
 							? partial.details.results
 							: mergeResults(lane.details.results, partial.details.results),
+					// After merging, the roster is complete: keeping the count would
+					// make renderers report more tasks than exist.
+					...(partial.details.omittedResults === undefined ? {} : { omittedResults: undefined }),
 					agentId: lane.id,
 					status: "running",
 					startedAt: lane.startedAt,

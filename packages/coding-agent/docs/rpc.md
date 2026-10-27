@@ -1052,7 +1052,7 @@ When complete:
 }
 ```
 
-Use `toolCallId` to correlate events. The `partialResult` in `tool_execution_update` contains the accumulated output so far (not just the delta), allowing clients to simply replace their display on each update.
+Use `toolCallId` to correlate events. The `partialResult` in `tool_execution_update` normally contains the accumulated output so far (not just the delta), allowing clients to simply replace their display on each update — except when the update is oversized, where only the tail is kept (next paragraph).
 
 One update is capped at 256 KiB of serialized bytes. An oversized update keeps
 only the tail of its text, adds a `[live output truncated]` marker, and omits

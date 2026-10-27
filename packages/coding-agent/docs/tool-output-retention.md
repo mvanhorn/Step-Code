@@ -54,13 +54,17 @@ bounded:
   ends, and stops adding records once the roster reaches 48 KiB — reporting the
   rest as `omittedResults`. A chain splices the previous step's whole answer
   into the next step's task, so a spread would repeat it on every tick.
-- The final records are also a display projection sharing one 256 KiB budget:
-  the newest messages that fit (64 KiB per record), an `activeText` capped at
-  50,000 characters (the renderer's own truncation point), and every other
-  rendered field bounded. `messagesTruncated` says when a transcript tail was
-  cut, and the full transcript stays in the child session (`sessionId` /
-  `sessionFile`). The model-facing `content` is unaffected and still passes
-  through this document's 50 KiB retention.
+- The final records are also an explicit projection sharing one 256 KiB budget
+  for heavy fields: the newest messages that fit (64 KiB per record), an
+  `activeText` capped at 50,000 characters (the renderer's own truncation
+  point), and a bounded `task`/`stderr`/`errorMessage`. A field that does not
+  fit is omitted, never kept at full size. Small per-record metadata (agent,
+  status, usage, ids) is bounded separately, so the total is
+  `256 KiB + O(tasks)` and never grows with the child's output.
+  `messagesTruncated` says when a transcript tail was cut, and the full
+  transcript stays in the child session (`sessionId` / `sessionFile`). The
+  model-facing `content` is unaffected and still passes through this document's
+  50 KiB retention.
 
 `toJsonEvent` additionally bounds a single `tool_execution_update` at 256 KiB of
 *serialized* bytes. That backstop exists for third-party tools that re-send

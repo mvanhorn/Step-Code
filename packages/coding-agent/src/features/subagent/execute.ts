@@ -103,6 +103,9 @@ const FINAL_DETAILS_BYTES = 256 * 1024;
 /** Per-record cap inside the shared final budget; matches the renderer's own truncation. */
 const FINAL_TEXT_CHARS = 50_000;
 const FINAL_TASK_CHARS = 2_000;
+const FINAL_STDERR_CHARS = 2_000;
+const FINAL_ERROR_CHARS = 2_000;
+const FINAL_IDENTIFIER_CHARS = 200;
 
 export interface StepSubagentTaskInput {
 	agent: string;
@@ -208,15 +211,25 @@ function buildDetails(
 	};
 }
 
-/** Keep the tail of a streamed field within `max` characters, marker included. */
+/**
+ * Keep the tail of a streamed field within `max` characters, marker included.
+ *
+ * `max <= 0` must yield nothing, not "everything": a share of an exhausted
+ * budget can be zero, and a negative-length slice would return the full value.
+ */
 function tailChars(value: string | undefined, max: number): string | undefined {
-	if (value === undefined || value.length <= max) return value;
+	if (value === undefined) return undefined;
+	if (max <= 0) return "";
+	if (value.length <= max) return value;
+	if (max === 1) return "\u2026";
 	return `\u2026${value.slice(-(max - 1))}`;
 }
 
 /** Keep both ends of a prompt: the opening instruction and the inserted context. */
 function clipMiddle(value: string, max: number): string {
+	if (max <= 0) return "";
 	if (value.length <= max) return value;
+	if (max === 1) return "\u2026";
 	const half = Math.max(1, Math.floor((max - 1) / 2));
 	return `${value.slice(0, half)}\u2026${value.slice(-half)}`;
 }
@@ -293,6 +306,7 @@ interface Budget {
 }
 
 function take(budget: Budget, value: unknown): boolean {
+	if (value === undefined) return true;
 	const size = serializedBytes(value) + 1;
 	if (size > budget.remaining) return false;
 	budget.remaining -= size;
@@ -317,9 +331,10 @@ function liveDetails(
 	const results: StepSubagentResultRecord[] = [];
 	for (const record of records) {
 		const projected = liveRecord(record);
-		// Always include the first record: a roster that reports only a count is
-		// less useful than one slightly over budget.
+		// The first record is always emitted even if it alone exceeds the budget;
+		// `liveRecord` bounds every field, so it cannot exceed it by much.
 		if (results.length > 0 && !take(budget, projected)) break;
+		if (results.length === 0) take(budget, projected);
 		results.push(projected);
 	}
 	const details: StepSubagentDetails = { mode, agentScope: scope, ...discoveryFields(discovery), results };
@@ -359,44 +374,78 @@ function boundedMessages(
 /**
  * Final record projection.
  *
- * The transcript is bounded, and so is every other field a consumer renders: a
- * runner that reports a multi-hundred-KB final answer must not put it in the
- * details, which several terminal events then echo. `activeText` is filled from
- * the transcript when a runner did not set it, so trimming `messages` can never
- * turn a completed record into "(no output)".
+ * Like the live projection this is an explicit allowlist: a runner's unknown
+ * fields must not reach the details, which several terminal events then echo.
+ * Heavy fields share one per-call budget; a field that does not fit is omitted
+ * rather than kept anyway. `activeText` falls back to the full transcript when a
+ * runner did not set it, so trimming `messages` can never turn a completed
+ * record into "(no output)".
  */
 function finalRecords(records: readonly StepSubagentResultRecord[]): StepSubagentResultRecord[] {
 	const budget: Budget = { remaining: FINAL_DETAILS_BYTES };
 	return records.map((record) => {
-		// Fall back to the full transcript, not the bounded copy: one message larger
-		// than the per-record allowance leaves `messages` empty, and the result must
-		// still render.
 		const fallbackText = finalOutput(record.messages);
 		const text = record.activeText || fallbackText;
+		// Six-byte JSON escapes are the worst case per character, so a quarter of
+		// the remaining bytes as characters is already conservative once the
+		// serialized check below has the final say.
 		const textAllowance = Math.min(FINAL_TEXT_CHARS, Math.max(0, Math.floor(budget.remaining / 4)));
-		const activeText = tailChars(text, textAllowance);
-		if (activeText !== undefined) take(budget, activeText);
+		let activeText = tailChars(text, textAllowance);
+		if (!take(budget, activeText)) activeText = undefined;
 
 		const messageAllowance = Math.min(FINAL_MESSAGES_BYTES, Math.max(0, budget.remaining));
 		const bounded = boundedMessages(record.messages, messageAllowance);
-		take(budget, bounded.messages);
+		const messages = take(budget, bounded.messages) ? bounded.messages : [];
 
 		const task = clipMiddle(record.task, FINAL_TASK_CHARS);
 		take(budget, task);
+		const stderr = tailChars(record.stderr, FINAL_STDERR_CHARS) ?? "";
+		take(budget, stderr);
+		// A field the budget rejects is dropped, not silently kept at full size.
+		const candidateError = tailChars(record.errorMessage, FINAL_ERROR_CHARS);
+		const errorMessage = take(budget, candidateError) ? candidateError : undefined;
+		const prompts = boundedPrompts(record.cancelledPrompts);
+		const cancelledPrompts = take(budget, prompts.cancelledPrompts) ? prompts.cancelledPrompts : undefined;
+
 		return {
-			...record,
+			agent: clipMiddle(record.agent, FINAL_IDENTIFIER_CHARS),
+			agentSource: record.agentSource,
 			task,
-			messages: bounded.messages,
-			activeText,
-			activeToolArgs: tailChars(record.activeToolArgs, LIVE_TOOL_ARGS_CHARS),
-			activeToolOutput: tailChars(record.activeToolOutput, LIVE_TOOL_OUTPUT_CHARS),
-			stderr: tailChars(record.stderr, LIVE_STDERR_CHARS) ?? "",
-			...(record.errorMessage === undefined
-				? {}
-				: { errorMessage: tailChars(record.errorMessage, LIVE_ERROR_CHARS) }),
-			...boundedPrompts(record.cancelledPrompts),
-			...(bounded.truncated ? { messagesTruncated: true } : {}),
+			status: record.status,
+			exitCode: record.exitCode,
+			messages,
+			stderr,
 			usage: cloneUsage(record.usage),
+			...(record.model === undefined ? {} : { model: clipMiddle(record.model, FINAL_IDENTIFIER_CHARS) }),
+			...(record.stopReason === undefined
+				? {}
+				: { stopReason: clipMiddle(record.stopReason, FINAL_IDENTIFIER_CHARS) }),
+			...(errorMessage === undefined || errorMessage === "" ? {} : { errorMessage }),
+			...(activeText === undefined ? {} : { activeText }),
+			...(record.activeTool === undefined
+				? {}
+				: { activeTool: clipMiddle(record.activeTool, FINAL_IDENTIFIER_CHARS) }),
+			...(record.activeToolArgs === undefined
+				? {}
+				: { activeToolArgs: tailChars(record.activeToolArgs, LIVE_TOOL_ARGS_CHARS) }),
+			...(record.activeToolOutput === undefined
+				? {}
+				: { activeToolOutput: tailChars(record.activeToolOutput, LIVE_TOOL_OUTPUT_CHARS) }),
+			...(record.lastEvent === undefined ? {} : { lastEvent: clipMiddle(record.lastEvent, FINAL_IDENTIFIER_CHARS) }),
+			...(record.startedAt === undefined ? {} : { startedAt: record.startedAt }),
+			...(record.updatedAt === undefined ? {} : { updatedAt: record.updatedAt }),
+			...(record.step === undefined ? {} : { step: record.step }),
+			...(record.worktreePath === undefined
+				? {}
+				: { worktreePath: clipMiddle(record.worktreePath, LIVE_PATH_CHARS) }),
+			...(record.worktreeBranch === undefined
+				? {}
+				: { worktreeBranch: clipMiddle(record.worktreeBranch, FINAL_IDENTIFIER_CHARS) }),
+			...(record.sessionId === undefined ? {} : { sessionId: clipMiddle(record.sessionId, FINAL_IDENTIFIER_CHARS) }),
+			...(record.sessionFile === undefined ? {} : { sessionFile: clipMiddle(record.sessionFile, LIVE_PATH_CHARS) }),
+			...(record.pendingReply === undefined ? {} : { pendingReply: record.pendingReply }),
+			...(cancelledPrompts === undefined ? {} : { cancelledPrompts }),
+			...(bounded.truncated || messages.length < record.messages.length ? { messagesTruncated: true } : {}),
 		};
 	});
 }

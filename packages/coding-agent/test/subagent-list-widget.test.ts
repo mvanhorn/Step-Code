@@ -7,7 +7,7 @@ import {
 	type StepSubagentResultRecord,
 	type StepSubagentRunResult,
 } from "../src/features/step-subagent.ts";
-import { SubagentListWidget, subagentListSignature } from "../src/features/subagent/rendering.ts";
+import { SubagentListWidget, subagentListSignature, totalResults } from "../src/features/subagent/rendering.ts";
 import type { Theme } from "../src/theme/theme.ts";
 
 // Identity theme: assertions are about layout, not colors.
@@ -411,4 +411,27 @@ test("a headless host gets no widget", async () => {
 			ctx as never,
 		);
 	expect(calls.filter((call) => call.key.startsWith("step-subagent-list:"))).toHaveLength(0);
+});
+
+test("a byte-bounded roster reports the real task count, not the published one", () => {
+	// A live update carries at most 48 KiB of records and reports the rest as
+	// `omittedResults`. Counting `results.length` alone would claim a 600-task
+	// batch has 174 tasks and that all of them are done.
+	const details: StepSubagentDetails = {
+		mode: "parallel",
+		agentScope: "user",
+		userAgentsDir: "/tmp/agents",
+		projectAgentsDir: null,
+		results: [record({ status: "completed" })],
+		omittedResults: 2,
+	};
+	expect(totalResults(details)).toBe(3);
+	const widget = new SubagentListWidget(details, plainTheme);
+	const rows = widget.render(120);
+	expect(rows[0]).toContain("1/3 complete");
+	expect(rows.join("\n")).toContain("... 2 more");
+	// The signature must move when the omitted count changes, or the republish
+	// that carries the new total is skipped.
+	const before = subagentListSignature({ ...details, omittedResults: 1 });
+	expect(subagentListSignature(details)).not.toBe(before);
 });

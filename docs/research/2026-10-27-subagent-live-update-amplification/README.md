@@ -145,7 +145,7 @@ function liveRecord(record) {
 **③ 终态投影**：终态 details 同样是展示投影，不是原始数据的拷贝。
 
 - `messages` 只保留最新的、序列化后总量 ≤ 64 KiB 的消息（大小为选值，不与仓库既有的 50 KiB 文本上限混同）；被裁剪时置 `messagesTruncated: true`。
-- 全部 record 共享一个 **256 KiB / 次调用**的预算，按记录顺序消费；`activeText` 单条 ≤ 50,000 字符（与渲染端一致，不缩小 Ctrl+O 展开视图）、`task` ≤ 2,000 字符、`stderr` / `errorMessage` ≤ 2,000 字符、`cancelledPrompts` ≤ 20 条 × 200 字符。
+- 全部 record 共享一个 **256 KiB / 次调用**的重字段预算（文本 + transcript），按记录顺序消费；放不下的字段直接省略而不是原样保留。小型元数据（agent/status/usage/id）按记录单独有界，总量是 `256 KiB + O(tasks)`，与子会话输出长度无关。`activeText` 单条 ≤ 50,000 字符（与渲染端一致，不缩小 Ctrl+O 展开视图）、`task` ≤ 2,000 字符、`stderr` / `errorMessage` ≤ 2,000 字符、`cancelledPrompts` ≤ 20 条 × 200 字符。
 - `activeText` 缺失时由**完整 transcript** 的最终 assistant 文本回填，因此「单条消息超出预算导致 messages 为空」不会让结果渲染成 `(no output)`。
 - 模型可见的 `content` 不受这些限制，仍走既有的 50 KiB / 2,000 行 tool-output retention；完整 transcript 留在子会话（`sessionId` / `sessionFile`）。
 
@@ -188,7 +188,8 @@ parallel 批量（200 任务）回归：发布次数 < 60，单条 < 128 KiB，�
 ### 4.2 行为兼容性
 
 - **不改变** `subagent` 工具对模型可见的 `content` 文本（由未裁剪的内部 records 生成）。
-- **不改变** 状态机的对外语义：所有状态跃迁仍然逐次可见。
+- 状态机的**终态**语义不变：每个任务最终都会到达 completed/failed/aborted，并在调用返回前刷出。
+- **变化**：短于 100 ms 的状态跃迁（典型如瞬时完成的测试替身）可能不出现在 wire 上。真实子代理是秒级，不受影响；这是消除 parallel 下 O(N²) 的必要代价。
 - 直播期间的 `activeText` 从最多 50k 字符变为 2k 尾部，工具入参/输出也从完整值变为尾部：这是**刻意的可见降级**（progress 是可合并快照，不是完整事件历史）。
 - 可观测契约变化：`StepSubagentDetails.results[].messages` 从「全量」变为「终态限量」并新增可选 `messagesTruncated`；直播字段变为有界尾部。消费方（TUI 展开、历史渲染、web 子代理卡片）只用最后一个 assistant 文本或状态字段，已逐一核对。
 - 定时器在返回前关闭（`closeEmitter`），调用返回后的迟到回调不再发布；`onUpdate` 抛错不再从定时器逃逸成未捕获异常，而是按「dispatch 错误优先」的顺序在调用路径上抛出。
@@ -206,7 +207,8 @@ parallel 批量（200 任务）回归：发布次数 < 60，单条 < 128 KiB，�
   - 200 个并行任务的批量调用：发布 < 60 次、单条 < 128 KiB、总量 < 2 MiB、出现 `omittedResults`；
   - 终态预算：保留最新消息、序列化数组 ≤ 64 KiB、`messagesTruncated: true`；
   - 单条消息超预算且无 `activeText` 时，仍从完整 transcript 回填可渲染文本；
-  - 400 KB 最终答复在展示投影里被压到 ≤ 8,000 字符；
+  - 400 KB 最终答复在展示投影里被压到 ≤ 50,000 字符；
+  - 60 个任务各带 300 KB 答复：终态 details ≤ 256 KiB + O(tasks)（覆盖「预算耗尽后 allowance 为 0」这条路径）；
   - 调用返回后的迟到回调不再发布；
   - `onUpdate` 抛错以调用失败的形式浮出，而不是从定时器逃逸。
 - `test/json-event-live-update-budget.test.ts`
@@ -216,7 +218,7 @@ parallel 批量（200 任务）回归：发布次数 < 60，单条 < 128 KiB，�
 
 回归：
 
-- `packages/coding-agent` 全量：`4984 passed, 58 skipped`。唯一失败是 6 个 `completion-check-cli` 用例，**在未改动的 `main` 上以完全相同的方式失败**（本机 git worktree 前置条件问题，与本改动无关）。
+- `packages/coding-agent` 全量：约 5000 passed / 58 skipped。唯一稳定失败是 6 个 `completion-check-cli` 用例，**在未改动的 `main` 上以完全相同的方式失败**（本机 git worktree 前置条件问题，与本改动无关）；`subagent-invocation` 的 CLI 启动用例偶发超时，单跑必过（该文件注释已记录此既有偶发）。
 - `pnpm run check` 全绿（biome / 边界检查 / `tsgo --noEmit` / browser smoke）。
 - `git diff --check` 干净。
 
@@ -224,20 +226,21 @@ parallel 批量（200 任务）回归：发布次数 < 60，单条 < 128 KiB，�
 
 | 风险 | 控件 |
 | --- | --- |
-| 直播更新过少导致 UI 卡顿感 | 状态跃迁即时发布；100 ms 与 bash 既有节流一致，token 计数 10 Hz 足够 |
+| 直播更新过少导致 UI 卡顿感 | 100 ms 与 bash 既有节流一致，token 计数 10 Hz 足够；终态由返回前的 flush 保证 |
 | 终态 `messages` 裁剪影响历史渲染 | 渲染优先 `activeText`；`sessionId`/`sessionFile` 指向子进程完整 transcript |
 | 兜底误伤正常流式工具 | 阈值 256 KiB，远高于 bash 的 50 KiB；新增测试锁定「未超限原样透传」 |
-| 合流定时器泄漏/迟到投递 | `finally` 中 `flushEmit`；`unref()` |
+| 合流定时器泄漏/迟到投递 | 返回前 `closeEmitter` + `flushEmit`（在 dispatch 之外，dispatch 错误优先）；`unref()` |
 | 后续 web 分支合并冲突 | 改动集中在 `emit` 与 dispatch 外层（`try/finally`）；web 分支改的是 `runOne` 内部与 `sessionId` 传递，冲突面小 |
 
-回滚：分支上两个 commit（初版 + 评审修正），`git revert` 两个即恢复原行为，无数据迁移、无配置项。
+回滚：分支上三个 commit（初版 + 两轮评审修正），逐个 `git revert` 即恢复原行为，无数据迁移、无配置项。
 
 ### 4.5 后续（未纳入本 PR）
 
 1. **终态回显放大**：一次调用的终态 details 会被约 5 类事件各带一份（≈5 × 100 KiB）。要压缩需要改消息级事件形状，与本次「最小爆炸半径」目标冲突，建议单独立项。
 2. **内存队列仍无界**：`agent-loop` 的 update promise 数组与 `output-guard` 的 stdout promise 串都没有上限。本 PR 只降低了增长速度，慢读者场景需要单独做背压或队列上限。
-2. **web SSE 兜底**：web 分支的 SSE 直接转发 session event，未经过 `toJsonEvent`。当前源头已收敛，但建议在该分支 rebase 后补一条同等的回归测试。
-3. **类型级约束**：真正对齐 opencode 的做法是给会话事件加 `durable`/`ephemeral` 分类，让「增量不可落盘」成为编译期约束，而不是靠 review 和上限兜底。这是架构级改动，值得单独立项。
+3. **wire 兜底丢弃非文本 content**：超限的 update 只保留 text part，图片预览会丢；终态不受影响。第三方工具若在小体积 update 里带图需要另行处理。
+4. **web SSE 兜底**：web 分支的 SSE 直接转发 session event，未经过 `toJsonEvent`。当前源头已收敛，但建议在该分支 rebase 后补一条同等的回归测试。
+5. **类型级约束**：成熟实现的做法是给会话事件加 `durable`/`ephemeral` 分类，让「增量不可落盘」成为编译期约束，而不是靠 review 和上限兜底。这是架构级改动，值得单独立项。
 
 ---
 

@@ -183,7 +183,7 @@ test("a chain's spliced {previous} prompt stays out of every live update", async
 	expect(updates.some((update) => update.details?.results.length === 2)).toBe(true);
 });
 
-test("streamed deltas coalesce to one publish per interval, but status changes do not wait", async () => {
+test("streamed deltas and status changes coalesce into one publish per interval", async () => {
 	const seen: Captured[] = [];
 	const { updates } = await run(
 		{ agent: "general", task: "inspect" },
@@ -200,9 +200,7 @@ test("streamed deltas coalesce to one publish per interval, but status changes d
 	// couple of interval publishes, then completed.
 	expect(updates.length).toBeLessThanOrEqual(6);
 	expect(updates.length).toBeGreaterThanOrEqual(3);
-	const running = updates.filter((update) => update.details?.results[0]?.status === "running");
-	// `running` is published by the first event, not deferred to the interval.
-	expect(running.length).toBeGreaterThanOrEqual(1);
+	// A short-lived status may never reach the wire; the terminal state always does.
 	expect(updates.at(-1)?.details?.results[0]?.status).toBe("completed");
 });
 
@@ -272,6 +270,27 @@ test("a single message larger than the budget still leaves a readable result", a
 	expect(record?.messagesTruncated).toBe(true);
 	// The fallback keeps the outcome renderable instead of "(no output)".
 	expect(record?.activeText ?? "").toContain("x");
+});
+
+test("many large answers stay inside one per-call details budget", async () => {
+	// This is the exhaustion path: the first records consume the shared budget,
+	// so later ones get a tiny allowance. A zero-or-one-character allowance used
+	// to return the whole value, turning the bound back into "unbounded".
+	const tasks = 60;
+	const { result } = await run(
+		{ tasks: Array.from({ length: tasks }, (_, index) => ({ agent: "general", task: `t${index}` })) },
+		async () => ({ ...idle, activeText: "q".repeat(300_000), exitCode: 0, stopReason: "stop" }),
+	);
+	const details = result.details;
+	expect(details?.results).toHaveLength(tasks);
+	// 256 KiB covers the heavy fields (text + transcript). Small per-record
+	// metadata (agent, status, usage, ids) is separately bounded per record, so
+	// the total is O(tasks) with a small constant, never O(output size).
+	const totalBytes = Buffer.byteLength(JSON.stringify(details), "utf8");
+	expect(totalBytes).toBeLessThanOrEqual(256 * 1024 + tasks * 1024);
+	for (const record of details?.results ?? []) {
+		expect((record.activeText ?? "").length).toBeLessThanOrEqual(50_000);
+	}
 });
 
 test("a huge final answer is bounded in the display projection", async () => {
