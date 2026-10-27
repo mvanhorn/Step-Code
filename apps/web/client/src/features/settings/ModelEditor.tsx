@@ -346,7 +346,7 @@ function DiscoverDialog({
 			open={open}
 			onClose={onClose}
 			id="settingsModelDiscover"
-			className="settings-dialog"
+			className="settings-dialog settings-discover-dialog"
 			labelledBy="settingsModelDiscoverTitle"
 		>
 			<div className="settings-dialog-head">
