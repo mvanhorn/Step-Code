@@ -22,6 +22,8 @@ import {
 	createStepToolProfile,
 	DEFAULT_THINKING_LEVEL,
 	DefaultResourceLoader,
+	defaultStepPluginsDir,
+	discoverStepPluginResourcePaths,
 	type ExtensionUIContext,
 	type FeedbackEvidence,
 	FULL_ACCESS_RISK_OPTIONS,
@@ -90,6 +92,15 @@ import {
 	SteeringImages,
 	type SteeringMessageView,
 } from "./message-queue.ts";
+import {
+	LivePromptCommands,
+	PROMPT_COMMAND_TYPE,
+	pairPromptCommands,
+	promptCommandRecord,
+	promptMessageText,
+	type WebPromptCommand,
+	webPromptCommands,
+} from "./prompt-commands.ts";
 import { RetryTracker } from "./retry-state.ts";
 import { SelectionBroker, type SelectionEvent, type SelectionRequest, selectionSelect } from "./selection.ts";
 import { generateSessionTitle, sessionTitleInput } from "./session-title.ts";
@@ -146,7 +157,13 @@ export type WebEvent =
 	| ClarificationEvent
 	| SelectionEvent
 	| TextInputEvent
-	| { type: "agent"; event: AgentSessionEvent; thinkingTimings?: ThinkingTimings }
+	| {
+			type: "agent";
+			event: AgentSessionEvent;
+			thinkingTimings?: ThinkingTimings;
+			/** On a user `message_start`: the prompt-command line it expanded from (see `prompt-commands.ts`). */
+			promptCommand?: string;
+	  }
 	| { type: "approval_required"; approval: ApprovalRequest }
 	| {
 			/**
@@ -579,6 +596,15 @@ export function commandEchoText(text: string): string | null {
 	return text.trim();
 }
 
+/**
+ * Command names a prompt template cannot take over: the kernel commands the
+ * composer reaches and the Web surfaces it handles itself. An open session
+ * also knows its registered extension commands (see `WebSession.commands`).
+ */
+function isReservedCommandName(name: string): boolean {
+	return ECHOED_COMMANDS.has(name) || name === "mcp" || name === "btw" || name === "feedback";
+}
+
 /** Same provider and model id, which is all a resolved model needs to match. */
 function modelsMatch(left: { provider: string; id: string }, right: { provider: string; id: string }): boolean {
 	return left.provider === right.provider && left.id === right.id;
@@ -636,15 +662,26 @@ function commandEchoOf(entry: SessionEntry): string | undefined {
 	return typeof text === "string" && text ? text : undefined;
 }
 
-/** Timing is host presentation metadata, not a field added to provider messages. */
+/**
+ * Timing is host presentation metadata, not a field added to provider messages.
+ * So is `promptCommand`: the line a user message expanded from, when it was a
+ * prompt command (`prompt-commands.ts`), so the flow shows that line instead
+ * of the whole template.
+ */
 export function projectEntries(entries: readonly SessionEntry[]): Record<string, unknown>[] {
 	const timings = savedThinkingTimings(entries);
+	const promptCommands = pairPromptCommands(entries);
 	return entries.map((entry) => {
 		const thinkingTimings =
 			entry.type === "message" && entry.message.role === "assistant"
 				? timings.get(entry.message.timestamp)
 				: undefined;
-		return { ...projectEntry(entry), ...(thinkingTimings ? { thinkingTimings } : {}) };
+		const promptCommand = promptCommands.get(entry.id);
+		return {
+			...projectEntry(entry),
+			...(thinkingTimings ? { thinkingTimings } : {}),
+			...(promptCommand ? { promptCommand } : {}),
+		};
 	});
 }
 
@@ -694,6 +731,8 @@ function lastUserEntryId(session: AgentSession): string | undefined {
 const FORK_SUFFIX = "_fork";
 /** Keep the suffix visible: a fork of a very long title is shortened, not truncated past the suffix. */
 const FORK_TITLE_MAX = 96;
+/** A session named after its prompt-command line keeps the name a sidebar row can show. */
+const PROMPT_COMMAND_NAME_MAX = 96;
 
 function forkTitleOf(parent: string): string {
 	const room = FORK_TITLE_MAX - FORK_SUFFIX.length;
@@ -761,6 +800,8 @@ export class WebSession {
 	private lastRunAborted = false;
 	/** The kernel's retry of a failed model request, while one is scheduled or running. */
 	private readonly retry = new RetryTracker();
+	/** Prompt-command lines sent but not yet seen as a user `message_start`. */
+	private readonly livePromptCommands = new LivePromptCommands();
 	/** Settles when the bound session's `session_start` handlers (MCP startup included) have finished. */
 	private extensionsReady: Promise<void> = Promise.resolve();
 	/** Startup of the bound session; replaced on fork or /new so a stale binding cannot report into it. */
@@ -1099,7 +1140,18 @@ export class WebSession {
 			this.retry.apply(event);
 			if (event.type === "auto_retry_start" && this.status !== "running") this.setStatus("running", false);
 			if (event.type === "queue_update") this.emit({ type: "queue", ...this.queueState() });
-			this.emit({ type: "agent", event, ...(thinkingTimings ? { thinkingTimings } : {}) });
+			// A prompt command's expansion arrives as an ordinary user message; the
+			// line it came from rides the live event (the snapshot pairs it from the journal).
+			const promptCommand =
+				event.type === "message_start"
+					? this.livePromptCommands.take(promptMessageText(event.message) ?? "")
+					: undefined;
+			this.emit({
+				type: "agent",
+				event,
+				...(thinkingTimings ? { thinkingTimings } : {}),
+				...(promptCommand ? { promptCommand } : {}),
+			});
 			if (event.type === "agent_settled") {
 				const hold = this.holdQueue || this.lastRunFailed;
 				this.holdQueue = false;
@@ -1290,7 +1342,10 @@ export class WebSession {
 		this.echoCommand(text);
 		this.maybeGenerateSessionTitle(text);
 		const images = imagesOf(attachments);
-		await this.session.prompt(withTextAttachments(text, attachments), {
+		const sent = withTextAttachments(text, attachments);
+		const promptCommand = this.recordPromptCommand(text, sent);
+		if (promptCommand) this.nameAfterPromptCommand(promptCommand);
+		await this.session.prompt(sent, {
 			source: "rpc",
 			...(images.length ? { images } : {}),
 			...(followUp ? { streamingBehavior: "followUp" as const } : {}),
@@ -1305,6 +1360,43 @@ export class WebSession {
 	private echoCommand(text: string): void {
 		const command = commandEchoText(text);
 		if (command) this.session.sessionManager.appendCustomEntry(COMMAND_ECHO_TYPE, { text: command });
+	}
+
+	/**
+	 * Journal the line of a prompt command before the kernel expands it (see
+	 * `prompt-commands.ts`), so the flow can show that line instead of the
+	 * template; returns that line. Presentation only: a failure to record it
+	 * must not stop the prompt, which then simply shows expanded.
+	 */
+	private recordPromptCommand(typed: string, sent: string): string | undefined {
+		const record = promptCommandRecord(typed, sent, this.session.promptTemplates);
+		if (!record) return undefined;
+		try {
+			this.session.sessionManager.appendCustomEntry(PROMPT_COMMAND_TYPE, record);
+			this.livePromptCommands.add(record);
+			return record.text;
+		} catch (error) {
+			this.emit({
+				type: "error",
+				message: `Could not record the command line: ${error instanceof Error ? error.message : String(error)}`,
+			});
+			return undefined;
+		}
+	}
+
+	/**
+	 * A session opened by a prompt command is named after that line. Without a
+	 * name the sidebar falls back to the first message, which is the whole
+	 * expanded template, and a slash line is never sent for a generated title.
+	 */
+	private nameAfterPromptCommand(line: string): void {
+		if (this.sessionTitleGenerated || this.session.sessionName) return;
+		if (this.session.sessionManager.getBranch().some(isUserEntry)) return;
+		this.sessionTitleGenerated = true;
+		const name = line.replace(/\s+/g, " ").trim();
+		this.session.setSessionName(
+			name.length > PROMPT_COMMAND_NAME_MAX ? `${name.slice(0, PROMPT_COMMAND_NAME_MAX - 3)}...` : name,
+		);
 	}
 
 	/**
@@ -1340,7 +1432,9 @@ export class WebSession {
 	/** Hand `text` to the running turn, read before its next model call; refused for extension commands. */
 	async steer(text: string, attachments: readonly WebAttachment[] = []): Promise<void> {
 		const images = imagesOf(attachments);
-		await this.session.steer(withTextAttachments(text, attachments), images.length ? images : undefined);
+		const sent = withTextAttachments(text, attachments);
+		this.recordPromptCommand(text, sent);
+		await this.session.steer(sent, images.length ? images : undefined);
 		const queued = this.session.getSteeringMessages().at(-1);
 		if (queued === undefined || !images.length) return;
 		// The kernel published the steer before its images were recorded here.
@@ -1953,6 +2047,21 @@ export class WebSession {
 	}
 
 	/**
+	 * Prompt commands this session expands (plugin commands included). A
+	 * template named like a registered extension command never expands — the
+	 * command runs first — so it is not offered.
+	 */
+	commands(): WebPromptCommand[] {
+		const extensionCommands = new Set(
+			this.session.extensionRunner.getRegisteredCommands().map((command) => command.invocationName),
+		);
+		return webPromptCommands(
+			this.session.promptTemplates,
+			(name) => extensionCommands.has(name) || isReservedCommandName(name),
+		);
+	}
+
+	/**
 	 * Resources for this session's `step.usage_provenance` entries.
 	 *
 	 * Recording asks on `session_start`, which can run before `bindSession` has
@@ -2260,22 +2369,40 @@ export class WebSessionStore {
 	}
 
 	/**
-	 * Skills for a workspace without a session yet (a draft). An open session in
-	 * the same folder answers exactly (plugin skills included). Otherwise the
-	 * folder's resources are resolved as a session would (settings, user and
-	 * project skill folders, packages) without extensions and without starting
-	 * anything; only plugin skills, added by an extension, are missing.
+	 * Skills and prompt commands for a workspace without a session yet (a
+	 * draft): what a new session in that folder would load. The folder's
+	 * resources are resolved as a session would (settings, user and project
+	 * skill and prompt folders, packages) without starting anything, and
+	 * installed plugins' skills and commands are added from the same discovery
+	 * the plugin extension answers `resources_discover` with, so a plugin
+	 * installed a moment ago is offered before the draft's first send.
+	 *
+	 * An open session in the same folder is deliberately not reused: its
+	 * resources are fixed when it starts, so after an install it would describe
+	 * the old set.
 	 */
-	async skillsFor(cwd: string): Promise<WebSkill[]> {
-		const open = [...this.sessions.values()].find((session) => session.cwd === cwd);
-		if (open) return open.skills();
+	async slashResourcesFor(cwd: string): Promise<{ skills: WebSkill[]; commands: WebPromptCommand[] }> {
 		const agentDir = resolveStepAgentDir();
 		const configDirName = resolveStepConfigDir();
 		const settingsManager = createStepSettingsManager(cwd, agentDir, { configDirName });
-		if (!settingsManager.getEnableSkillCommands()) return [];
 		const loader = new DefaultResourceLoader({ cwd, agentDir, configDirName, settingsManager, noExtensions: true });
 		await loader.reload();
-		return webSkills(loader.getSkills().skills);
+		const plugins = await discoverStepPluginResourcePaths({
+			userDir: defaultStepPluginsDir(process.env),
+			projectDir: defaultStepPluginsDir(process.env, { cwd, project: true }),
+			projectTrusted: settingsManager.isProjectTrusted(),
+		});
+		const metadata = { source: "extension:step-plugins", scope: "temporary", origin: "top-level" } as const;
+		if (plugins.skillPaths.length > 0 || plugins.promptPaths.length > 0) {
+			loader.extendResources({
+				skillPaths: plugins.skillPaths.map((path) => ({ path, metadata })),
+				promptPaths: plugins.promptPaths.map((path) => ({ path, metadata })),
+			});
+		}
+		return {
+			skills: settingsManager.getEnableSkillCommands() ? webSkills(loader.getSkills().skills) : [],
+			commands: webPromptCommands(loader.getPrompts().prompts, isReservedCommandName),
+		};
 	}
 
 	async archive(id: string, archived: boolean): Promise<WebSession> {

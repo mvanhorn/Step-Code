@@ -1091,6 +1091,12 @@ paths:
                             the flow's round separators from it.
                         thinkingTimings:
                           $ref: "#/components/schemas/ThinkingTimings"
+                        promptCommand:
+                          type: string
+                          description: >-
+                            On a user message only: the prompt-command line (`/<template> args`) the user typed,
+                            when this message is its expansion. Paired by content from a host-recorded
+                            `stepcode-web.prompt-command` custom entry; never part of the model's context.
                   policies:
                     type: array
                     items: { $ref: "#/components/schemas/PolicyPreset" }
@@ -1201,6 +1207,7 @@ paths:
             a message. queue carries a QueueState (queued, steering).
             Agent envelopes optionally carry thinkingTimings, keyed by original content-block index, with host-observed
             epoch-millisecond startedAt/endedAt fields. Live intervals may omit endedAt; saved intervals are complete.
+            A user message_start envelope may carry promptCommand: the prompt-command line its text expanded from.
   /api/v1/sessions/{id}/messages:
     post:
       parameters:
@@ -1400,12 +1407,16 @@ paths:
         "404": { description: Approval no longer pending }
   /api/v1/sessions/{id}/skills:
     get:
-      description: Skills the composer offers as `/skill:<name>` (empty when skill commands are disabled).
+      description: >-
+        What the composer's slash menu offers for this session: skills as `/skill:<name>` (empty when skill
+        commands are disabled) and prompt commands as `/<name>` — prompt templates, plugin `commands/*.md`
+        included, that the kernel expands on send. A template named like a registered extension command or a
+        Web surface (`mcp`, `btw`, `feedback`) never expands and is not listed.
       parameters:
         - { $ref: "#/components/parameters/SessionId" }
       responses:
         "200":
-          description: Skills by name
+          description: Skills and prompt commands, each by name
           content:
             application/json:
               schema:
@@ -1418,11 +1429,21 @@ paths:
                       properties:
                         name: { type: string }
                         description: { type: string }
+                  commands:
+                    type: array
+                    items:
+                      type: object
+                      required: [name, description]
+                      properties:
+                        name: { type: string }
+                        description: { type: string }
+                        argumentHint: { type: string, description: "The template's `argument-hint` frontmatter" }
   /api/v1/workspace/skills:
     get:
       description: >-
-        Skills for a folder without a session yet. Uses an open session in the same folder; otherwise resolves
-        the folder's skill resources as a session would, without extensions (plugin skills are then missing).
+        Skills and prompt commands for a folder without a session yet: what a new session there would load. The
+        folder's resources are resolved as a session would, without extensions; installed plugins' skills and
+        commands are added from plugin discovery, so a plugin installed a moment ago is listed at once.
       parameters:
         - { name: cwd, in: query, required: true, schema: { type: string } }
       responses:

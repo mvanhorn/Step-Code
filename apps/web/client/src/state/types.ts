@@ -144,6 +144,8 @@ export interface SessionEntry {
 	readonly message?: AgentMessage;
 	readonly usage?: Usage;
 	readonly thinkingTimings?: ThinkingTimings;
+	/** On a user message: the prompt-command line it expanded from (runtime.ts `projectEntries`). */
+	readonly promptCommand?: string;
 	/** Lifecycle-only metadata on custom_message / agent-notification entries. */
 	readonly details?: unknown;
 	readonly [key: string]: unknown;
@@ -395,6 +397,11 @@ export interface MessageTimelineItem {
 	readonly timestamp?: string;
 	/** The model request failed (assistant `stopReason: "error"`); the provider's message. */
 	readonly error?: string;
+	/**
+	 * A user message the kernel expanded from a prompt command: `content` is the
+	 * line the user typed (`/<name> args`), not the template it became.
+	 */
+	readonly promptCommand?: boolean;
 }
 
 export type ToolState = "pending" | "completed" | "failed";
@@ -739,6 +746,13 @@ export interface UploadedFile {
 export interface WebSkill {
 	readonly name: string;
 	readonly description: string;
+}
+
+/** The `commands` of the same routes: prompt templates the kernel expands from `/<name>` (prompt-commands.ts). */
+export interface WebPromptCommand {
+	readonly name: string;
+	readonly description: string;
+	readonly argumentHint?: string;
 }
 
 /** GET /api/v1/mcp (coding-agent `StepMcpStatus`). */

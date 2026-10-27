@@ -862,7 +862,7 @@ const server = createServer(async (request, response) => {
 				if (parts[3] === "files") return json(response, 200, await listDirectory(cwd, path));
 				if (parts[3] === "file") return json(response, 200, await readWorkspaceFile(cwd, path));
 				if (parts[3] === "raw") return await serveWorkspaceImage(response, cwd, path);
-				if (parts[3] === "skills") return json(response, 200, { skills: await store.skillsFor(cwd) });
+				if (parts[3] === "skills") return json(response, 200, await store.slashResourcesFor(cwd));
 				if (parts[3] === "search") {
 					return json(response, 200, await searchWorkspaceFiles(cwd, url.searchParams.get("q") ?? ""));
 				}
@@ -1068,7 +1068,7 @@ const server = createServer(async (request, response) => {
 				return json(response, 200, { ok: true });
 			}
 			if (parts[4] === "skills" && parts.length === 5 && method === "GET") {
-				return json(response, 200, { skills: session.skills() });
+				return json(response, 200, { skills: session.skills(), commands: session.commands() });
 			}
 			// A delivered page as its turn left it: later turns' patches reversed, served beside the
 			// workspace on the site preview origin. Falls back to the current file when that is not exact.

@@ -15,6 +15,7 @@ import { copyText } from "../../state/session";
 import { setUi, useAppStore } from "../../state/store";
 import type { MessageTimelineItem } from "../../state/types";
 import { Icon, LEGACY_ICONS, MarkdownView } from "../../ui";
+import { commandLeadIcon } from "../composer";
 import { openFileReference } from "../files/actions";
 import { highlightFence } from "../files/index";
 import { forkAtEntry } from "./actions";
@@ -30,6 +31,12 @@ function fileChipHtml(file: AttachedFile | undefined): string {
 	if (!file) return "";
 	const title = escapeHtml(`${file.path} · ${formatBytes(file.bytes)}`);
 	return `<span class="message-file" title="${title}"><svg class="icon icon--xs" aria-hidden="true"><use href="#i-fileText"></use></svg><span>${escapeHtml(file.name)}</span></span>`;
+}
+
+/** `/code-review 123` -> the command name and what followed it; null when the line is not a command. */
+function promptCommandLine(text: string): { readonly name: string; readonly args: string } | null {
+	const match = /^\/(\S+)(?:\s+([\s\S]*))?$/u.exec(text.trim());
+	return match ? { name: match[1], args: match[2]?.trim() ?? "" } : null;
 }
 
 /**
@@ -83,12 +90,17 @@ export const MessageItem = memo(function MessageItem({
 	// A quoted other-session context rides at the tail; peel it before any invocation match.
 	const quoted = role === "user" ? sessionContextOf(attached.text) : null;
 	const messageText = quoted ? quoted.body : attached.text;
-	const skill = role === "user" ? skillInvocation(messageText) : null;
+	/** A prompt command: the line the user typed stands in for the template the kernel expanded. */
+	const command = role === "user" && item.promptCommand ? promptCommandLine(messageText) : null;
+	const skill = role === "user" && !command ? skillInvocation(messageText) : null;
 	/** The install command a plugin pick chip sent; badge only, no body change. */
-	const pluginInstall = role === "user" && !skill ? pluginInstallInvocation(messageText) : null;
+	const pluginInstall = role === "user" && !command && !skill ? pluginInstallInvocation(messageText) : null;
 	/** The ultraloop keyword form rides the message as ordinary text; its badge mirrors the skill one. */
-	const ultraloop = role === "user" && !skill && !pluginInstall ? ultraloopInvocation(messageText) : null;
-	const content = useSmoothText(skill || ultraloop ? (skill?.request ?? ultraloop?.request ?? "") : messageText, live);
+	const ultraloop = role === "user" && !command && !skill && !pluginInstall ? ultraloopInvocation(messageText) : null;
+	const content = useSmoothText(
+		command ? command.args : skill || ultraloop ? (skill?.request ?? ultraloop?.request ?? "") : messageText,
+		live,
+	);
 	const images = role === "user" ? (item.images ?? []) : [];
 	// Memoised: a streaming turn re-renders the timeline per frame, and parsing every earlier message each time made long sessions crawl.
 	const files = pendingFiles ?? attached.files;
@@ -110,13 +122,17 @@ export const MessageItem = memo(function MessageItem({
 	 * first line — prepended into the rendered html, so the command chip and
 	 * the prompt share one bubble with native typography.
 	 */
-	const badgeLabel = skill?.name ?? pluginInstall?.name ?? t("modeUltraloop");
-	const badgeIcon = skill ? "wrench" : ultraloop ? "orbit" : "puzzle";
-	const badgeKind = skill ? "skill" : ultraloop ? "ultraloop" : "plugin";
+	const badgeLabel = command ? `/${command.name}` : (skill?.name ?? pluginInstall?.name ?? t("modeUltraloop"));
+	const badgeIcon = command ? commandLeadIcon(command.name) : skill ? "wrench" : ultraloop ? "orbit" : "puzzle";
+	const badgeKind = command ? "command" : skill ? "skill" : ultraloop ? "ultraloop" : "plugin";
+	const badgeHtml = `<span class="message-skill message-skill--${badgeKind}" title="${escapeHtml(badgeLabel)}"><span class="tool-glyph" aria-hidden="true"><svg class="icon icon--xs tool-kind-icon" aria-hidden="true"><use href="#i-${badgeIcon}"></use></svg></span>${escapeHtml(badgeLabel)}</span>`;
+	// A bare prompt command (no arguments) is the badge alone, like an echoed kernel command.
 	const invokedHtml =
-		(skill || ultraloop || pluginInstall) && html
-			? `<span class="message-skill message-skill--${badgeKind}" title="${escapeHtml(badgeLabel)}"><span class="tool-glyph" aria-hidden="true"><svg class="icon icon--xs tool-kind-icon" aria-hidden="true"><use href="#i-${badgeIcon}"></use></svg></span>${escapeHtml(badgeLabel)}</span>${html}`
-			: html;
+		command && !html
+			? badgeHtml
+			: (skill || ultraloop || pluginInstall || command) && html
+				? `${badgeHtml}${html}`
+				: html;
 	useFadeIn(bodyRef, html, live);
 	if (item.error) return <MessageError entryId={item.entryId} error={item.error} />;
 	// The live turn before its first text (reasoning, or waiting on the first token).
@@ -130,7 +146,7 @@ export const MessageItem = memo(function MessageItem({
 		<article className={`message ${role}`} data-content={item.content || ""} data-entry-id={item.entryId}>
 			{/* A user message can be images only; it still opens a turn, so it gets a row. */}
 			{images.length ? <MessageImages images={images} /> : null}
-			{content ? (
+			{content || command ? (
 				<MarkdownView
 					ref={bodyRef}
 					className="message-body"
@@ -148,7 +164,8 @@ export const MessageItem = memo(function MessageItem({
 						className="message-action"
 						title={t("copy")}
 						aria-label={t("copy")}
-						onClick={() => void copyText(content)}
+						// A prompt command copies the line that runs it again, not just its arguments.
+						onClick={() => void copyText(command ? messageText : content)}
 					>
 						<Icon {...LEGACY_ICONS.copy} />
 					</button>

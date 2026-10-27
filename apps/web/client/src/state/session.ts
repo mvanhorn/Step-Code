@@ -524,13 +524,19 @@ export function timelineFromEntries(entries: readonly SessionEntry[] = [], retry
 			continue;
 		}
 		if (message.role !== "assistant" && (text || message.role === "user")) {
+			// A prompt command's expansion is shown as the line the user typed.
+			const promptCommand =
+				message.role === "user" && typeof entry.promptCommand === "string" && entry.promptCommand
+					? entry.promptCommand
+					: undefined;
 			// Every user message opens a turn (the host's turn boundary), even one without text.
 			items.push({
 				itemId: `message-${entry.id}`,
 				entryId: entry.id,
 				kind: "message",
 				role: message.role,
-				content: text,
+				content: promptCommand ?? text,
+				...(promptCommand ? { promptCommand: true } : {}),
 				...(images.length ? { images } : {}),
 				...(error ? { error } : {}),
 				usage: entry.usage,
@@ -925,7 +931,11 @@ function flushLiveMessage(): void {
 		);
 }
 
-function handleAgentEvent(agentEvent: AgentStreamEvent, thinkingTimings?: ThinkingTimings): void {
+function handleAgentEvent(
+	agentEvent: AgentStreamEvent,
+	thinkingTimings?: ThinkingTimings,
+	promptCommand?: string,
+): void {
 	if (
 		agentEvent.type === "agent_start" ||
 		agentEvent.type === "message_start" ||
@@ -980,8 +990,9 @@ function handleAgentEvent(agentEvent: AgentStreamEvent, thinkingTimings?: Thinki
 	}
 	if (agentEvent.type === "message_start" && agentEvent.message?.role === "user") {
 		// The prompt entered the loop: show it in place now; the refresh after
-		// its message_end replaces this row with the recorded entry.
-		const content = contentText(agentEvent.message.content);
+		// its message_end replaces this row with the recorded entry. A prompt
+		// command shows as the line the user typed, not the template it became.
+		const content = promptCommand ?? contentText(agentEvent.message.content);
 		const images = imageSources(agentEvent.message.content);
 		setState((state) => ({
 			pendingTurn: null,
@@ -990,6 +1001,7 @@ function handleAgentEvent(agentEvent: AgentStreamEvent, thinkingTimings?: Thinki
 				kind: "message",
 				role: "user",
 				content,
+				...(promptCommand ? { promptCommand: true } : {}),
 				...(images.length ? { images } : {}),
 			}),
 		}));
@@ -1085,8 +1097,11 @@ export function connectStream(id: string): void {
 		const payload = JSON.parse((event as MessageEvent).data) as {
 			event: AgentStreamEvent;
 			thinkingTimings?: unknown;
+			promptCommand?: unknown;
 		};
-		handleAgentEvent(payload.event, readThinkingTimings(payload.thinkingTimings));
+		const promptCommand =
+			typeof payload.promptCommand === "string" && payload.promptCommand ? payload.promptCommand : undefined;
+		handleAgentEvent(payload.event, readThinkingTimings(payload.thinkingTimings), promptCommand);
 	});
 	source.addEventListener("status", (event) => {
 		const payload = JSON.parse((event as MessageEvent).data) as {
