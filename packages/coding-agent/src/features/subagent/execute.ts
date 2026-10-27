@@ -279,6 +279,7 @@ function liveRecord(record: StepSubagentResultRecord): StepSubagentResultRecord 
 		...(record.sessionId === undefined ? {} : { sessionId: clipMiddle(record.sessionId, LIVE_IDENTIFIER_CHARS) }),
 		...(record.sessionFile === undefined ? {} : { sessionFile: clipMiddle(record.sessionFile, LIVE_PATH_CHARS) }),
 		...(record.pendingReply === undefined ? {} : { pendingReply: record.pendingReply }),
+		...boundedPrompts(record.cancelledPrompts),
 	};
 }
 
@@ -397,10 +398,11 @@ function finalRecords(records: readonly StepSubagentResultRecord[]): StepSubagen
 		const bounded = boundedMessages(record.messages, messageAllowance);
 		const messages = take(budget, bounded.messages) ? bounded.messages : [];
 
-		const task = clipMiddle(record.task, FINAL_TASK_CHARS);
-		take(budget, task);
-		const stderr = tailChars(record.stderr, FINAL_STDERR_CHARS) ?? "";
-		take(budget, stderr);
+		// A field the budget rejects is dropped, not silently kept at full size.
+		const candidateTask = clipMiddle(record.task, FINAL_TASK_CHARS);
+		const task = take(budget, candidateTask) ? candidateTask : clipMiddle(record.task, 0);
+		const candidateStderr = tailChars(record.stderr, FINAL_STDERR_CHARS) ?? "";
+		const stderr = take(budget, candidateStderr) ? candidateStderr : "";
 		// A field the budget rejects is dropped, not silently kept at full size.
 		const candidateError = tailChars(record.errorMessage, FINAL_ERROR_CHARS);
 		const errorMessage = take(budget, candidateError) ? candidateError : undefined;

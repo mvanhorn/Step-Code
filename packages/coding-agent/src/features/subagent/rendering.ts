@@ -234,6 +234,8 @@ export class SubagentListWidget implements Component {
 		const completed = records.filter((record) => record.status === "completed").length;
 		const queued = records.filter((record) => record.status === "queued").length;
 		const skipped = records.filter((record) => record.status === "skipped").length;
+		// Only visible records can be classified; omitted ones are reported
+		// separately as "not shown", never counted as failures.
 		const failed = records.length - running - completed - queued - skipped;
 		const summary = [`${completed}/${total} complete`];
 		if (running > 0) summary.push(`${running} running`);

@@ -93,6 +93,25 @@ function getLaneSessions(sessionId: string, liveOnly = true): StepSubagentRpcSes
 	return sessions;
 }
 
+/**
+ * Keep the lane's roster complete enough to report the real task count.
+ *
+ * A live update carries only the records that fit its byte budget, so the
+ * omitted count describes the update, not the roster we hold. Merging recovers
+ * records we once saw but never ones we have not seen yet, so the count is
+ * recomputed from the update's own total rather than cleared.
+ */
+function rosterFields(
+	previous: StepSubagentDetails,
+	next: StepSubagentDetails,
+): Pick<StepSubagentDetails, "results" | "omittedResults"> {
+	if (next.omittedResults === undefined) return { results: next.results };
+	const merged = mergeResults(previous.results, next.results);
+	const total = next.results.length + next.omittedResults;
+	const omitted = Math.max(0, total - merged.length);
+	return omitted === 0 ? { results: merged } : { results: merged, omittedResults: omitted };
+}
+
 /** Overlay a bounded live roster onto the roster the lane already knows. */
 function mergeResults(
 	previous: readonly StepSubagentResultRecord[],
@@ -269,13 +288,7 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
 					// A live roster is byte-bounded, so a large batch may omit its tail.
 					// Keep the lanes we already know instead of forgetting them; the
 					// final result replaces this with every task.
-					results:
-						partial.details.omittedResults === undefined
-							? partial.details.results
-							: mergeResults(lane.details.results, partial.details.results),
-					// After merging, the roster is complete: keeping the count would
-					// make renderers report more tasks than exist.
-					...(partial.details.omittedResults === undefined ? {} : { omittedResults: undefined }),
+					...rosterFields(lane.details, partial.details),
 					agentId: lane.id,
 					status: "running",
 					startedAt: lane.startedAt,

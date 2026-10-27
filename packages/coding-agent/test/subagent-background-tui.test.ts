@@ -241,3 +241,50 @@ test("agent-notification without structured details falls back to the host rende
 		undefined,
 	);
 });
+
+test("a background lane reports the real task count while its roster is byte-bounded", async () => {
+	// The live roster stops at a byte budget, so most of a large batch is only
+	// counted, never listed. Merging recovers what was seen, not what was never
+	// published: clearing the count here froze a 600-task lane at 202.
+	const { api, tools, ctx, calls } = harness();
+	const tasks = 200;
+	let release!: () => void;
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	createStepSubagentExtension({
+		includeBuiltinAgents: true,
+		agentDir: "/tmp/step-agent-test",
+		maxConcurrency: 8,
+		runner: async (input) => {
+			input.onUpdate?.({ ...runResult("", 0, -1), exitCode: -1, activeText: "working", messages: [] });
+			await gate;
+			return runResult(`${input.task} done`);
+		},
+	})(api);
+	await tools.get("subagent")!.execute(
+		"call-batch" as never,
+		{
+			tasks: Array.from({ length: tasks }, (_, index) => ({ agent: "general", task: `bulk task ${index}` })),
+			run_in_background: true,
+		} as never,
+		undefined as never,
+		undefined as never,
+		ctx as never,
+	);
+	await waitFor(() => calls.some((call) => (call.component?.render(120)[0] ?? "").includes("background agents")));
+	release();
+	await waitFor(() => calls.at(-1)?.component === undefined, 10_000);
+
+	// Every header published during the run must name the true total, not the
+	// number of records that happened to fit.
+	const headers = calls
+		.map((call) => call.component?.render(120)[0] ?? "")
+		.filter((header) => header.includes("background agents"));
+	expect(headers.length).toBeGreaterThan(0);
+	for (const header of headers) {
+		expect(header).toContain(`/${tasks} complete`);
+		// Omitted tasks are reported as not shown, not as failures.
+		expect(header).not.toContain("failed");
+	}
+});

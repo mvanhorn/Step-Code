@@ -764,10 +764,12 @@ export function createStepSubagentExtension(options: StepSubagentExtensionOption
 					lane.ctx.ui.setWidget(lanesWidgetKey, undefined);
 					return;
 				}
+				const omitted = batch.reduce((sum, entry) => sum + (entry.details.omittedResults ?? 0), 0);
 				const details: StepSubagentDetails = {
 					...lane.details,
 					mode: "parallel",
 					results: batch.flatMap((entry) => entry.details.results),
+					...(omitted > 0 ? { omittedResults: omitted } : {}),
 				};
 				lanesWidget?.setDetails(details);
 				const signature = subagentListSignature(details);

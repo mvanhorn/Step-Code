@@ -133,7 +133,7 @@ function liveRecord(record) {
 }
 ```
 
-整个 roster 还受一个 **48 KiB / 次**的序列化字节预算约束：超出部分不发送，改为 `omittedResults: N`（`MAX_PARALLEL_TASKS` 允许 1000 个任务，完整 roster 是 O(N)）。后台 lane 侧按 index 合并，因此被省略的尾部不会让已存在的 lane 从内存列表里消失。
+整个 roster 还受一个 **48 KiB / 次**的序列化字节预算约束：超出部分不发送，改为 `omittedResults: N`（`MAX_PARALLEL_TASKS` 允许 1000 个任务，完整 roster 是 O(N)）。后台 lane 侧按 index 合并，并按本次 update 自身的总数重算省略数：合并只能找回「曾经收到过」的记录，永远补不回「从未发布过」的尾部，因此不能把省略数清零。
 
 **② 合流节流**：`LIVE_UPDATE_INTERVAL_MS = 100`（与既有 `BASH_UPDATE_THROTTLE_MS` 一致）。
 
@@ -205,6 +205,7 @@ parallel 批量（200 任务）回归：发布次数 < 60，单条 < 128 KiB，�
   - chain 把上一步 500 KB 输出插入下一步 task，所有 update 仍 < 32 KiB、`task` ≤ 600 字符；
   - 200 次 delta 只产生 ≤ 6 次发布；
   - 200 个并行任务的批量调用：发布 < 60 次、单条 < 128 KiB、总量 < 2 MiB、出现 `omittedResults`；
+  - 后台 lane 运行 200 任务：每次发布的头部都报告真实总数（`/200 complete`），省略项显示为「not shown」而不是 failed；
   - 终态预算：保留最新消息、序列化数组 ≤ 64 KiB、`messagesTruncated: true`；
   - 单条消息超预算且无 `activeText` 时，仍从完整 transcript 回填可渲染文本；
   - 400 KB 最终答复在展示投影里被压到 ≤ 50,000 字符；
@@ -218,7 +219,7 @@ parallel 批量（200 任务）回归：发布次数 < 60，单条 < 128 KiB，�
 
 回归：
 
-- `packages/coding-agent` 全量：约 5000 passed / 58 skipped。唯一稳定失败是 6 个 `completion-check-cli` 用例，**在未改动的 `main` 上以完全相同的方式失败**（本机 git worktree 前置条件问题，与本改动无关）；`subagent-invocation` 的 CLI 启动用例偶发超时，单跑必过（该文件注释已记录此既有偶发）。
+- `packages/coding-agent` 全量：5002 passed / 58 skipped。唯一稳定失败是 6 个 `completion-check-cli` 用例，**在未改动的 `main` 上以完全相同的方式失败**（本机 git worktree 前置条件问题，与本改动无关）；`subagent-invocation` 的 CLI 启动用例偶发超时，单跑必过（该文件注释已记录此既有偶发）。
 - `pnpm run check` 全绿（biome / 边界检查 / `tsgo --noEmit` / browser smoke）。
 - `git diff --check` 干净。
 
