@@ -31,8 +31,8 @@ import {
 	absoluteLocalPath,
 	completeWorkspaceFiles,
 	containedWorkspacePath,
+	imageMimeType,
 	listDirectory,
-	MAX_IMAGE_BYTES,
 	readLocalFile,
 	readWorkspaceFile,
 	searchWorkspaceFiles,
@@ -667,16 +667,34 @@ async function serveImageFile(
 
 async function serveWorkspaceImage(response: ServerResponse, cwd: string, inputPath: string): Promise<void> {
 	const file = await readWorkspaceFile(cwd, inputPath);
-	if (file.kind !== "image") return error(response, 415, "Only images can be served raw");
-	if (file.size > MAX_IMAGE_BYTES) return error(response, 413, "Image is too large to preview");
+	if (file.kind !== "image") {
+		imageRefused(response, file, inputPath);
+		return;
+	}
 	await serveImageFile(response, await containedWorkspacePath(cwd, inputPath), file);
 }
 
 async function serveLocalImage(response: ServerResponse, inputPath: string): Promise<void> {
 	const file = await readLocalFile(inputPath);
-	if (file.kind !== "image") return error(response, 415, "Only images can be served raw");
-	if (file.size > MAX_IMAGE_BYTES) return error(response, 413, "Image is too large to preview");
+	if (file.kind !== "image") {
+		imageRefused(response, file, inputPath);
+		return;
+	}
 	await serveImageFile(response, await absoluteLocalPath(inputPath), file);
+}
+
+/**
+ * Why a raw request was refused. The preview never asks for an oversized image
+ * (the read classifies it as "too large"), so this only answers a direct caller:
+ * an image over the limit keeps its documented 413, everything else is simply
+ * not servable here.
+ */
+function imageRefused(response: ServerResponse, file: WorkspaceFile, inputPath: string): void {
+	if (file.kind === "too-large" && imageMimeType(inputPath)) {
+		error(response, 413, "Image is too large to preview");
+		return;
+	}
+	error(response, 415, "Only images can be served raw");
 }
 
 const server = createServer(async (request, response) => {
