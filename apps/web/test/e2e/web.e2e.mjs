@@ -3536,6 +3536,352 @@ test("forking from the middle of a conversation branches there and leaves the pa
   assert.ok(after.startsWith(before), "the parent's transcript kept every original record")
 })
 
+test(
+  "the sidebar pins and reorders conversations, and only the project view offers workspace actions",
+  { skip },
+  async () => {
+    // Three conversations in one project folder plus one in another, so both the
+    // reorder and the "another list does not move" rule are observable. Their
+    // message timestamps set the host's order (newest first), which an
+    // unarranged list must keep.
+    const arrange = join(base, "arrange-project")
+    const neighbour = join(base, "arrange-neighbour")
+    await mkdir(arrange, { recursive: true })
+    await mkdir(neighbour, { recursive: true })
+    const now = Date.now()
+    const seed = async (cwd, id, age) => {
+      const timestamp = now - age
+      const at = new Date(timestamp).toISOString()
+      const lines = [
+        { type: "session", version: 3, id, timestamp: at, cwd },
+        {
+          type: "message",
+          id: `${id}-user`,
+          parentId: null,
+          timestamp: at,
+          message: { role: "user", content: `arrange fixture ${id}`, timestamp },
+        },
+      ]
+      const dir = join(base, "agent", "sessions", `--e2e-${id.split("-")[1] ?? "arrange"}--`)
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, `${id}.jsonl`), lines.map((line) => JSON.stringify(line)).join("\n") + "\n")
+    }
+    for (const [id, age] of [
+      ["e2e-arrange-first", 300_000],
+      ["e2e-arrange-second", 200_000],
+      ["e2e-arrange-third", 100_000],
+    ]) {
+      await seed(arrange, id, age)
+    }
+    await seed(neighbour, "e2e-neighbour-only", 50_000)
+
+    // A shared browser profile: never inherit an arrangement from an earlier run.
+    await browser.run(`localStorage.removeItem("stepcode.pinnedSessions"); localStorage.removeItem("stepcode.sessionOrder");`)
+    await browser.goto(`${origin}/`)
+    try {
+      const seen = await browser.run(`
+		const group = (cwd) => $$("#projectGroups .project-group").find((node) => node.dataset.cwd === cwd);
+		const rows = (cwd) => {
+			const node = group(cwd);
+			return node ? [...node.querySelectorAll(".session-row")].map((row) => row.dataset.sessionId) : [];
+		};
+		const rowFor = (cwd, id) => group(cwd).querySelector(".session-row[data-session-id='" + id + "']");
+		const stored = (key) => JSON.parse(localStorage.getItem(key) ?? "null");
+		const dragTo = (source, target, clientY) => {
+			const transfer = new DataTransfer();
+			source.dispatchEvent(new DragEvent("dragstart", { bubbles: true, dataTransfer: transfer }));
+			target.dispatchEvent(
+				new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: transfer, clientY }),
+			);
+			return {
+				transfer,
+				drop: () => {
+					target.dispatchEvent(
+						new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer, clientY }),
+					);
+					source.dispatchEvent(new DragEvent("dragend", { bubbles: true, dataTransfer: transfer }));
+				},
+			};
+		};
+		await until(() => rows(${JSON.stringify(arrange)}).length === 3, "the arranged project's rows");
+		const initial = rows(${JSON.stringify(arrange)});
+
+		// Pinning "second" through the row's own menu floats it over the list and
+		// arranges nothing: a pin is a display order, not a stored place.
+		rowFor(${JSON.stringify(arrange)}, "e2e-arrange-second").querySelector(".session-menu-button").click();
+		const menu = await until(() => $("#sessionMenu"), "the session menu");
+		const labels = [...menu.querySelectorAll("button")].map((button) => button.textContent.trim());
+		menu.querySelector("[data-action='pin']").click();
+		await until(
+			() => rowFor(${JSON.stringify(arrange)}, "e2e-arrange-second").dataset.pinned === "true",
+			"the pinned row to be marked",
+		);
+		const pinned = {
+			rows: rows(${JSON.stringify(arrange)}),
+			pins: stored("stepcode.pinnedSessions"),
+			marked: rowFor(${JSON.stringify(arrange)}, "e2e-arrange-second").dataset.pinned,
+			label: rowFor(${JSON.stringify(arrange)}, "e2e-arrange-second").querySelector(".session-pin")?.getAttribute("aria-label"),
+			order: stored("stepcode.sessionOrder"),
+		};
+
+		// A row dragged onto the pinned row's upper half joins the pinned block, and
+		// the newest drop decides the pin order: it lands above "second".
+		const upper = rowFor(${JSON.stringify(arrange)}, "e2e-arrange-second").getBoundingClientRect();
+		const intoPins = dragTo(
+			rowFor(${JSON.stringify(arrange)}, "e2e-arrange-third"),
+			rowFor(${JSON.stringify(arrange)}, "e2e-arrange-second"),
+			upper.top + 2,
+		);
+		const intoIndicator = await until(
+			() => rowFor(${JSON.stringify(arrange)}, "e2e-arrange-second").classList.contains("drop-before") && "drop-before",
+			"the upper-half drop indicator",
+		);
+		intoPins.drop();
+		await until(
+			() => rows(${JSON.stringify(arrange)})[0] === "e2e-arrange-third",
+			"the dragged row to join the pinned block above",
+		);
+		const pinnedDrop = {
+			rows: rows(${JSON.stringify(arrange)}),
+			pins: stored("stepcode.pinnedSessions"),
+			order: stored("stepcode.sessionOrder"),
+		};
+
+		// The lower half lands below: dragging a pinned row out of the block unpins
+		// it where it was dropped.
+		const lower = rowFor(${JSON.stringify(arrange)}, "e2e-arrange-first").getBoundingClientRect();
+		const outOfPins = dragTo(
+			rowFor(${JSON.stringify(arrange)}, "e2e-arrange-second"),
+			rowFor(${JSON.stringify(arrange)}, "e2e-arrange-first"),
+			lower.bottom - 2,
+		);
+		const outIndicator = await until(
+			() => rowFor(${JSON.stringify(arrange)}, "e2e-arrange-first").classList.contains("drop-after") && "drop-after",
+			"the lower-half drop indicator",
+		);
+		outOfPins.drop();
+		await until(
+			() => rowFor(${JSON.stringify(arrange)}, "e2e-arrange-second").dataset.pinned !== "true",
+			"the dragged row to leave the pinned block",
+		);
+		const unpinnedDrop = {
+			rows: rows(${JSON.stringify(arrange)}),
+			pins: stored("stepcode.pinnedSessions"),
+			order: stored("stepcode.sessionOrder"),
+		};
+
+		// Another project's list is untouched by that drag: it still follows the host.
+		const other = rows(${JSON.stringify(neighbour)});
+
+		// A row dropped on another project's row is not a reorder at all.
+		const foreign = dragTo(
+			rowFor(${JSON.stringify(arrange)}, "e2e-arrange-first"),
+			rowFor(${JSON.stringify(neighbour)}, "e2e-neighbour-only"),
+			0,
+		);
+		foreign.drop();
+		const crossed = { arrange: rows(${JSON.stringify(arrange)}), neighbour: rows(${JSON.stringify(neighbour)}) };
+
+		return { initial, labels, pinned, intoIndicator, pinnedDrop, outIndicator, unpinnedDrop, other, crossed };
+	`)
+      assert.deepEqual(seen.initial, ["e2e-arrange-third", "e2e-arrange-second", "e2e-arrange-first"])
+      assert.ok(seen.labels.includes("置顶会话"), seen.labels.join(" | "))
+      assert.deepEqual(seen.pinned.rows, ["e2e-arrange-second", "e2e-arrange-third", "e2e-arrange-first"])
+      assert.deepEqual(seen.pinned.pins, ["e2e-arrange-second"])
+      assert.equal(seen.pinned.marked, "true")
+      assert.equal(seen.pinned.label, "已置顶")
+      assert.equal((seen.pinned.order ?? []).length, 0, "a pin must not arrange anything")
+      assert.equal(seen.intoIndicator, "drop-before")
+      assert.deepEqual(seen.pinnedDrop, {
+        rows: ["e2e-arrange-third", "e2e-arrange-second", "e2e-arrange-first"],
+        pins: ["e2e-arrange-third", "e2e-arrange-second"],
+        order: [],
+      })
+      assert.equal(seen.outIndicator, "drop-after")
+      assert.deepEqual(seen.unpinnedDrop, {
+        rows: ["e2e-arrange-third", "e2e-arrange-first", "e2e-arrange-second"],
+        pins: ["e2e-arrange-third"],
+        order: ["e2e-arrange-first", "e2e-arrange-second"],
+      })
+      assert.deepEqual(seen.other, ["e2e-neighbour-only"])
+      assert.deepEqual(seen.crossed, {
+        arrange: ["e2e-arrange-third", "e2e-arrange-first", "e2e-arrange-second"],
+        neighbour: ["e2e-neighbour-only"],
+      })
+
+      // A reload keeps the pin and the arrangement.
+      await browser.goto(`${origin}/`)
+      const reloaded = await browser.run(`
+		const group = (cwd) => $$("#projectGroups .project-group").find((node) => node.dataset.cwd === cwd);
+		const rows = (cwd) => {
+			const node = group(cwd);
+			return node ? [...node.querySelectorAll(".session-row")].map((row) => row.dataset.sessionId) : [];
+		};
+		const rowFor = (cwd, id) => group(cwd).querySelector(".session-row[data-session-id='" + id + "']");
+		const shown = (node) => node.getClientRects().length > 0;
+		await until(() => rows(${JSON.stringify(arrange)}).length === 3, "the arranged rows after reload");
+		const kept = rows(${JSON.stringify(arrange)});
+		const pinMarked = rowFor(${JSON.stringify(arrange)}, "e2e-arrange-third").dataset.pinned;
+
+		// Unpinning through the menu drops only the pin and keeps the arrangement.
+		rowFor(${JSON.stringify(arrange)}, "e2e-arrange-third").querySelector(".session-menu-button").click();
+		const menu = await until(() => $("#sessionMenu"), "the session menu after reload");
+		menu.querySelector("[data-action='pin']").click();
+		await until(() => !rowFor(${JSON.stringify(arrange)}, "e2e-arrange-third").dataset.pinned, "the pin to clear");
+		const unpinned = {
+			pins: JSON.parse(localStorage.getItem("stepcode.pinnedSessions") ?? "null"),
+			rows: rows(${JSON.stringify(arrange)}),
+		};
+
+		// The same arrangement is available without a pointer: Alt+↑ moves the
+		// focused row past its drawn neighbour, and focus survives the move.
+		const lastRow = rowFor(${JSON.stringify(arrange)}, "e2e-arrange-second");
+		lastRow.focus();
+		lastRow.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", altKey: true, bubbles: true }));
+		await until(
+			() => rows(${JSON.stringify(arrange)})[1] === "e2e-arrange-second",
+			"the keyboard reorder",
+		);
+		await until(
+			() => document.activeElement?.dataset.sessionId === "e2e-arrange-second",
+			"focus to stay on the moved row",
+		);
+		document.activeElement.dispatchEvent(
+			new KeyboardEvent("keydown", { key: "ArrowDown", altKey: true, bubbles: true }),
+		);
+		await until(
+			() => rows(${JSON.stringify(arrange)})[2] === "e2e-arrange-second",
+			"the second keyboard step",
+		);
+		const keyboard = rows(${JSON.stringify(arrange)});
+
+		// The grouped view has no workspace navigation: adding one and opening the
+		// archive belong to the project view alone.
+		const groupTab = () => $$(".view-tab").find((tab) => tab.dataset.view === "group");
+		const projectTab = () => $$(".view-tab").find((tab) => tab.dataset.view === "project");
+		groupTab().click();
+		await until(() => !$("#groupedView").hidden, "the grouped view");
+		const grouped = { add: shown($("#addWorkspace")), archive: shown($("#archiveToggle")) };
+		projectTab().click();
+		await until(() => $("#groupedView").hidden, "the project view");
+		const project = { add: shown($("#addWorkspace")), archive: shown($("#archiveToggle")) };
+
+		return { kept, pinMarked, unpinned, keyboard, grouped, project };
+	`)
+      assert.deepEqual(reloaded.kept, ["e2e-arrange-third", "e2e-arrange-first", "e2e-arrange-second"])
+      assert.equal(reloaded.pinMarked, "true")
+      // "third" was pinned before it was ever arranged, so it has no unpinned
+      // place to return to and now leads the unpinned rows (see session-order.ts).
+      assert.deepEqual(reloaded.unpinned, {
+        pins: [],
+        rows: ["e2e-arrange-third", "e2e-arrange-first", "e2e-arrange-second"],
+      })
+      assert.deepEqual(reloaded.keyboard, [
+        "e2e-arrange-third",
+        "e2e-arrange-first",
+        "e2e-arrange-second",
+      ])
+      assert.deepEqual(reloaded.grouped, { add: false, archive: false })
+      assert.deepEqual(reloaded.project, { add: true, archive: true })
+    } finally {
+      // This case owns fixture sessions and a shared browser profile: leave both
+      // as they were even when an assertion above fails.
+      await browser
+        .run(`localStorage.removeItem("stepcode.pinnedSessions"); localStorage.removeItem("stepcode.sessionOrder");`)
+        .catch(() => {})
+      await rm(join(base, "agent", "sessions", "--e2e-arrange--"), { recursive: true, force: true })
+      await rm(join(base, "agent", "sessions", "--e2e-neighbour--"), { recursive: true, force: true })
+    }
+  },
+)
+
+test("a row dropped on another group section still retags it, it is not a reorder", { skip }, async () => {
+  // The grouped view's cross-section drop is the one feature this change could
+  // silently eat: a row-level drop handler that stops propagating would keep the
+  // reorder working while retagging stopped. Two tagged sessions make both
+  // sections real; the drag goes from one section's row to the other section.
+  const cwd = join(base, "group-drag-project")
+  await mkdir(cwd, { recursive: true })
+  const now = Date.now()
+  for (const [id, age] of [
+    ["e2e-gtag-one", 200_000],
+    ["e2e-gtag-two", 100_000],
+  ]) {
+    const at = new Date(now - age).toISOString()
+    const lines = [
+      { type: "session", version: 3, id, timestamp: at, cwd },
+      {
+        type: "message",
+        id: `${id}-user`,
+        parentId: null,
+        timestamp: at,
+        message: { role: "user", content: `group drag fixture ${id}`, timestamp: now - age },
+      },
+    ]
+    const dir = join(base, "agent", "sessions", "--e2e-gtag--")
+    await mkdir(dir, { recursive: true })
+    await writeFile(join(dir, `${id}.jsonl`), lines.map((line) => JSON.stringify(line)).join("\n") + "\n")
+  }
+
+  await browser.goto(`${origin}/`)
+  try {
+    const seen = await browser.run(`
+		const group = () => $$("#projectGroups .project-group").find((node) => node.dataset.cwd === ${JSON.stringify(cwd)});
+		const rowFor = (id) => group().querySelector(".session-row[data-session-id='" + id + "']");
+		const sections = () => $$("#groupedView .group-section");
+		const sectionOf = (id) => sections().find((section) => section.querySelector(".session-row[data-session-id='" + id + "']"));
+		await until(() => group() && group().querySelectorAll(".session-row").length === 2, "the group drag fixtures");
+
+		const tag = async (id, colour, name) => {
+			rowFor(id).querySelector(".session-tag-button").click();
+			const picker = await until(() => $("#tagPicker"), "the tag picker");
+			picker.querySelector("[data-new-tag='" + colour + "']").click();
+			const input = await until(() => $("#tagNameInput"), "the group name input");
+			input.value = name;
+			input.dispatchEvent(new Event("input", { bubbles: true }));
+			$("#tagNameConfirm").click();
+			await until(() => !$("#tagPicker"), "the picker to close");
+		};
+		await tag("e2e-gtag-one", "red", "拖拽红色");
+		await tag("e2e-gtag-two", "teal", "拖拽青色");
+
+		$$(".view-tab").find((tab) => tab.dataset.view === "group").click();
+		// Other tests leave their own sessions in this profile, so the two tagged
+		// sections are looked up by their rows rather than by section count.
+		await until(() => sectionOf("e2e-gtag-one") && sectionOf("e2e-gtag-two"), "both tagged sections");
+		const red = sectionOf("e2e-gtag-one");
+		const teal = sectionOf("e2e-gtag-two");
+		const heading = (section) => section.querySelector(".group-heading").textContent.trim();
+		const redName = heading(red);
+
+		// Drop the red section's row on the teal section itself: the row leaves the
+		// event alone, so the section's own retag handler takes it.
+		const source = rowFor("e2e-gtag-one");
+		const transfer = new DataTransfer();
+		source.dispatchEvent(new DragEvent("dragstart", { bubbles: true, dataTransfer: transfer }));
+		teal.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer: transfer }));
+		teal.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }));
+		source.dispatchEvent(new DragEvent("dragend", { bubbles: true, dataTransfer: transfer }));
+		await until(() => sectionOf("e2e-gtag-one")?.isSameNode(teal), "the row to join the other section");
+		const joined = sectionOf("e2e-gtag-one");
+		return {
+			redName,
+			tealName: heading(sectionOf("e2e-gtag-two")),
+			tealRows: [...joined.querySelectorAll(".session-row")].map((row) => row.dataset.sessionId),
+			redGone: !sections().some((section) => section.isSameNode(red)),
+			order: localStorage.getItem("stepcode.sessionOrder"),
+		};
+	`)
+    assert.equal(seen.redName, "拖拽红色")
+    assert.equal(seen.tealName, "拖拽青色")
+    assert.deepEqual([...seen.tealRows].sort(), ["e2e-gtag-one", "e2e-gtag-two"])
+    assert.equal(seen.redGone, true, "the emptied section is gone, as for any group")
+    assert.equal(seen.order, null, "a retag must not arrange anything")
+  } finally {
+    await rm(join(base, "agent", "sessions", "--e2e-gtag--"), { recursive: true, force: true })
+  }
+})
+
 test("the ＋ menu offers goal and plan, but not ultracode", { skip }, async () => {
   // Ultracode is hidden in Web and Desktop until its interaction is finished. The
   // mode itself stays wired (its keyword, lead chip and message badge), so the

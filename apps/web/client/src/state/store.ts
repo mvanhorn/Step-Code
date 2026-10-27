@@ -4,6 +4,7 @@ import type { AttachedFile } from "../lib/attached-files";
 import { readStorage, STORAGE_KEYS } from "../lib/storage";
 import { isDesktopHost } from "../platform/host";
 import type { PerformanceRun } from "./performance";
+import { readSessionPreferences } from "./session-order";
 import type {
 	AccountReport,
 	Attachment,
@@ -355,6 +356,10 @@ export interface AppState {
 	readonly groups: readonly TagGroup[];
 	/** session id -> tag colour */
 	readonly tags: ReadonlyMap<string, TagColor>;
+	/** Session ids pinned in the sidebar, most recently pinned first: a pinned row leads the list it belongs to. */
+	readonly pinnedSessions: readonly string[];
+	/** Session ids in the order the user dragged them into the sidebar (see `state/session-order.ts`). */
+	readonly sessionOrder: readonly string[];
 	readonly currentView: ConversationView;
 	readonly currentFilter: TagColor | null;
 	readonly login: LoginReport | null;
@@ -418,6 +423,7 @@ function initialLocale(): Locale {
 }
 
 export function createInitialState(): AppState {
+	const arrangement = readSessionPreferences();
 	return {
 		sessions: [],
 		current: null,
@@ -443,6 +449,8 @@ export function createInitialState(): AppState {
 		foldedProjects: new Set(),
 		groups: [],
 		tags: new Map(),
+		pinnedSessions: arrangement.pinnedSessions,
+		sessionOrder: arrangement.sessionOrder,
 		currentView: "project",
 		currentFilter: null,
 		login: null,

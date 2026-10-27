@@ -13,7 +13,10 @@ import { WorkspaceMenu } from "./WorkspaceMenu";
 
 export interface ProjectGroupProps {
 	readonly cwd: string;
+	/** The group's rows in drawn order (pinned first). */
 	readonly sessions: readonly SessionSummary[];
+	/** The rows the tag filter leaves visible, in drawn order. */
+	readonly drawnIds: readonly string[];
 	readonly folded: boolean;
 	/** Session ids hidden by the tag filter. */
 	readonly hiddenIds: ReadonlySet<string>;
@@ -33,6 +36,7 @@ export interface ProjectGroupProps {
 export function ProjectGroup({
 	cwd,
 	sessions,
+	drawnIds,
 	folded,
 	hiddenIds,
 	filteredOut,
@@ -118,7 +122,13 @@ export function ProjectGroup({
 				<div>
 					{draft ? <DraftRow /> : null}
 					{sessions.map((session) => (
-						<SessionRow key={session.id} session={session} filteredOut={hiddenIds.has(session.id)} />
+						<SessionRow
+							key={session.id}
+							session={session}
+							listId={cwd}
+							drawnIds={drawnIds}
+							filteredOut={hiddenIds.has(session.id)}
+						/>
 					))}
 					{sessions.length || draft ? null : (
 						<EmptyState className="project-empty">{t("noConversationsYet")}</EmptyState>

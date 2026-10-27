@@ -9,7 +9,7 @@ import styles from "./IconSprite.module.css";
  *
  * The artwork comes from the design team's icon library (icon-library.html):
  * a 24x24 canvas, no colour of its own, every stroke and fill `currentColor`.
- * 90 of the 100 names below are drawn from it.
+ * 90 of the 111 names below are drawn from it.
  *
  * ICON_NAMES is a DOM contract, so the names never move with the artwork. The
  * Names below without a library counterpart retain their existing in-house,
@@ -36,6 +36,7 @@ export const MISSING_FROM_LIBRARY = [
 	"browserFirefox",
 	"finder",
 	"folderWindows",
+	"pin",
 ] as const;
 
 /*
@@ -57,6 +58,7 @@ export const MISSING_FROM_LIBRARY = [
  * - browserChrome / browserSafari / browserEdge / browserFirefox: 系统浏览器标识（"在 X 中打开"），
  *   多色简化品牌图形，颜色固定、不随主题变化
  * - finder: macOS 访达（双色笑脸），folderWindows: Windows 文件资源管理器黄色文件夹；"打开工作区目录"按钮用
+ * - pin: 图钉（侧边栏置顶会话的标记）。线性风格，与相邻图标同粗细
  */
 
 export const ICON_NAMES = [
@@ -114,6 +116,7 @@ export const ICON_NAMES = [
 	"cube",
 	"check",
 	"star",
+	"pin",
 	"eye",
 	"zap",
 	"loop",
@@ -993,6 +996,16 @@ export function IconSprite() {
 					strokeLinecap="round"
 					strokeLinejoin="round"
 				/>
+			</symbol>
+			{/* In-house: a pin, drawn in the neighbouring icons' line weight (the sidebar's pinned sessions). */}
+			<symbol id="i-pin" viewBox="0 0 24 24" fill="none">
+				<path
+					d="M9.4 3.5h5.2l-.9 5.1 2.9 2.9v1.8H7.4v-1.8l2.9-2.9-.9-5.1Z"
+					stroke="currentColor"
+					strokeWidth="1.8"
+					strokeLinejoin="round"
+				/>
+				<path d="M12 13.3V20.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
 			</symbol>
 			{/* icon-library.html: View */}
 			<symbol id="i-eye" viewBox="0 0 24 24" fill="none">

@@ -334,6 +334,20 @@ When to add or change one:
   (`state/tag-groups.ts`). Deleting a session or untagging its last member removes the group from the grouped view
   and the row's picker together, and frees its colour; clearing the filter when its group disappears keeps the
   sidebar from going blank. Never keep an empty group record for the picker to re-offer.
+- The sidebar's arrangement is a page preference, not session data (`state/session-order.ts`, keys
+  `stepcode.pinnedSessions` / `stepcode.sessionOrder`). A pinned row leads the list it already belongs to (its
+  project, Recent, or its tag section) rather than moving into a separate pinned section, and the stored pin order is
+  newest first: the row pinned last is the row nearest the top. The drop target decides membership — beside a pinned
+  row the dragged row is pinned there, beside an unpinned row it is unpinned there — so the pinned block must stay a
+  drop target; refusing those drops is what once made a pinned row impossible to move into. A pin is display only:
+  `moveSession` never rewrites the unpinned order, so a row that had a place keeps it while pinned. A drag reorders a
+  row only within the list it came from (`features/sidebar/drag.ts`: `canReorder`, `dropPlaceAt`), so the grouped
+  view's cross-section drop stays a retag. Alt+↑/↓ reorders the focused row and restores focus to it, so the
+  arrangement is not pointer-only. The stored order covers only the lists the reader actually moved, so another
+  project keeps following the host; unarranged sessions keep the host's newest-first position ahead of arranged rows,
+  and a deleted session's pin and place are pruned on refresh and delete. Add-workspace and the archive toggle belong
+  to the project view; the grouped view hides them and has no workspace sections of its own (the Alt+Cmd+O shortcut
+  stays global).
 - Ultracode (`ultraloop`) is hidden from the composer's ＋ mode picker in Web and Desktop while its interaction is
   unfinished (`features/composer/modes.ts`, `PICKABLE_MODES`). Keep the mode, its `ultracode:` keyword and `/ultraloop`
   alias, its lead chip and its message badge: hiding the picker row is not removing the feature.

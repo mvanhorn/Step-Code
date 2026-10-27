@@ -436,6 +436,38 @@ idempotent so a failed refresh after a successful removal can be retried. Remova
 does not close or interrupt the active conversation, modify its history, or  
 change access to the cwd of an existing session.
 
+The conversation list has two views. The project view groups conversations by  
+workspace folder (plus Recent); the grouped view lists them by tag group.  
+"Add workspace" and the archive toggle belong to the project view and are hidden  
+in the grouped view, which has no workspace sections to add to or filter. The  
+Alt+Cmd+O / Ctrl+Alt+O shortcut stays global: it opens the same chooser from  
+either view.
+
+Each reader's own arrangement of that list is local, like the theme. The row's  
+more menu pins a conversation (or unpins it), and a pinned row leads the list it  
+already belongs to instead of moving out of it; the row pinned last is the one  
+nearest the top. Dragging a row reorders it inside the same list (a row dropped  
+on another project or tag section is not a reorder), and Alt+↑ / Alt+↓ moves the  
+focused row past its drawn neighbour, keeping focus on it for the next press.  
+The drop target decides which part of the list the row joins: released beside a  
+pinned row it is pinned there (so a row can be dragged into the pinned block),  
+released beside an unpinned row it is unpinned there. A pin never rewrites the  
+unpinned order, so a row that had a place keeps it while pinned and returns to  
+it when unpinned from the menu; a row pinned before it was ever arranged has no  
+place to return to and leads the unpinned rows once unpinned, like a  
+conversation the Host lists for the first time.
+
+Both preferences live in browser local storage (`state/session-order.ts`,  
+`stepcode.pinnedSessions` / `stepcode.sessionOrder`), not in Host metadata, and a  
+deleted session's pin and place are pruned with it. The stored order covers the  
+lists the reader actually moved: another project keeps following the Host, and a  
+conversation the Host lists for the first time keeps its newest-first position,  
+ahead of the arranged rows. A place belongs to the session, so retagging or  
+unarchiving one keeps the rank it already had and it joins its new list at that  
+point. A different browser profile or machine keeps the Host's order; two pages  
+of one profile share the stored arrangement without watching each other. In the  
+grouped view a row dropped on another tag section still retags it, as before.
+
 Ultracode (the `ultraloop` mode) is hidden from the composer's ＋ mode picker in  
 Web and Desktop while its interaction is unfinished. Nothing behind it was  
 removed: typing `ultracode:` or `/ultraloop` still stages the same lead chip and  

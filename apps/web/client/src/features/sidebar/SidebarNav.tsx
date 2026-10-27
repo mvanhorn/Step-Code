@@ -121,6 +121,11 @@ function chord(key: string): string {
  * `section.conversation-list`: one compact header row (view tabs on the left,
  * add-workspace and archive on the right, remote commit 4aea0f8), the tag
  * filter, then the project and grouped views (legacy index.html 578-640).
+ *
+ * The two actions belong to the project view: adding a workspace and opening
+ * the archive both read as workspace navigation, and the grouped view has no
+ * workspace sections to add to or filter. They stay mounted and are hidden by
+ * the native `hidden` attribute, so switching views does not rebuild them.
  */
 export function ConversationList() {
 	const t = useT();

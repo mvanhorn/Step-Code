@@ -1,11 +1,19 @@
-import { type DragEvent, type KeyboardEvent, type MouseEvent, useState } from "react";
+import { type DragEvent, type KeyboardEvent, type MouseEvent, useRef, useState } from "react";
 import { formatRelativeTime, useRelativeTimeClock, useT } from "../../i18n";
 import { cx } from "../../lib/format";
 import { openSession, sessionTitle, taskStatus } from "../../state/session";
 import { mapWith, setState, shallowEqual, useAppStore } from "../../state/store";
 import type { SessionSummary } from "../../state/types";
 import { Icon, LEGACY_ICONS, Popover } from "../../ui";
-import { applyTagFilter, closeSessionMenu, closeTagPicker, toggleSessionMenu, toggleTagPicker } from "./actions";
+import {
+	applyTagFilter,
+	closeSessionMenu,
+	closeTagPicker,
+	reorderSession,
+	toggleSessionMenu,
+	toggleTagPicker,
+} from "./actions";
+import { beginSessionDrag, canReorder, draggedSession, dropPlaceAt, endSessionDrag } from "./drag";
 import { SessionMenu } from "./SessionMenu";
 import { TagPicker } from "./TagPicker";
 import { cssVar, groupName, SESSION_DRAG_TYPE, TAG_COLORS } from "./tags";
@@ -16,10 +24,18 @@ export interface SessionRowProps {
 	readonly grouped?: boolean;
 	/** Hidden by the project view's tag filter (legacy `row.style.display = "none"`). */
 	readonly filteredOut?: boolean;
+	/**
+	 * The list this row sits in: its project folder, `recent`, or a tag colour.
+	 * Only rows of one list reorder against each other; in the grouped view a row
+	 * dragged onto another section still retags instead.
+	 */
+	readonly listId: string;
+	/** The ids of the rows the reader can actually see, in drawn order (pins first, filtered rows out). */
+	readonly drawnIds: readonly string[];
 }
 
 /** One conversation row (legacy `buildSessionRow`, 760-819). */
-export function SessionRow({ session, grouped = false, filteredOut = false }: SessionRowProps) {
+export function SessionRow({ session, grouped = false, filteredOut = false, listId, drawnIds }: SessionRowProps) {
 	const t = useT();
 	useRelativeTimeClock();
 	const row = useAppStore((state) => {
@@ -35,6 +51,7 @@ export function SessionRow({ session, grouped = false, filteredOut = false }: Se
 			// running row keeps its pulse and badge, and the open row is being looked at.
 			unread: status === "completed" && !active && state.unreadById.get(session.id) === true,
 			active,
+			pinned: state.pinnedSessions.includes(session.id),
 			tag,
 			tagName: tag ? groupName(state.groups, tag) : "",
 			view: state.currentView,
@@ -44,6 +61,16 @@ export function SessionRow({ session, grouped = false, filteredOut = false }: Se
 		};
 	}, shallowEqual);
 	const { status, tag } = row;
+	// The keyboard neighbour comes from the drawn rows: a filtered-out row is not
+	// a place the reader can see themselves land beside.
+	const index = drawnIds.indexOf(session.id);
+	const previousId = index > 0 ? drawnIds[index - 1] : null;
+	const nextId = index >= 0 && index < drawnIds.length - 1 ? drawnIds[index + 1] : null;
+
+	const [dragging, setDragging] = useState(false);
+	const [dropPlace, setDropPlace] = useState<"before" | "after" | null>(null);
+	// Keeping focus on this row after a keyboard reorder needs the live node.
+	const rowRef = useRef<HTMLDivElement | null>(null);
 
 	const open = () => {
 		setState((state) => ({ unreadById: mapWith(state.unreadById, session.id, false) }));
@@ -56,6 +83,19 @@ export function SessionRow({ session, grouped = false, filteredOut = false }: Se
 	const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
 		// Only the row itself: Enter on a nested button must activate that button.
 		if (event.target !== event.currentTarget) return;
+		// A pointer drag is not the only way to arrange a list (see ResizeHandle).
+		if (event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+			// Alt+↑/↓ is a browser shortcut elsewhere; the row owns it even at the ends.
+			event.preventDefault();
+			const targetId = event.key === "ArrowUp" ? previousId : nextId;
+			if (!targetId) return;
+			const element = event.currentTarget;
+			reorderSession(session.id, targetId, event.key === "ArrowUp" ? "before" : "after", drawnIds);
+			// React moves the existing row nodes; Chrome drops focus from a node it
+			// re-inserts, so the next keypress would go nowhere.
+			requestAnimationFrame(() => (rowRef.current ?? element).focus({ preventScroll: true }));
+			return;
+		}
 		if (event.key === "Enter" || event.key === " ") {
 			event.preventDefault();
 			open();
@@ -73,31 +113,92 @@ export function SessionRow({ session, grouped = false, filteredOut = false }: Se
 		event.stopPropagation();
 		if (row.view === "project" && tag) applyTagFilter(row.filter === tag ? null : tag);
 	};
-	// Only the grouped view drags: it is the view where the drop targets (group sections) live.
-	const [dragging, setDragging] = useState(false);
+
+	// Dragging a row reorders it inside its own list; the grouped view's sections
+	// are separate retag targets (see GroupedView), which a row's own drop prefix
+	// leaves untouched when the drag came from another list.
 	const onDragStart = (event: DragEvent<HTMLDivElement>) => {
+		// A src row can vanish mid-drag (a refresh, a view switch), leaving no
+		// dragend to clean up after it: start every drag from a clean slate.
+		endSessionDrag();
 		event.dataTransfer.setData(SESSION_DRAG_TYPE, session.id);
 		event.dataTransfer.effectAllowed = "move";
+		beginSessionDrag(session.id, listId);
 		setDragging(true);
+	};
+	const onDragEnd = () => {
+		endSessionDrag();
+		setDragging(false);
+		setDropPlace(null);
+	};
+	const onDragOver = (event: DragEvent<HTMLDivElement>) => {
+		// Only a session row drag can land here: files or links dragged in from
+		// outside must never turn into a reorder.
+		if (!event.dataTransfer.types.includes(SESSION_DRAG_TYPE)) return;
+		const source = draggedSession();
+		// Another list's row: leave the event to the section (retag) and to the
+		// other view, rather than pretending this row can take it.
+		if (!canReorder(source, listId, session.id)) return;
+		event.preventDefault();
+		event.stopPropagation();
+		event.dataTransfer.dropEffect = "move";
+		setDropPlace(dropPlaceAt(event.currentTarget, event.clientY));
+	};
+	const onDragLeave = (event: DragEvent<HTMLDivElement>) => {
+		// Moving onto a child is not leaving the row.
+		if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+		setDropPlace(null);
+	};
+	const onDrop = (event: DragEvent<HTMLDivElement>) => {
+		setDropPlace(null);
+		// Same fence as dragover: a payload dragged in from outside is never a drop.
+		if (!event.dataTransfer.types.includes(SESSION_DRAG_TYPE)) return;
+		const source = draggedSession();
+		if (!canReorder(source, listId, session.id)) return;
+		event.preventDefault();
+		event.stopPropagation();
+		// Read the pointer here: React may not have committed the last `dragover`,
+		// and a drop that lands on the other half must not fall back to "before".
+		reorderSession(source.sessionId, session.id, dropPlaceAt(event.currentTarget, event.clientY), drawnIds);
+		endSessionDrag();
 	};
 
 	return (
 		// biome-ignore lint/a11y/useSemanticElements: the legacy row is a div[role=button] holding its own buttons, which a <button> cannot contain.
 		<div
-			className={cx("session-row", status, row.active && "active", row.unread && "unread", dragging && "dragging")}
+			ref={rowRef}
+			className={cx(
+				"session-row",
+				status,
+				row.active && "active",
+				row.unread && "unread",
+				dragging && "dragging",
+				dropPlace && `drop-${dropPlace}`,
+			)}
 			role="button"
 			tabIndex={0}
 			data-session-id={session.id}
+			data-pinned={row.pinned ? "true" : undefined}
 			style={filteredOut ? { display: "none" } : undefined}
-			draggable={grouped || undefined}
-			onDragStart={grouped ? onDragStart : undefined}
-			onDragEnd={grouped ? () => setDragging(false) : undefined}
+			draggable
+			onDragStart={onDragStart}
+			onDragEnd={onDragEnd}
+			onDragOver={onDragOver}
+			onDragLeave={onDragLeave}
+			onDrop={onDrop}
 			onClick={onClick}
 			onKeyDown={onKeyDown}
 		>
 			<i className="session-dot" aria-hidden="true" />
 			<span className="session-title-wrap">
 				<span className="session-title">{sessionTitle(session)}</span>
+				{row.pinned ? (
+					// The glyph is decorative; the label is what the row reads as, and it
+					// is also the only sign of the pin before the menu is opened.
+					<span className="session-pin" role="img" aria-label={t("pinnedLabel")}>
+						<Icon name="pin" size="2xs" />
+					</span>
+				) : null}
 			</span>
 			<span className="session-meta">
 				{status === "running" || status === "waiting" || status === "failed" ? (

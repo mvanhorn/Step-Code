@@ -5,6 +5,7 @@
 
 import type { TagColor } from "../../i18n";
 import { api } from "../../lib/api";
+import { arrangementChanged, moveSession, writeSessionPreferences } from "../../state/session-order";
 import { type ConversationView, getState, setState, setToggled, setUi } from "../../state/store";
 import { withoutSessionTag } from "../../state/tag-groups";
 import type { SessionSearchResult } from "../../state/types";
@@ -150,6 +151,44 @@ export function createGroupAndTag(sessionId: string, color: TagColor, name: stri
 		tags.set(sessionId, color);
 		return { groups: [...state.groups, { key: color, name }], tags };
 	});
+}
+
+/* ── Arrangement: pinning and drag order ─────────────────────────────────── */
+
+/**
+ * Pin or unpin a conversation. A pinned row leads the list it already belongs
+ * to (its project, Recent, or its tag section) instead of moving out of it, so
+ * pinning never hides which project a conversation came from; the row pinned
+ * last is the one nearest the top. Stored in local storage, like the theme: the
+ * host has no opinion about one reader's order.
+ */
+export function toggleSessionPin(sessionId: string): void {
+	const state = getState();
+	const pinnedSessions = state.pinnedSessions.includes(sessionId)
+		? state.pinnedSessions.filter((id) => id !== sessionId)
+		: [sessionId, ...state.pinnedSessions];
+	setState({ pinnedSessions });
+	writeSessionPreferences({ pinnedSessions, sessionOrder: state.sessionOrder });
+}
+
+/**
+ * Move a dragged row before or after another row of its own list
+ * (`features/sidebar/drag.ts`). `drawnIds` is that list in drawn order; a drop
+ * beside a pinned row pins the row there, beside an unpinned row it unpins it.
+ * The stored arrangement keeps only the lists the reader has actually moved.
+ */
+export function reorderSession(
+	draggedId: string,
+	targetId: string,
+	place: "before" | "after",
+	drawnIds: readonly string[],
+): void {
+	const state = getState();
+	const preferences = moveSession(drawnIds, state, draggedId, targetId, place);
+	// A drag that changes nothing must not write (nor repaint) the arrangement.
+	if (!arrangementChanged(state, preferences)) return;
+	setState(preferences);
+	writeSessionPreferences(preferences);
 }
 
 /** Rename the group a tag colour stands for; rows and the filter chip follow the colour, not the name. */

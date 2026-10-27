@@ -18,6 +18,7 @@ import { FULL_ACCESS_PRESET, isFullAccessRisk } from "../lib/permissions";
 import { isDesktopHost } from "../platform/host";
 import { assistantBlocks } from "./assistant-content";
 import { observePerformance } from "./performance";
+import { arrangementChanged, pruneSessionPreferences, writeSessionPreferences } from "./session-order";
 import { type AppState, getState, mapWith, setState, setUi, type ToastState } from "./store";
 import { backgroundSubagentStatuses, subagentTasks } from "./subagent-tasks";
 import { pruneTagGroups, withoutSessionTag } from "./tag-groups";
@@ -1402,21 +1403,41 @@ export function forgetUnlistedSession(id: string): void {
 }
 
 /**
- * A session the host deleted is forgotten completely: its optimistic row and
- * the group tag it carried. The tag is a record about that session, so leaving
- * it behind kept a group in the picker that no session could ever name again.
+ * A session the host deleted is forgotten completely: its optimistic row, the
+ * group tag it carried and its place in the sidebar arrangement. The tag is a
+ * record about that session, so leaving it behind kept a group in the picker
+ * that no session could ever name again; a place or a pin would outlive the row
+ * it belongs to.
  */
 export function forgetDeletedSession(id: string): void {
 	forgetUnlistedSession(id);
-	setState((state) => withoutSessionTag(state, id));
+	const state = getState();
+	const arrangement = pruneSessionPreferences(
+		state,
+		new Set(state.sessions.map((session) => session.id).filter((sessionId) => sessionId !== id)),
+	);
+	if (arrangementChanged(state, arrangement)) writeSessionPreferences(arrangement);
+	setState({
+		...withoutSessionTag(state, id),
+		pinnedSessions: arrangement.pinnedSessions,
+		sessionOrder: arrangement.sessionOrder,
+	});
 }
 
 /** Reload the session list (legacy `refreshSessions`, 3111-3115). */
 export async function refreshSessions(): Promise<void> {
 	const data = await api<{ sessions: SessionSummary[] }>("/api/v1/sessions");
+	// The arrangement is pruned against what the list will hold, so a deleted
+	// session cannot keep a pin or a dragged place that no row can clear.
+	const before = getState();
+	const listed = new Set(data.sessions.map((session) => session.id));
+	for (const id of listed) unlistedSessions.delete(id);
+	const keptBefore = before.sessions.filter((session) => unlistedSessions.has(session.id));
+	const presentBefore = new Set([...keptBefore, ...data.sessions].map((session) => session.id));
+	if (before.current) presentBefore.add(before.current.id);
+	const arrangement = pruneSessionPreferences(before, presentBefore);
+	if (arrangementChanged(before, arrangement)) writeSessionPreferences(arrangement);
 	setState((state) => {
-		const listed = new Set(data.sessions.map((session) => session.id));
-		for (const id of listed) unlistedSessions.delete(id);
 		const kept = state.sessions.filter((session) => unlistedSessions.has(session.id));
 		const live = data.sessions.flatMap((session): SessionLiveStatus[] =>
 			session.status ? [{ id: session.id, status: session.status, unread: session.unread === true }] : [],
@@ -1430,6 +1451,8 @@ export async function refreshSessions(): Promise<void> {
 			sessions: [...kept, ...data.sessions],
 			...pruneTagGroups(state, present),
 			...foldLiveStatuses(state, live, listed),
+			pinnedSessions: arrangement.pinnedSessions,
+			sessionOrder: arrangement.sessionOrder,
 		};
 	});
 }
