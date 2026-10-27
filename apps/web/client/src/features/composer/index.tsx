@@ -68,6 +68,7 @@ import {
 	promptBodyText,
 	promptFileQuery,
 	promptFiles,
+	promptMessageText,
 	promptSlashToken,
 	promptText,
 	removeModeLead,
@@ -408,7 +409,8 @@ export function Composer({ workspaceControl, branchControl, variant = "full" }: 
 		try {
 			// A chip has its upload id only once its upload settles; a failed one is removed.
 			await waitForUploads();
-			const text = promptText(editor).trim();
+			// A command chip placed mid-text is sent first, where the kernel runs it.
+			const text = promptMessageText(editor).trim();
 			const files = promptFiles(editor);
 			if (!text) return;
 			// A send starts from the draft, not from its render: the preview goes either way.

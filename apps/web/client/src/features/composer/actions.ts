@@ -39,7 +39,6 @@ import {
 	insertModeLead,
 	MODE_LEAD_CLASS,
 	type PromptFile,
-	promptHasLeadingCommand,
 	removeSlashToken,
 	replaceSlashTokenWithCommand,
 	stripLeadingCommand,
@@ -313,15 +312,16 @@ export function stageCommandLead(editor: HTMLElement, command: string): void {
 }
 
 /**
- * Place a command picked for a `/word` typed mid-text. The kernel runs only the
- * message's first command: when one already leads it, the pick stays where it
- * was typed (`/skill:a 和 /` keeps 和 between the two); otherwise it becomes
- * the lead so it runs, and the text typed before it becomes its arguments.
- * Modes always lead. False when the `/word` is no longer at the caret.
+ * Place a command picked for a `/word`: the chip goes exactly where the word
+ * was typed, so the words around it keep their order (`111 /` -> `111
+ * /skill:x`, `/skill:a 和 /` -> `/skill:a 和 /skill:b`). The kernel runs only
+ * a leading command; `promptMessageText` moves the first command to the front
+ * when the message is sent. Modes always lead. False when the `/word` is no
+ * longer at the caret.
  */
 export function stageCommandAtSlashToken(editor: HTMLElement, token: SlashToken, command: string): boolean {
 	const name = command.replace(/^\//u, "");
-	if (!modeFromCommand(name.replace(/:$/u, "")) && promptHasLeadingCommand(editor)) {
+	if (!modeFromCommand(name.replace(/:$/u, ""))) {
 		return replaceSlashTokenWithCommand(editor, token, { command, icon: commandLeadIcon(name) });
 	}
 	if (!removeSlashToken(editor, token)) return false;

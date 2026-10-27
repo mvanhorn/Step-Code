@@ -68,6 +68,28 @@ export function promptText(root: HTMLElement): string {
 }
 
 /**
+ * The prompt as the message to send. A command chip sits where its `/word` was
+ * typed, but the kernel runs only a command that leads the message: when no
+ * chip leads it, the first command chip moves to the front (with one of the
+ * spaces around it), so `111 /skill:x` is sent as `/skill:x 111` and the skill
+ * runs with the text as its request. The editor's order is left as typed.
+ */
+export function promptMessageText(root: HTMLElement): string {
+	if (leadingChips(root).length > 0) return serialize(root);
+	const copy = root.cloneNode(true) as HTMLElement;
+	const chip = copy.querySelector<HTMLElement>(`.${COMMAND_LEAD_CLASS}`);
+	if (!chip) return serialize(root);
+	const command = chip.dataset.text ?? "";
+	const after = chip.nextSibling;
+	const before = chip.previousSibling;
+	if (after instanceof Text && /^[\s\u00a0]/.test(after.data)) after.data = after.data.slice(1);
+	else if (before instanceof Text && /[\s\u00a0]$/.test(before.data)) before.data = before.data.slice(0, -1);
+	chip.remove();
+	const rest = serialize(copy).replace(/^\s+/, "");
+	return rest ? `${command} ${rest}` : command;
+}
+
+/**
  * The prompt's text without its staged lead chips. Commands stack, so the slash
  * menu reads this: a `/word` typed after `/skill:a` is the next command to pick.
  */
@@ -636,11 +658,6 @@ function leadingChips(root: HTMLElement): HTMLElement[] {
 	return leads;
 }
 
-/** Whether a command (or a mode) already leads the message: the kernel runs only that first one. */
-export function promptHasLeadingCommand(root: HTMLElement): boolean {
-	return leadingChips(root).length > 0;
-}
-
 /** Park the caret just after `chip`'s trailing space, where typing continues, when the editor holds focus. */
 function focusAfterLead(root: HTMLElement, chip: HTMLElement): void {
 	if (document.activeElement !== root) return;
@@ -696,10 +713,11 @@ export function insertCommandLead(root: HTMLElement, lead: CommandLead): void {
 
 /**
  * Turn the still-active `/word` into `lead`'s command chip where it was typed,
- * keeping the words around it in order (`/skill:a 和 /` -> `/skill:a 和 /skill:b`).
- * Only the message's first command runs, so this is for a prompt that already
- * starts with one; the chip serializes back to its command text in place. A
- * moved caret or edited word rejects it.
+ * keeping the words around it in order (`111 /` -> `111 /skill:x`,
+ * `/skill:a 和 /` -> `/skill:a 和 /skill:b`). The chip serializes back to its
+ * command text in place; `promptMessageText` moves the first one to the front
+ * of a sent message that no command leads. A moved caret or edited word
+ * rejects it.
  */
 export function replaceSlashTokenWithCommand(root: HTMLElement, expected: SlashToken, lead: CommandLead): boolean {
 	const projection = completionProjection(root);
