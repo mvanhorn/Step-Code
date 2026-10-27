@@ -78,20 +78,20 @@ REPRO_TURNS=40 REPRO_DELTAS=150 REPRO_TOOL_BYTES=40000 \
 
 | | 持久化形态 | delta 落盘 | 工具 progress 落盘 | 写入触发 | 单个工具结果上限 | 子代理历史 |
 | --- | --- | --- | --- | --- | --- | --- |
-| opencode | SQLite 行级 upsert | 否，`EphemeralDefinition` 类型强制 | 否，`Tool.Progress` 为 ephemeral | `text.ended` / `tool.success` / `step.ended` | 2000 行 / 50 KiB + 外置文件 | 独立 session，父存 `sessionID` + 最终文本 |
-| codex | JSONL append（每 thread 一文件） | 否，`rollout/policy.rs` transient 黑名单 | 否，`ExecCommandOutputDelta` transient | `ItemCompleted` / 完整 `ResponseItem` | 64 KiB 截断 + head/tail 1 MiB 缓冲 | 独立 thread，父存 `agent_thread_id` |
-| kimi-code | `wire.jsonl` append | 否，`durable` 默认 false | 否，`observable` only | durable event，`content.part` 在 step 结束 | 50k 字符 + spill 10M | 独立 `agents/<id>/wire.jsonl`，父存 `resultSummary` |
-| minimax-code | `messages.jsonl` append | 否，WS `VOLATILE_EVENT_TYPES` | 否，`tool_execution_update` → `debug.trace` | **`message_end` / `tool_execution_end`** | 64 KiB + artifact | 独立 child session，父存报告 |
-| deepseek-harness | `session.jsonl.zstd` append | 否，`agent/assistant-stream` 标注 transient | 事件词表里没有 progress 类型 | turn/step 边界 + 200ms 批 | spill 64 MiB + head/tail | 独立 session，父存 `childId` + `label` |
-| ZCode | SQLite 行级 upsert | 否，`TRANSIENT_SESSION_EVENT_TYPES` | 否，同上 | pending/running/completed 三次 upsert | 30 KB + artifact | 独立 session，父存 `childSessionId` + `outputPath` |
+| 类型级 ephemeral 的事件库 | SQLite 行级 upsert | 否，`ephemeral` 是互斥类型 | 否，progress 事件为 ephemeral | 文本块结束 / 工具结束 / step 结束 | 50 KiB + 外置文件 | 独立 session，父存 session id + 最终文本 |
+| 事件策略过滤的 rollout | 每 thread 一个 JSONL | 否，transient 黑名单 | 否，输出 delta 为 transient | 完整 item 完成时 | 64 KiB 截断 + 1 MiB head/tail 缓冲 | 独立 thread，父存 thread id |
+| 每 agent 一个事件日志 | `wire.jsonl` append | 否，`durable` 默认 false | 否，`observable` only | durable event，内容块在 step 结束时发 | 50k 字符 + spill 文件 | 独立 agent 日志，父存结果摘要 |
+| 消息级 append 日志 | `messages.jsonl` append | 否，WS 层标为 volatile | 否，工具进度只走调试 trace | **message_end / tool_execution_end** | 64 KiB + artifact | 独立 child session，父存报告 |
+| 压缩事件日志 | jsonl.zstd append | 否，流式帧标注 transient | 事件词表里没有 progress 类型 | turn/step 边界 + 200ms 批 | spill 64 MiB + head/tail | 独立 session，父存 childId + label |
+| SQLite 行级 upsert | message/part 按主键覆盖 | 否，transient 事件类型集合 | 否，同上 | pending/running/completed 三次 upsert | 30 KB + artifact | 独立 session，父存 childSessionId + outputPath |
 
-三处最值得借鉴的设计：
+共同点（六个实现全部成立）：
 
-1. **把「能不能落盘」放进类型系统**（opencode `schema/src/event.ts:44-58`）：`durable` 与 `ephemeral` 是互斥类型，`Text.Delta` 的注释直接写 *Stream fragments are live-only; Text.Ended is the replayable full-value boundary*. 写错的代码编译不过。
-2. **持久化决策收敛到存储入口**（codex `rollout/src/policy.rs:160-225`）：transient 事件是显式黑名单，工具实现无法「手滑」写入大对象。
-3. **同源 fork 已经踩过并修过**（minimax 的 `pi-turn-runner/history.ts:93-110`）：`flushTail` 只发 `messages.slice(cursor)`，且只在 `message_end` / `tool_execution_end` 触发 —— 正好是我们违反的两条。
-
-另有一个高度同构的「前人踩坑记录」：ZCode `runner-debug.ts:468-535` 的中文注释写明，诊断日志反复写完整 messages 造成「三角形重复」，文件到 GB 级后在 V8 字符串分配阶段 native crash；最终解法是**单文件 + 相对上一版 delta + 尾部最多 64/256 条 + 64 MB/256 MB 硬上限并重置**。
+1. **流式增量永不进入持久化层**。要么在类型上把「可重放」与「仅实时」做成互斥类型（`ephemeral` 没有 durable envelope，写错编译不过），要么在存储入口用显式 transient 黑名单过滤（工具实现无法「手滑」写入大对象）。
+2. **持久化点是粗粒度生命周期**：一个内容块、一条完整消息、一次工具调用，绝不是一个 token。
+3. **子代理 transcript 有独立落点**，父会话只保留 id + 摘要 + 输出路径。
+4. **所有可能巨大的写入都有硬边界**：inline 上限（30 KB ~ 64 KiB）、超出外置文件、head/tail 缓冲、单文件上限。
+5. **调试/诊断日志单独治理**：不跟随主会话日志无限放大（其中一处实现记录过「反复写完整 messages → 三角形重复 → GB 级文件 → V8 字符串分配阶段 native crash」，最终改为单文件 + 相对上一版 delta + 尾部保留 + 硬上限重置）。
 
 **结论：这不是某个实现的小疏忽，而是三层约定同时被违反**——流式增量进了 durable 层、子代理 transcript 进了父会话、写侧没有上限。所以修复必须同时补这三层，只改其中一层都会留下复发路径。
 
@@ -114,33 +114,46 @@ REPRO_TURNS=40 REPRO_DELTAS=150 REPRO_TOOL_BYTES=40000 \
 
 **① 有界 live 投影**（`features/subagent/execute.ts`）
 
+投影是**显式 allowlist**，不是 `{...record}` 打补丁：runner 的未知字段、chain 展开后的巨型 task、身份/路径字段都必须各自有边界。
+
 ```ts
 function liveRecord(record) {
   return {
-    ...record,
-    messages: [],                                      // transcript 只随终态发布一次
-    activeText: tailChars(record.activeText, 2_000),   // UI 只渲染最后 8 行
+    agent: clipMiddle(record.agent, 200),
+    task: clipMiddle(record.task, 600),      // chain 会把上一步完整输出插进来
+    status: record.status,
+    messages: [],                            // transcript 只随终态发布
+    stderr: tailChars(record.stderr, 2_000),
+    activeText: tailChars(record.activeText, 2_000),
     activeToolArgs: tailChars(record.activeToolArgs, 500),
     activeToolOutput: tailChars(record.activeToolOutput, 1_000),
+    // model / sessionId / sessionFile / worktree* / lastEvent 同样有界
     usage: cloneUsage(record.usage),
   };
 }
 ```
 
+整个 roster 还受一个 **48 KiB / 次**的序列化字节预算约束：超出部分不发送，改为 `omittedResults: N`（`MAX_PARALLEL_TASKS` 允许 1000 个任务，完整 roster 是 O(N)）。后台 lane 侧按 index 合并，因此被省略的尾部不会让已存在的 lane 从内存列表里消失。
+
 **② 合流节流**：`LIVE_UPDATE_INTERVAL_MS = 100`（与既有 `BASH_UPDATE_THROTTLE_MS` 一致）。
 
-- 状态跃迁（queued → running → completed/failed/aborted）**立即发布**，不进入节流窗口 —— 直播列表唯一需要「一次不丢」的信息。
-- 其余（delta、工具输出块）在窗口内合并，最新记录胜出。
-- `finally` 中 `flushEmit`，保证尾包不丢、也不会在调用返回后迟到投递。
+- **所有**更新（含 queued → running → completed 状态跃迁）都进入同一个 100 ms 窗口，最新记录胜出。
+  最初版本让状态跃迁立即发布，评审实测出后果：parallel 下每个任务 2 次跃迁 × 每次重发整个 roster = **O(N²)**，600 个任务在一次调用里写出 530 MiB。这与本次要消灭的放大是同一类。
+- 代价是状态在列表里最多晚 100 ms，远低于人眼可辨阈值；调用返回前 `flushEmit` 强制刷出终态。
+- `flushEmit` 位于 dispatch 之外：先 flush、再按「dispatch 错误优先」的顺序抛出，因此消费者异常不会覆盖真实失败原因。
 
 **③ 终态投影**：终态 details 同样是展示投影，不是原始数据的拷贝。
 
 - `messages` 只保留最新的、序列化后总量 ≤ 64 KiB 的消息（大小为选值，不与仓库既有的 50 KiB 文本上限混同）；被裁剪时置 `messagesTruncated: true`。
-- `activeText` ≤ 8,000 字符、`task` ≤ 2,000 字符、`stderr` / `errorMessage` ≤ 2,000 字符、`cancelledPrompts` ≤ 20 条 × 200 字符。
+- 全部 record 共享一个 **256 KiB / 次调用**的预算，按记录顺序消费；`activeText` 单条 ≤ 50,000 字符（与渲染端一致，不缩小 Ctrl+O 展开视图）、`task` ≤ 2,000 字符、`stderr` / `errorMessage` ≤ 2,000 字符、`cancelledPrompts` ≤ 20 条 × 200 字符。
 - `activeText` 缺失时由**完整 transcript** 的最终 assistant 文本回填，因此「单条消息超出预算导致 messages 为空」不会让结果渲染成 `(no output)`。
 - 模型可见的 `content` 不受这些限制，仍走既有的 50 KiB / 2,000 行 tool-output retention；完整 transcript 留在子会话（`sessionId` / `sessionFile`）。
 
-**④ 通用 wire 兜底**（`modes/json-event.ts`）：单条 `tool_execution_update` 超过 256 KiB 时，保留文本尾部 + `[live output truncated]` 标记，丢弃 `details`/`args`（它们已分别存在于 `tool_execution_start` / `tool_execution_end`）。**终态事件永不裁剪**。256 KiB 远高于正常流式工具单次上传量（bash 滚动快照 50 KiB 且已 100 ms 节流），因此只对「重发累积状态」的生产者生效。
+**④ 通用 wire 兜底**（`modes/json-event.ts`）：单条 `tool_execution_update` 超过 **256 KiB 序列化字节**时，保留文本尾部 + `[live output truncated]` 标记，丢弃 `details`/`args`（它们已分别存在于 `tool_execution_start` / `tool_execution_end`）。**终态事件永不裁剪**。
+
+- 上限按**序列化后**的字节计：控制字符与孤立 surrogate 会变成 6 字节转义，按字符数计会低估 6 倍。
+- 循环每轮严格缩短（`>= 1` 时直接清空），并且对 `toolCallId` / `toolName` 也设上限 —— 否则信封本身超限时循环无法收敛（这是评审抓到的死循环）。
+- 契约变更已同步到 `docs/json.md`、`docs/rpc.md`，并注明只影响 stdout 投影、不影响扩展 handler。
 
 **⑤ 文档**：`packages/coding-agent/docs/tool-output-retention.md` 新增 *Live tool updates* 一节，说明「最终结果上限」与「直播上限」是两套独立的边界。
 
@@ -148,12 +161,14 @@ function liveRecord(record) {
 
 | 子会话规模 | 修复前 | 修复后 | 降幅 |
 | --- | --- | --- | --- |
-| 20 轮 × 60 delta，20 KB 工具结果 | 268.05 MiB | **0.41 MiB** | 654× |
-| 40 轮 × 150 delta，40 KB 工具结果 | 4992.61 MiB | **0.31 MiB** | 16105× |
+| 20 轮 × 60 delta，20 KB 工具结果 | 268.05 MiB | **0.32 MiB** | 837× |
+| 40 轮 × 150 delta，40 KB 工具结果 | 4992.61 MiB | **0.22 MiB** | 22693× |
 
 `tool_execution_update` 条数 6327 → 3（本次假子进程瞬时吐完；真实流式按 10 Hz 产出）。父进程峰值 RSS 1333 MiB → 271 MiB。
 
-剩余体积构成：终态 tool result（≤ 64 KiB messages + 各展示字段上限）被约 5 类事件各回显一次（`tool_execution_end`、工具结果的 `message_end`、`turn_end`、`agent_end`），因此单次调用约 5 × 100 KiB。**上界由预算决定，与子会话长度无关**（20 轮 0.32 MiB，40 轮 0.22 MiB）。
+剩余体积构成：终态 tool result（共享 256 KiB 预算）被约 5 类事件各回显一次（`tool_execution_end`、工具结果的 `message_end`、`turn_end`、`agent_end`），因此单次调用约 5 × 100 KiB。**上界由预算决定，与子会话长度无关**（20 轮 0.32 MiB，40 轮 0.22 MiB）。
+
+parallel 批量（200 任务）回归：发布次数 < 60，单条 < 128 KiB，总量 < 2 MiB；修复前同一场景是 O(N²)。
 
 ---
 
@@ -176,18 +191,19 @@ function liveRecord(record) {
 - **不改变** 状态机的对外语义：所有状态跃迁仍然逐次可见。
 - 直播期间的 `activeText` 从最多 50k 字符变为 2k 尾部，工具入参/输出也从完整值变为尾部：这是**刻意的可见降级**（progress 是可合并快照，不是完整事件历史）。
 - 可观测契约变化：`StepSubagentDetails.results[].messages` 从「全量」变为「终态限量」并新增可选 `messagesTruncated`；直播字段变为有界尾部。消费方（TUI 展开、历史渲染、web 子代理卡片）只用最后一个 assistant 文本或状态字段，已逐一核对。
-- 定时器在 `finally` 关闭（`closeEmitter`），调用返回后的迟到回调不再发布；`onUpdate` 抛错不再从定时器逃逸成未捕获异常，而是在调用路径上抛出。
+- 定时器在返回前关闭（`closeEmitter`），调用返回后的迟到回调不再发布；`onUpdate` 抛错不再从定时器逃逸成未捕获异常，而是按「dispatch 错误优先」的顺序在调用路径上抛出。
 - `mapWithConcurrency` 改为等待所有 worker 结束（`allSettled`）再返回，避免 fail-fast 提前返回后仍有 lane 对着已关闭的 emitter 继续工作。
 
 ### 4.3 测试与验证
 
-新增（19 个用例）：
+新增（21 个用例）：
 
 - `test/subagent-live-update-rpc.test.ts` —— **端到端**：真起 `--mode rpc` 子进程，走真实 rpc-adapter → parseJsonEvent → 编排 → Agent Loop → toJsonEvent。断言整条父日志 < 1 MiB、update 数 < 60、无一条 update 携带 messages、终态 messages ≤ 64 KiB；并用 300 KB 最终答复验证展示投影有界而模型可见 `content` 仍完整。
 - `test/subagent-live-update-budget.test.ts`
   - 400 次携带增长 transcript 的 update：live 一律 `messages: []`、单条 < 32 KiB、总量 < 2 MiB；
   - chain 把上一步 500 KB 输出插入下一步 task，所有 update 仍 < 32 KiB、`task` ≤ 600 字符；
-  - 200 次 delta 只产生 ≤ 6 次发布，`running` 由首个事件即时发布；
+  - 200 次 delta 只产生 ≤ 6 次发布；
+  - 200 个并行任务的批量调用：发布 < 60 次、单条 < 128 KiB、总量 < 2 MiB、出现 `omittedResults`；
   - 终态预算：保留最新消息、序列化数组 ≤ 64 KiB、`messagesTruncated: true`；
   - 单条消息超预算且无 `activeText` 时，仍从完整 transcript 回填可渲染文本；
   - 400 KB 最终答复在展示投影里被压到 ≤ 8,000 字符；
@@ -214,7 +230,7 @@ function liveRecord(record) {
 | 合流定时器泄漏/迟到投递 | `finally` 中 `flushEmit`；`unref()` |
 | 后续 web 分支合并冲突 | 改动集中在 `emit` 与 dispatch 外层（`try/finally`）；web 分支改的是 `runOne` 内部与 `sessionId` 传递，冲突面小 |
 
-回滚：单 commit（`fix(coding-agent): bound subagent live updates instead of re-sending the transcript`），`git revert` 即恢复原行为，无数据迁移、无配置项。
+回滚：分支上两个 commit（初版 + 评审修正），`git revert` 两个即恢复原行为，无数据迁移、无配置项。
 
 ### 4.5 后续（未纳入本 PR）
 

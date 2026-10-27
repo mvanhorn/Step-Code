@@ -231,6 +231,12 @@ export interface StepSubagentDetails {
 	status?: "running" | "completed" | "failed" | "aborted";
 	startedAt?: number;
 	updatedAt?: number;
+	/**
+	 * Records left out of this live roster to keep one update bounded. Only set
+	 * while running with a large parallel batch; the final result reports every
+	 * task. Renderers may show it as "+N more".
+	 */
+	omittedResults?: number;
 }
 
 export interface StepSubagentExtensionOptions {

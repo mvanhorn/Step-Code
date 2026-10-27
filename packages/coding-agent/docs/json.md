@@ -47,9 +47,25 @@ type AgentEvent =
   | { type: "message_end"; message: AgentMessage }
   // Tool execution
   | { type: "tool_execution_start"; toolCallId: string; toolName: string; args: any }
-  | { type: "tool_execution_update"; toolCallId: string; toolName: string; args: any; partialResult: any }
+  // `args`/`details` may be omitted and the text reduced to a tail when one
+  // update would exceed the wire budget; see "Live tool updates" below.
+  | { type: "tool_execution_update"; toolCallId: string; toolName: string; args?: any; partialResult: any }
   | { type: "tool_execution_end"; toolCallId: string; toolName: string; result: any; isError: boolean };
 ```
+
+## Live tool updates
+
+`tool_execution_update` is progress, and a `json` consumer typically redirects it
+to a log, so one update is capped at 256 KiB of serialized bytes. An oversized
+update is replaced by the tail of its text plus a `[live output truncated]`
+marker, and its `args`/`details` are omitted — both are already on the matching
+`tool_execution_start` and `tool_execution_end`. The cap applies only to this
+stdout projection: extension handlers see the original event, and terminal
+results are never bounded here. Treat an update as a display snapshot that may
+be replaced wholesale, not as a complete event history.
+
+The producer rate is also bounded: the subagent tool publishes at most one
+update per 100 ms, and its live roster carries no child transcript.
 
 ## Message Types
 

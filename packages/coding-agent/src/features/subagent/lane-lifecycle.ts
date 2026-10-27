@@ -9,7 +9,12 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import type { AgentToolResult, AgentToolUpdateCallback } from "@step-harness/agent-core";
 import type { ExtensionAPI, ExtensionContext } from "../../core/extensions/types.ts";
-import type { StepSubagentDetails, StepSubagentRpcSession, SubagentParams } from "../step-subagent.ts";
+import type {
+	StepSubagentDetails,
+	StepSubagentResultRecord,
+	StepSubagentRpcSession,
+	SubagentParams,
+} from "../step-subagent.ts";
 import type { PreparedSubagentRun, SubagentPreflight } from "./execute.ts";
 import { SUBAGENT_SESSION_ID_PREFIX } from "./helpers.ts";
 import {
@@ -86,6 +91,17 @@ function getLaneSessions(sessionId: string, liveOnly = true): StepSubagentRpcSes
 		if ((id === sessionId || id.startsWith(prefix)) && (!liveOnly || session.isAlive())) sessions.push(session);
 	}
 	return sessions;
+}
+
+/** Overlay a bounded live roster onto the roster the lane already knows. */
+function mergeResults(
+	previous: readonly StepSubagentResultRecord[],
+	next: readonly StepSubagentResultRecord[],
+): StepSubagentResultRecord[] {
+	return Array.from(
+		{ length: Math.max(previous.length, next.length) },
+		(_, index) => next[index] ?? previous[index],
+	).filter((record): record is StepSubagentResultRecord => record !== undefined);
 }
 
 function laneStatusFromDetails(details: StepSubagentDetails): BackgroundAgentLane["status"] {
@@ -250,6 +266,13 @@ export function createLaneLifecycle(host: LaneLifecycleHost): LaneLifecycle {
 			if (partial.details) {
 				lane.details = {
 					...partial.details,
+					// A live roster is byte-bounded, so a large batch may omit its tail.
+					// Keep the lanes we already know instead of forgetting them; the
+					// final result replaces this with every task.
+					results:
+						partial.details.omittedResults === undefined
+							? partial.details.results
+							: mergeResults(lane.details.results, partial.details.results),
 					agentId: lane.id,
 					status: "running",
 					startedAt: lane.startedAt,

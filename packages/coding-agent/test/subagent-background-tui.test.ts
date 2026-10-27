@@ -140,6 +140,9 @@ test("background lanes share one stable list widget that clears when the batch s
 	expect(calls.length).toBe(before);
 
 	expect(new Set(calls.map((call) => call.key))).toEqual(new Set(["step-agent-lanes"]));
+	// Runs coalesce on a 100ms tick, so the roster that shows both lanes running
+	// arrives on the next publish rather than synchronously with dispatch.
+	await waitFor(() => (calls.at(-1)?.component?.render(100)[0] ?? "").includes("2 running"));
 	const widget = calls.at(-1)!.component!;
 	const rows = widget.render(100);
 	expect(rows[0]).toContain("background agents");

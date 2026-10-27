@@ -24,8 +24,10 @@ import { createHarness, type Harness } from "./suite/harness.ts";
 
 const childPath = fileURLToPath(new URL("./fixtures/subagent-stream-child.mjs", import.meta.url));
 const harnesses: Harness[] = [];
-const originalArgv = process.argv;
-const originalExecArgv = process.execArgv;
+// Copy the array: writing `process.argv[1]` mutates it in place, so storing the
+// reference would make the restore a no-op.
+const originalArgv = [...process.argv];
+const originalExecArgv = [...process.execArgv];
 const envBackup = { ...process.env };
 // Keep the shared tool-output retention inside the test's own temp root instead
 // of a developer's real agent directory.
@@ -172,7 +174,7 @@ test("a huge final answer from a real child cannot escape the display budget", a
 	expect(stats.finalText.length).toBeLessThan(100_000);
 	expect(stats.finalText).toContain("Full output:");
 	// The display copy in `details` is bounded by the orchestrator itself.
-	expect(stats.finalActiveTextLength).toBeLessThanOrEqual(8_000);
+	expect(stats.finalActiveTextLength).toBeLessThanOrEqual(50_000);
 	expect(stats.logBytes).toBeLessThan(1024 * 1024);
 	expect(stats.largestUpdate).toBeLessThan(64 * 1024);
 });

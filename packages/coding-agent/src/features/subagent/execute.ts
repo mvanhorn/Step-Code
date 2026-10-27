@@ -49,22 +49,27 @@ import { truncateText } from "./lane-events.ts";
 import type { StepSubagentLaneRuntime } from "./lane-lifecycle.ts";
 
 /**
- * Live-update budget.
+ * Buffer budget.
  *
  * A blocking call mirrors every child event into one `onUpdate`, and the Agent
  * Loop turns each of them into a `tool_execution_update` that hosts persist: the
  * `json`/`rpc` modes write one JSONL line per event, so the parent's event log
- * *is* this stream. Two independent properties keep that stream from growing
- * with the child's transcript:
+ * *is* this stream. Three properties keep that stream bounded; without them a
+ * 20-turn child emits ~1.4k updates that each carry the whole transcript, and
+ * 99% of the log is byte-identical repeats.
  *
- * - `LIVE_UPDATE_INTERVAL_MS` caps the rate (the bash tool throttles at the same
- *   100ms; a faster cadence buys no visible UI change).
- * - The live projection drops `messages` entirely and keeps only the tail of the
- *   streamed text, so one update is bounded regardless of how much the child has
- *   produced. The full transcript is published once, in the final result.
- *
- * Without both, a 20-turn child emits ~1.4k updates that each carry the whole
- * transcript: 99% of the log is byte-identical repeats.
+ * - `LIVE_UPDATE_INTERVAL_MS` caps the rate. Every event coalesces into the next
+ *   tick — status transitions included — because publishing transitions at once
+ *   makes a parallel batch cost O(tasks^2): N transitions times a roster of N
+ *   records. The terminal state is still guaranteed by the final flush, and a
+ *   100ms delay is below what a reader can notice (the bash tool throttles at
+ *   the same cadence for the same reason).
+ * - Each record is an explicit projection with per-field bounds, never the
+ *   accumulated record: a chain splices the previous step's whole answer into
+ *   the next step's task, so a spread would repeat megabytes per tick.
+ * - The roster itself is bounded by bytes. `MAX_PARALLEL_TASKS` is 1000, so a
+ *   complete roster would still be O(tasks) per tick; records past the budget
+ *   are counted in `omittedResults` instead.
  */
 const LIVE_UPDATE_INTERVAL_MS = 100;
 const LIVE_TEXT_CHARS = 2_000;
@@ -75,20 +80,28 @@ const LIVE_STDERR_CHARS = 2_000;
 const LIVE_ERROR_CHARS = 2_000;
 const LIVE_PROMPT_CHARS = 200;
 const LIVE_CANCELLED_PROMPTS = 20;
+/** Identity and path fields are machine-read, so they keep both ends. */
+const LIVE_IDENTIFIER_CHARS = 200;
+const LIVE_PATH_CHARS = 500;
+/** Per-record transcript allowance inside the shared final budget. */
+const FINAL_MESSAGES_BYTES = 64 * 1024;
+/** Serialized budget for one live roster; a renderer only shows a few rows. */
+const LIVE_DETAILS_BYTES = 48 * 1024;
 
 /**
- * Final-result budget for the child transcript embedded in the tool result.
+ * Final-result budget for the details embedded in the tool result.
  *
- * The final details are persisted once per call, so this is not a rate problem,
- * but a long child can still hold megabytes of tool output that the parent never
- * renders. Keep the newest messages that fit; the final assistant text stays in
- * `activeText`, and `sessionFile`/`sessionId` point at the child's own
- * transcript for anything older. 64 KiB matches the cap the other hosts in this
- * repository apply to a persisted command result.
+ * The final result is persisted once per call, so this is not a rate problem,
+ * but it is echoed by several terminal events and a long child can hold
+ * megabytes of tool output the parent never renders. Heavy fields share one
+ * per-call budget, consumed in record order; status, ids and usage stay complete
+ * because they are small and machine-read. The final assistant text is kept in
+ * `activeText` (and therefore still renderable), and `sessionFile`/`sessionId`
+ * point at the child's own transcript for anything older.
  */
-const FINAL_MESSAGES_BYTES = 64 * 1024;
-/** Display-only bounds on the final record; `content` carries the model-facing text. */
-const FINAL_TEXT_CHARS = 8_000;
+const FINAL_DETAILS_BYTES = 256 * 1024;
+/** Per-record cap inside the shared final budget; matches the renderer's own truncation. */
+const FINAL_TEXT_CHARS = 50_000;
 const FINAL_TASK_CHARS = 2_000;
 
 export interface StepSubagentTaskInput {
@@ -223,7 +236,7 @@ function clipMiddle(value: string, max: number): string {
  */
 function liveRecord(record: StepSubagentResultRecord): StepSubagentResultRecord {
 	return {
-		agent: record.agent,
+		agent: clipMiddle(record.agent, LIVE_IDENTIFIER_CHARS),
 		agentSource: record.agentSource,
 		task: clipMiddle(record.task, LIVE_TASK_CHARS),
 		status: record.status,
@@ -231,27 +244,28 @@ function liveRecord(record: StepSubagentResultRecord): StepSubagentResultRecord 
 		messages: [],
 		stderr: tailChars(record.stderr, LIVE_STDERR_CHARS) ?? "",
 		usage: cloneUsage(record.usage),
-		...(record.model === undefined ? {} : { model: record.model }),
-		...(record.stopReason === undefined ? {} : { stopReason: record.stopReason }),
+		...(record.model === undefined ? {} : { model: clipMiddle(record.model, LIVE_IDENTIFIER_CHARS) }),
+		...(record.stopReason === undefined ? {} : { stopReason: clipMiddle(record.stopReason, LIVE_IDENTIFIER_CHARS) }),
 		...(record.errorMessage === undefined ? {} : { errorMessage: tailChars(record.errorMessage, LIVE_ERROR_CHARS) }),
 		...(record.activeText === undefined ? {} : { activeText: tailChars(record.activeText, LIVE_TEXT_CHARS) }),
-		...(record.activeTool === undefined ? {} : { activeTool: record.activeTool }),
+		...(record.activeTool === undefined ? {} : { activeTool: clipMiddle(record.activeTool, LIVE_IDENTIFIER_CHARS) }),
 		...(record.activeToolArgs === undefined
 			? {}
 			: { activeToolArgs: tailChars(record.activeToolArgs, LIVE_TOOL_ARGS_CHARS) }),
 		...(record.activeToolOutput === undefined
 			? {}
 			: { activeToolOutput: tailChars(record.activeToolOutput, LIVE_TOOL_OUTPUT_CHARS) }),
-		...(record.lastEvent === undefined ? {} : { lastEvent: record.lastEvent }),
+		...(record.lastEvent === undefined ? {} : { lastEvent: clipMiddle(record.lastEvent, LIVE_IDENTIFIER_CHARS) }),
 		...(record.startedAt === undefined ? {} : { startedAt: record.startedAt }),
 		...(record.updatedAt === undefined ? {} : { updatedAt: record.updatedAt }),
 		...(record.step === undefined ? {} : { step: record.step }),
-		...(record.worktreePath === undefined ? {} : { worktreePath: record.worktreePath }),
-		...(record.worktreeBranch === undefined ? {} : { worktreeBranch: record.worktreeBranch }),
-		...(record.sessionId === undefined ? {} : { sessionId: record.sessionId }),
-		...(record.sessionFile === undefined ? {} : { sessionFile: record.sessionFile }),
+		...(record.worktreePath === undefined ? {} : { worktreePath: clipMiddle(record.worktreePath, LIVE_PATH_CHARS) }),
+		...(record.worktreeBranch === undefined
+			? {}
+			: { worktreeBranch: clipMiddle(record.worktreeBranch, LIVE_IDENTIFIER_CHARS) }),
+		...(record.sessionId === undefined ? {} : { sessionId: clipMiddle(record.sessionId, LIVE_IDENTIFIER_CHARS) }),
+		...(record.sessionFile === undefined ? {} : { sessionFile: clipMiddle(record.sessionFile, LIVE_PATH_CHARS) }),
 		...(record.pendingReply === undefined ? {} : { pendingReply: record.pendingReply }),
-		...boundedPrompts(record.cancelledPrompts),
 	};
 }
 
@@ -264,19 +278,75 @@ function boundedPrompts(prompts: string[] | undefined): { cancelledPrompts?: str
 	};
 }
 
-/** Final transcript projection: newest messages that fit, plus why they were cut. */
-function boundedMessages(messages: readonly unknown[]): {
-	messages: StepSubagentRunResult["messages"];
-	truncated: boolean;
+/** Serialized size of a projected record, guarding against values JSON cannot represent. */
+function serializedBytes(value: unknown): number {
+	try {
+		return Buffer.byteLength(JSON.stringify(value), "utf8");
+	} catch {
+		// A runner that returns BigInt or a cycle must not crash the projection.
+		return Number.POSITIVE_INFINITY;
+	}
+}
+
+interface Budget {
+	remaining: number;
+}
+
+function take(budget: Budget, value: unknown): boolean {
+	const size = serializedBytes(value) + 1;
+	if (size > budget.remaining) return false;
+	budget.remaining -= size;
+	return true;
+}
+
+/**
+ * Bound the live roster by bytes.
+ *
+ * `MAX_PARALLEL_TASKS` allows 1000 tasks, and a complete roster would cost
+ * O(tasks) on every tick. Records that do not fit are counted instead of
+ * dropped silently; the final result still reports every task. A renderer shows
+ * a handful of rows anyway, so the tail only matters for counts.
+ */
+function liveDetails(
+	mode: StepSubagentDetails["mode"],
+	discovery: StepAgentDiscoveryResult,
+	scope: StepAgentScope,
+	records: readonly StepSubagentResultRecord[],
+): StepSubagentDetails {
+	const budget: Budget = { remaining: LIVE_DETAILS_BYTES };
+	const results: StepSubagentResultRecord[] = [];
+	for (const record of records) {
+		const projected = liveRecord(record);
+		// Always include the first record: a roster that reports only a count is
+		// less useful than one slightly over budget.
+		if (results.length > 0 && !take(budget, projected)) break;
+		results.push(projected);
+	}
+	const details: StepSubagentDetails = { mode, agentScope: scope, ...discoveryFields(discovery), results };
+	const omitted = records.length - results.length;
+	return omitted > 0 ? { ...details, omittedResults: omitted } : details;
+}
+
+function discoveryFields(discovery: StepAgentDiscoveryResult): {
+	userAgentsDir: string;
+	projectAgentsDir: string | null;
 } {
+	return { userAgentsDir: discovery.userAgentsDir, projectAgentsDir: discovery.projectAgentsDir };
+}
+
+/** Final transcript projection: newest messages that fit, plus why they were cut. */
+function boundedMessages(
+	messages: readonly unknown[],
+	budget: number,
+): { messages: StepSubagentRunResult["messages"]; truncated: boolean } {
 	if (messages.length === 0) return { messages: [], truncated: false };
 	const kept: unknown[] = [];
 	// Reserve the brackets and count each retained element's separating comma so
 	// the check is on the serialized array, not on the sum of its members.
 	let bytes = 2;
 	for (let index = messages.length - 1; index >= 0; index -= 1) {
-		const size = Buffer.byteLength(JSON.stringify(messages[index]) ?? "", "utf8") + 1;
-		if (bytes + size > FINAL_MESSAGES_BYTES) break;
+		const size = serializedBytes(messages[index]) + 1;
+		if (bytes + size > budget) break;
 		bytes += size;
 		kept.push(messages[index]);
 	}
@@ -295,24 +365,40 @@ function boundedMessages(messages: readonly unknown[]): {
  * the transcript when a runner did not set it, so trimming `messages` can never
  * turn a completed record into "(no output)".
  */
-function finalRecord(record: StepSubagentResultRecord): StepSubagentResultRecord {
-	const bounded = boundedMessages(record.messages);
-	// Fall back to the full transcript, not the bounded copy: one message larger
-	// than the budget leaves `messages` empty, and the result must still render.
-	const fallbackText = finalOutput(record.messages);
-	return {
-		...record,
-		task: clipMiddle(record.task, FINAL_TASK_CHARS),
-		messages: bounded.messages,
-		activeText: tailChars(record.activeText || fallbackText, FINAL_TEXT_CHARS),
-		activeToolArgs: tailChars(record.activeToolArgs, LIVE_TOOL_ARGS_CHARS),
-		activeToolOutput: tailChars(record.activeToolOutput, LIVE_TOOL_OUTPUT_CHARS),
-		stderr: tailChars(record.stderr, LIVE_STDERR_CHARS) ?? "",
-		...(record.errorMessage === undefined ? {} : { errorMessage: tailChars(record.errorMessage, LIVE_ERROR_CHARS) }),
-		...boundedPrompts(record.cancelledPrompts),
-		...(bounded.truncated ? { messagesTruncated: true } : {}),
-		usage: cloneUsage(record.usage),
-	};
+function finalRecords(records: readonly StepSubagentResultRecord[]): StepSubagentResultRecord[] {
+	const budget: Budget = { remaining: FINAL_DETAILS_BYTES };
+	return records.map((record) => {
+		// Fall back to the full transcript, not the bounded copy: one message larger
+		// than the per-record allowance leaves `messages` empty, and the result must
+		// still render.
+		const fallbackText = finalOutput(record.messages);
+		const text = record.activeText || fallbackText;
+		const textAllowance = Math.min(FINAL_TEXT_CHARS, Math.max(0, Math.floor(budget.remaining / 4)));
+		const activeText = tailChars(text, textAllowance);
+		if (activeText !== undefined) take(budget, activeText);
+
+		const messageAllowance = Math.min(FINAL_MESSAGES_BYTES, Math.max(0, budget.remaining));
+		const bounded = boundedMessages(record.messages, messageAllowance);
+		take(budget, bounded.messages);
+
+		const task = clipMiddle(record.task, FINAL_TASK_CHARS);
+		take(budget, task);
+		return {
+			...record,
+			task,
+			messages: bounded.messages,
+			activeText,
+			activeToolArgs: tailChars(record.activeToolArgs, LIVE_TOOL_ARGS_CHARS),
+			activeToolOutput: tailChars(record.activeToolOutput, LIVE_TOOL_OUTPUT_CHARS),
+			stderr: tailChars(record.stderr, LIVE_STDERR_CHARS) ?? "",
+			...(record.errorMessage === undefined
+				? {}
+				: { errorMessage: tailChars(record.errorMessage, LIVE_ERROR_CHARS) }),
+			...boundedPrompts(record.cancelledPrompts),
+			...(bounded.truncated ? { messagesTruncated: true } : {}),
+			usage: cloneUsage(record.usage),
+		};
+	});
 }
 
 async function mapWithConcurrency<T, R>(
@@ -563,8 +649,6 @@ export async function runPreparedSubagent(
 			duration_ms: Math.max(0, Date.now() - (createdAt[index] ?? Date.now())),
 		});
 	};
-	const statusKey = (): string => records.map((record) => record.status).join("\u0000");
-	let lastStatusKey = "";
 	let lastPublishAt = 0;
 	let pendingPublish: ReturnType<typeof setTimeout> | undefined;
 	/**
@@ -587,8 +671,7 @@ export async function runPreparedSubagent(
 	const publish = (mode: StepSubagentDetails["mode"]): void => {
 		if (closed || !onUpdate) return;
 		lastPublishAt = Date.now();
-		lastStatusKey = statusKey();
-		const live = buildDetails(mode, discovery, scope, records.map(liveRecord));
+		const live = liveDetails(mode, discovery, scope, records);
 		onUpdate(makeToolResult(live, resultDetailsText(live)));
 	};
 
@@ -603,27 +686,24 @@ export async function runPreparedSubagent(
 	};
 
 	/**
-	 * Publish the live roster, coalescing streamed updates.
+	 * Publish the live roster, coalescing every update into the next tick.
 	 *
-	 * A status transition is always published at once: it is the only change the
-	 * live list shows besides the token counter, and readers rely on seeing every
-	 * one of them. Everything in between (a streamed delta, a tool-output chunk)
-	 * waits for the interval, with the latest records winning.
+	 * Status transitions are coalesced too. Publishing each one immediately makes
+	 * a parallel batch quadratic — N transitions, each re-sending a roster of N
+	 * records — which is the same amplification this file exists to remove. The
+	 * trade is at most one interval of latency, the cadence the bash tool already
+	 * uses, and the final flush guarantees the terminal state is never dropped.
 	 *
 	 * Never throws; a consumer failure is surfaced once by `flushEmit`.
 	 */
 	const emit = (mode: StepSubagentDetails["mode"]): void => {
-		if (closed || !onUpdate) return;
+		if (closed || !onUpdate || pendingPublish) return;
 		const wait = LIVE_UPDATE_INTERVAL_MS - (Date.now() - lastPublishAt);
-		if (statusKey() !== lastStatusKey || wait <= 0) {
-			if (pendingPublish) {
-				clearTimeout(pendingPublish);
-				pendingPublish = undefined;
-			}
+		if (wait <= 0) {
 			publishSafely(mode);
 			return;
 		}
-		pendingPublish ??= setTimeout(() => {
+		pendingPublish = setTimeout(() => {
 			pendingPublish = undefined;
 			publishSafely(mode);
 		}, wait);
@@ -635,8 +715,8 @@ export async function runPreparedSubagent(
 		if (pendingPublish) {
 			clearTimeout(pendingPublish);
 			pendingPublish = undefined;
-			publishSafely(mode);
 		}
+		if (!closed && onUpdate) publishSafely(mode);
 		closeEmitter();
 		if (publishError !== undefined) {
 			const error = publishError;
@@ -782,6 +862,8 @@ export async function runPreparedSubagent(
 	// list stays invisible for the tens of seconds a caller most wants it. The
 	// records are already seeded by makeEmptyResult, so this renders every lane
 	// at 0s, including ones still queued behind maxConcurrency.
+	let dispatchError: unknown;
+	let flushError: unknown;
 	emit(mode);
 	try {
 		if (parallel) {
@@ -815,11 +897,20 @@ export async function runPreparedSubagent(
 				}
 			}
 		} else await runOne(tasks[0], 0);
-	} finally {
-		// A trailing coalesced update must not outlive the call or be lost.
-		flushEmit(mode);
+	} catch (error) {
+		dispatchError = error;
 	}
-	const finalDetails = buildDetails(mode, discovery, scope, records.map(finalRecord));
+	// A trailing coalesced update must not outlive the call or be lost. Flushing
+	// outside `finally` keeps the original failure: a consumer failure reported
+	// here must not replace the error that stopped the dispatch.
+	try {
+		flushEmit(mode);
+	} catch (error) {
+		flushError = error;
+	}
+	if (dispatchError !== undefined) throw dispatchError;
+	if (flushError !== undefined) throw flushError;
+	const finalDetails = buildDetails(mode, discovery, scope, finalRecords(records));
 	if (mode === "parallel") {
 		const success = records.filter((record) => record.status === "completed").length;
 		const summaries = records.map(

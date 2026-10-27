@@ -79,6 +79,9 @@ export function toJsonEvent(event: AgentSessionEvent): JsonAgentSessionEvent {
  */
 export const MAX_LIVE_UPDATE_BYTES = 256 * 1024;
 
+/** Ceiling for a single identifier inside a bounded live update. */
+const MAX_LIVE_IDENTIFIER_CHARS = 512;
+
 const TRUNCATED_MARKER = "[live output truncated]";
 
 type ToolExecutionUpdateEvent = Extract<AgentSessionEvent, { type: "tool_execution_update" }>;
@@ -102,6 +105,10 @@ function serializedBytes(value: unknown): number {
  * 64 KiB string can serialize to 384 KiB. The tail is retained because that is
  * what a live view renders; `details` and `args` are dropped because they are
  * already on the matching `tool_execution_start`/`tool_execution_end` events.
+ *
+ * A pathological `toolCallId`/`toolName` is clipped too: without that, the
+ * envelope alone could exceed the budget and the function would have no valid
+ * output to return.
  */
 function boundLiveUpdate(event: ToolExecutionUpdateEvent): JsonAgentSessionEvent {
 	if (serializedBytes(event) <= MAX_LIVE_UPDATE_BYTES) return event;
@@ -113,8 +120,10 @@ function boundLiveUpdate(event: ToolExecutionUpdateEvent): JsonAgentSessionEvent
 
 	const candidate = (tail: string): JsonAgentSessionEvent => ({
 		type: "tool_execution_update",
-		toolCallId: event.toolCallId,
-		toolName: event.toolName,
+		// Ids come from the model or an extension. A 300 KB one is malformed, and
+		// clipping it beats writing an unbounded line; correlation already failed.
+		toolCallId: clip(event.toolCallId, MAX_LIVE_IDENTIFIER_CHARS),
+		toolName: clip(event.toolName, MAX_LIVE_IDENTIFIER_CHARS),
 		args: undefined,
 		partialResult: {
 			content: [
@@ -127,15 +136,20 @@ function boundLiveUpdate(event: ToolExecutionUpdateEvent): JsonAgentSessionEvent
 		},
 	});
 
-	// Halve the retained tail until the whole serialized event fits. Starts at
-	// the full text so a moderately oversized update keeps as much as it can.
+	// Halve the retained tail until the whole serialized event fits. Each round
+	// strictly shrinks the string, so the loop terminates; `candidate("")` is the
+	// floor and always fits once the envelope is clipped.
 	let kept = text;
 	let bounded = candidate(kept);
 	while (kept.length > 0 && serializedBytes(bounded) > MAX_LIVE_UPDATE_BYTES) {
-		kept = kept.slice(-Math.floor(kept.length / 2));
+		kept = kept.length <= 1 ? "" : kept.slice(-Math.floor(kept.length / 2));
 		bounded = candidate(kept);
 	}
-	// The envelope alone can still exceed the budget for a pathological id or
-	// name; the marker-only form is the smallest this function can produce.
-	return serializedBytes(bounded) <= MAX_LIVE_UPDATE_BYTES ? bounded : candidate("");
+	return bounded;
+}
+
+function clip(value: string, max: number): string {
+	if (value.length <= max) return value;
+	const half = Math.max(1, Math.floor((max - 1) / 2));
+	return `${value.slice(0, half)}\u2026${value.slice(-half)}`;
 }

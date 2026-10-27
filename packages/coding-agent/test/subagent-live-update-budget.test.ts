@@ -206,6 +206,40 @@ test("streamed deltas coalesce to one publish per interval, but status changes d
 	expect(updates.at(-1)?.details?.results[0]?.status).toBe("completed");
 });
 
+test("a large parallel batch stays bounded per publish and in total", async () => {
+	const tasks = 200;
+	const released: Array<() => void> = [];
+	const seen: Captured[] = [];
+	const pending = run(
+		{
+			tasks: Array.from({ length: tasks }, (_, index) => ({ agent: "general", task: `task ${index}` })),
+		},
+		async (input) => {
+			input.onUpdate?.({ ...idle, activeText: "working" });
+			// Keep every lane running across several ticks so the roster is
+			// republished, which is what used to make this quadratic.
+			await new Promise<void>((resolve) => {
+				released.push(resolve);
+				setTimeout(resolve, 120);
+			});
+			return { ...idle, exitCode: 0, stopReason: "stop" };
+		},
+		{ sink: seen },
+	);
+	const { updates } = await pending;
+	void released;
+
+	// Publishing each of 2 x 200 status transitions immediately produced ~400
+	// publishes of the whole roster. Coalescing keeps it to a handful.
+	expect(updates.length).toBeLessThan(60);
+	const largest = Math.max(...updates.map((update) => update.bytes));
+	expect(largest).toBeLessThan(128 * 1024);
+	const total = updates.reduce((sum, update) => sum + update.bytes, 0);
+	expect(total).toBeLessThan(2 * 1024 * 1024);
+	// A bounded roster says what it left out instead of dropping it silently.
+	expect(updates.some((update) => (update.details?.omittedResults ?? 0) > 0)).toBe(true);
+});
+
 test("the final result keeps the newest transcript messages and says it truncated", async () => {
 	const messages: StepSubagentRunResult["messages"] = [];
 	for (let index = 0; index < 20; index += 1) messages.push(message(index, 40_000));
@@ -248,7 +282,8 @@ test("a huge final answer is bounded in the display projection", async () => {
 		stopReason: "stop",
 	}));
 	const record = result.details?.results[0];
-	expect((record?.activeText ?? "").length).toBeLessThanOrEqual(8_000);
+	// Matches the renderer's own truncation, so an expanded view is not reduced.
+	expect((record?.activeText ?? "").length).toBeLessThanOrEqual(50_000);
 	// The model-facing text is not the details field.
 	expect(result.content[0]).toMatchObject({ type: "text" });
 });

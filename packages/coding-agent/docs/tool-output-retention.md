@@ -40,20 +40,27 @@ A tool's `onUpdate` callbacks are progress, not results. They run while the call
 is in flight and each one becomes a `tool_execution_update` session event, which
 the `json` and `rpc` modes write as one JSONL line — so a host that redirects
 that stream to a file turns progress into log volume. The bound is
-`O(elapsed time x bounded payload)`, not a constant log size:
+`O(elapsed time x bounded payload)`, not a constant log size. Both factors are
+bounded:
 
 - A producer sends at most one update per 100 ms (the same cadence the bash tool
-  uses) and publishes state transitions immediately.
+  uses). Status transitions are coalesced into the same window too: publishing
+  each one immediately makes a parallel batch quadratic (N transitions times a
+  roster of N), which is the amplification this bound exists to prevent. The
+  terminal state is always flushed before the call returns.
 - A live update is an explicit projection, never the accumulated call state. The
   subagent orchestrator drops `messages`, keeps a short tail of the streamed
-  text / tool output / stderr, and clips a task prompt at both ends, because a
-  chain splices the previous step's whole answer into the next step's task.
-- The final record is also a display projection: the newest messages that fit
-  64 KiB, an 8,000-character `activeText`, and every other rendered field
-  bounded. `messagesTruncated` says when the transcript tail was cut, and the
-  full transcript stays in the child session (`sessionId` / `sessionFile`).
-  The model-facing `content` is unaffected and still passes through this
-  document's 50 KiB retention.
+  text / tool output / stderr, clips every identifier and a task prompt at both
+  ends, and stops adding records once the roster reaches 48 KiB — reporting the
+  rest as `omittedResults`. A chain splices the previous step's whole answer
+  into the next step's task, so a spread would repeat it on every tick.
+- The final records are also a display projection sharing one 256 KiB budget:
+  the newest messages that fit (64 KiB per record), an `activeText` capped at
+  50,000 characters (the renderer's own truncation point), and every other
+  rendered field bounded. `messagesTruncated` says when a transcript tail was
+  cut, and the full transcript stays in the child session (`sessionId` /
+  `sessionFile`). The model-facing `content` is unaffected and still passes
+  through this document's 50 KiB retention.
 
 `toJsonEvent` additionally bounds a single `tool_execution_update` at 256 KiB of
 *serialized* bytes. That backstop exists for third-party tools that re-send

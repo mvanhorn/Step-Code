@@ -1054,6 +1054,13 @@ When complete:
 
 Use `toolCallId` to correlate events. The `partialResult` in `tool_execution_update` contains the accumulated output so far (not just the delta), allowing clients to simply replace their display on each update.
 
+One update is capped at 256 KiB of serialized bytes. An oversized update keeps
+only the tail of its text, adds a `[live output truncated]` marker, and omits
+`args`/`details`; read those from `tool_execution_start`/`tool_execution_end`
+instead, which are never bounded. The cap applies to the stdout projection only,
+not to in-process extension handlers. The subagent tool additionally coalesces
+updates to at most one per 100 ms and omits a child's transcript from them.
+
 ### queue_update
 
 Emitted whenever the pending steering or follow-up queue changes.

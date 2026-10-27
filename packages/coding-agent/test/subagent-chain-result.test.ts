@@ -215,7 +215,11 @@ test("parallel mode still aggregates every task", async () => {
 });
 
 test("chain steps wait as queued, not running, until dispatched", async () => {
-	const { partialStatuses } = await run(threeSteps, (_input, index) => ({ text: `OUT_${index}` }));
+	// Live updates coalesce on a 100ms tick, so each step has to outlive one tick
+	// for its running state to be published. Real steps take seconds.
+	const { partialStatuses } = await run(threeSteps, (_input, index) => ({ text: `OUT_${index}` }), {
+		runnerDelayMs: 150,
+	});
 
 	expect(partialStatuses[0]).toEqual(["queued", "queued", "queued"]);
 	expect(partialStatuses).toContainEqual(["running", "queued", "queued"]);
@@ -236,7 +240,8 @@ test("parallel tasks beyond maxConcurrency wait as queued", async () => {
 			],
 		} as SubagentParams,
 		(input) => ({ text: `OUT_${input.task}` }),
-		{ maxConcurrency: 1 },
+		// Same reason as above: the queued lane must survive one publish tick.
+		{ maxConcurrency: 1, runnerDelayMs: 150 },
 	);
 
 	expect(partialStatuses).toContainEqual(["running", "queued"]);

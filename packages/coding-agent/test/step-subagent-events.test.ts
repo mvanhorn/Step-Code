@@ -285,6 +285,9 @@ test("a ten-task batch starts eight and queues two on a ten-core host", async ()
 			createContext("/workspace"),
 		);
 		await waitFor(() => calls === 8);
+		// Live updates coalesce on a 100ms tick (see execute.ts), so the roster
+		// that reflects the dispatched batch arrives on the next publish.
+		await waitFor(() => counts.some((count) => count.running === 8 && count.queued === 2), 2_000);
 		expect(counts).toContainEqual({ running: 8, queued: 2 });
 		release();
 		await result;

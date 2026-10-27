@@ -68,18 +68,38 @@ test.each([
 	expect(textOf(bounded)).toContain("[live output truncated]");
 });
 
-test("an update just above the budget keeps as much of the tail as fits", () => {
-	const text = "z".repeat(Math.floor(MAX_LIVE_UPDATE_BYTES * 0.9));
+test("an oversized update keeps as much of the tail as fits", () => {
+	const text = "z".repeat(MAX_LIVE_UPDATE_BYTES);
+	const input = update({ content: [{ type: "text", text }] });
+	expect(bytesOf(input)).toBeGreaterThan(MAX_LIVE_UPDATE_BYTES);
 	const bounded = boundedEvent({ content: [{ type: "text", text }] });
 	expect(bytesOf(bounded)).toBeLessThanOrEqual(MAX_LIVE_UPDATE_BYTES);
-	// Far more than the minimum: the halving loop stops at the first fit.
-	expect(textOf(bounded).length).toBeGreaterThan(text.length / 2);
+	// The budget is more than a rounding error: the halving loop stops at the
+	// first fit, so most of the available room is used.
+	expect(textOf(bounded).length).toBeGreaterThan(MAX_LIVE_UPDATE_BYTES / 4);
 });
 
-test("the envelope alone over budget still produces a minimal valid event", () => {
-	const bounded = boundedEvent({ content: [{ type: "text", text: "x" }] });
+test("a pathological toolCallId cannot make the event itself exceed the budget", () => {
+	// Before the id was clipped, the halving loop could not shrink the envelope:
+	// `slice(-0)` returns the whole string, so it spun forever.
+	const event: AgentSessionEvent = {
+		type: "tool_execution_update",
+		toolCallId: "i".repeat(300_000),
+		toolName: "n".repeat(300_000),
+		args: { agent: "general" },
+		partialResult: { content: [{ type: "text", text: "x" }] },
+	};
+	const bounded = toJsonEvent(event) as Extract<AgentSessionEvent, { type: "tool_execution_update" }>;
+	expect(bytesOf(bounded)).toBeLessThanOrEqual(MAX_LIVE_UPDATE_BYTES);
 	expect(bounded.type).toBe("tool_execution_update");
-	expect(bounded.toolCallId).toBe("call_1");
+	expect(bounded.toolCallId.length).toBeLessThan(1_000);
+});
+
+test("a one-character text with huge details still terminates and fits", () => {
+	// The regression this replaces was a synchronous infinite loop, so a return
+	// at all is the assertion; the byte check then guards the envelope.
+	const bounded = boundedEvent({ content: [{ type: "text", text: "y" }], details: { a: "z".repeat(400_000) } });
+	expect(bytesOf(bounded)).toBeLessThanOrEqual(MAX_LIVE_UPDATE_BYTES);
 });
 
 test("the terminal tool_execution_end event is never bounded", () => {
