@@ -27,6 +27,7 @@ import {
 	createCompactionSummaryMessage,
 	createCustomMessage,
 } from "./messages.ts";
+import { stripImportedUserControls } from "./session-import/content.ts";
 import { type ImportProvenance, isImportProvenance } from "./session-import/types.ts";
 import { createSessionSummary, foldSessionSummaryEntry, resolveSessionModifiedTime } from "./session-summary.ts";
 import { createUsageLineage } from "./usage-lineage.ts";
@@ -411,6 +412,18 @@ export function sessionEntryToContextMessages(entry: SessionEntry): AgentMessage
 	if (entry.type === "message") {
 		const message = entry.message;
 		if (isImportProvenance(entry.imported)) {
+			if (message.role === "user") {
+				if (typeof message.content === "string") {
+					const cleaned = stripImportedUserControls(message.content).text;
+					return cleaned ? [{ ...message, content: cleaned }] : [];
+				}
+				const content = message.content.flatMap<TextContent | ImageContent>((block) => {
+					if (block.type !== "text") return [block];
+					const cleaned = stripImportedUserControls(block.text).text;
+					return cleaned ? [{ ...block, text: cleaned }] : [];
+				});
+				return content.length ? [{ ...message, content }] : [];
+			}
 			if (message.role === "assistant") {
 				return [
 					{

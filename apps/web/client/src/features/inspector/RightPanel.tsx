@@ -11,13 +11,16 @@ import {
 } from "../../state/right-panel";
 import { getState, type RightPanelId, setUi, useAppStore } from "../../state/store";
 import type { SessionInspector } from "../../state/types";
-import { IconButton, type IconName, Menu, MenuItem, Popover, ResizeHandle, Tooltip } from "../../ui";
+import { Icon, IconButton, type IconName, Menu, MenuItem, Popover, ResizeHandle, Tooltip } from "../../ui";
 import { BrowserPanel } from "../browser";
 import { ChildAgentView } from "../conversation";
 import { PreviewPanel } from "../files";
 import { applyPreviewWidth, PREVIEW_DEFAULT, restorePreviewWidth } from "../files/actions";
+import { useActiveTab } from "../files/PreviewBody";
 import { toggleTerminalDock } from "../terminal/actions";
 import { ContextPanel } from "./ContextPanel";
+import { latestAgentRecord } from "./model";
+import { openAgentRecord } from "./open-agent";
 import { SummaryBoard } from "./SummaryBoard";
 import { SummaryHeader } from "./SummaryHeader";
 
@@ -34,14 +37,29 @@ export function RightToolRail() {
 	const t = useT();
 	const active = useAppStore(activeRightPanel);
 	const terminalOpen = useAppStore((state) => state.ui.terminalOpen);
+	/* The floating summary card is hidden under a mid view (market, cron), so its button must not read as pressed there. */
+	const summaryCovered = useAppStore((state) => Boolean(state.ui.midView));
+	const pressed = (id: RightPanelId) => active === id && !(id === "summary" && summaryCovered);
+	/*
+	 * The goal is steered from the summary board, so the summary button wears
+	 * its state: a green dot while it runs, an attention dot while it is held
+	 * (paused, blocked, limited) — the one state worth being found without
+	 * opening the board.
+	 */
+	const goalRailClass = useAppStore((state) => {
+		const goal = state.current?.goal;
+		if (!goal || goal.status === "complete") return undefined;
+		return goal.status === "active" ? "rail-goal-active" : "rail-goal-held";
+	});
 	const button = (panel: (typeof PANELS)[number]) => (
 		<Tooltip key={panel.id} content={t(panel.label)}>
 			<IconButton
 				data-right-panel={panel.id}
+				className={panel.id === "summary" ? goalRailClass : undefined}
 				icon={panel.icon}
 				aria-label={t(panel.label)}
 				aria-controls="rightPanel"
-				aria-pressed={active === panel.id}
+				aria-pressed={pressed(panel.id)}
 				onClick={() => toggleRightPanel(panel.id)}
 			/>
 		</Tooltip>
@@ -68,18 +86,36 @@ export function RightToolRail() {
 export function RightPanel() {
 	const t = useT();
 	const panel = useAppStore(activeRightPanel);
+	// A side answer shares the preview panel; its header names the surface, not the files.
+	const activeTab = useActiveTab();
+	const panelTitle =
+		panel === "files" && activeTab?.kind === "btw"
+			? t("rightBtw")
+			: t(PANELS.find((entry) => entry.id === panel)?.label ?? "rightTools");
 	const expanded = useAppStore((state) => state.ui.rightPanelExpanded);
 	const currentId = useAppStore((state) => state.current?.id);
 	const activityTurn = useAppStore(summaryActivityTurn);
 	const activitySeen = useRef<{ sessionId?: string; turn?: string }>({});
 	const childParentId = useAppStore((state) => state.ui.childView?.parentId);
 	const status = useAppStore((state) => state.current?.status);
+	const items = useAppStore((state) => state.timelineItems);
 	const [result, setResult] = useState<{ id: string; data?: SessionInspector; error?: string }>();
 	const [revision, setRevision] = useState(0);
 	const widthOpen = useAppStore((state) => state.ui.rightPanelMenu);
 	const ref = useRef<HTMLElement>(null);
 	const showStats = panel === "summary" || panel === "context";
 	const summary = panel === "summary";
+	/**
+	 * The rail button opens this panel without naming an agent, and the panel used
+	 * to render nothing until a Summary row was clicked — which read as "this
+	 * conversation has no subagent" while the board listed several. Select a
+	 * default whenever the panel is open with no view of *this* session.
+	 */
+	useEffect(() => {
+		if (panel !== "subagent" || !currentId || childParentId === currentId) return;
+		const latest = latestAgentRecord(items);
+		if (latest) openAgentRecord(latest);
+	}, [panel, currentId, childParentId, items]);
 	useEffect(() => {
 		if (activitySeen.current.sessionId !== currentId) activitySeen.current = { sessionId: currentId };
 		if (!activityTurn || activitySeen.current.turn === activityTurn) return;
@@ -118,7 +154,7 @@ export function RightPanel() {
 			id="rightPanel"
 			ref={ref}
 			className={`right-panel${summary ? " summary-board" : ""}${panel === "browser" ? " is-browser" : ""}${expanded ? " is-expanded" : ""}`}
-			aria-label={t(PANELS.find((entry) => entry.id === panel)?.label ?? "rightTools")}
+			aria-label={panelTitle}
 			hidden={!panel}
 		>
 			<ResizeHandle
@@ -133,11 +169,7 @@ export function RightPanel() {
 				hidden={summary}
 			/>
 			<header className="right-panel-header">
-				{summary ? (
-					<SummaryHeader data={data} />
-				) : (
-					<h2>{t(PANELS.find((entry) => entry.id === panel)?.label ?? "rightTools")}</h2>
-				)}
+				{summary ? <SummaryHeader data={data} /> : <h2>{panelTitle}</h2>}
 				{showStats && !summary ? (
 					<Tooltip content={t("refresh")}>
 						<IconButton
@@ -214,7 +246,10 @@ export function RightPanel() {
 			<ChildAgentView embedded />
 			<BrowserPanel open={panel === "browser"} />
 			{panel === "subagent" && (!currentId || childParentId !== currentId) ? (
-				<p className="preview-message">{t("rightNoSubagent")}</p>
+				<div className="preview-message changes-empty">
+					<Icon name="bot" />
+					{t("rightNoSubagent")}
+				</div>
 			) : null}
 		</aside>
 	);

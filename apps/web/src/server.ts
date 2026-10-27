@@ -7,6 +7,9 @@ import { dirname, extname, join, normalize, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url";
 import type { StepPermissionPresetId } from "@step-harness/coding-agent";
 import {
+	closeStepMcpPool,
+	configureStepMcpPool,
+	createStepMcpHostWarmup,
 	getStepAccountProfile,
 	getStepAuthPath,
 	getStepLoginStatus,
@@ -28,12 +31,17 @@ import { browserRoute } from "./browser-routes.ts";
 import { listWorkflowChildren, readChildTranscript } from "./child-sessions.ts";
 import { type DirectoryPickerMode, pickNativeDirectory, resolveDirectoryPickerMode } from "./directory-picker.ts";
 import {
+	absoluteLocalPath,
+	completeWorkspaceFiles,
 	containedWorkspacePath,
+	imageMimeType,
 	listDirectory,
-	MAX_IMAGE_BYTES,
+	readLocalFile,
 	readWorkspaceFile,
 	searchWorkspaceFiles,
+	type WorkspaceFile,
 } from "./files.ts";
+import { createBranch, GitBranchError, listLocalBranches, readGitState, switchBranch } from "./git.ts";
 import { buildLoginReport, type LoginReport, loginMethods, WebLoginController } from "./login.ts";
 import { signOutStep } from "./logout.ts";
 import {
@@ -43,7 +51,9 @@ import {
 	importLocalStepgoModels,
 	listModelProviders,
 	saveModelProvider,
+	testProviderModel,
 } from "./model-providers.ts";
+import { openFolder } from "./open-folder.ts";
 import {
 	classifyAttachment,
 	defaultWorkspace,
@@ -73,6 +83,7 @@ import {
 	setSkillEnabled,
 	updateMarketplace,
 } from "./settings.ts";
+import { SitePreviewServer } from "./site-preview.ts";
 import { WebTerminals } from "./terminal.ts";
 import { terminalRoute } from "./terminal-routes.ts";
 import { TurnRevertError } from "./turn-changes.ts";
@@ -84,7 +95,9 @@ import {
 	UploadTooLargeError,
 	withUploadedFiles,
 } from "./uploads.ts";
-import { WORKSPACES_FILE, WorkspaceRegistry } from "./workspaces.ts";
+import { VoiceRelay } from "./voice.ts";
+import { voiceRoute } from "./voice-routes.ts";
+import { canonicalWorkspacePath, WORKSPACES_FILE, WorkspaceRegistry } from "./workspaces.ts";
 
 const moduleRoot = resolve(fileURLToPath(new URL(".", import.meta.url)));
 /**
@@ -119,6 +132,18 @@ const directoryPicker: DirectoryPickerMode = resolveDirectoryPickerMode({
 	platform: process.platform,
 	env: process.env,
 });
+/**
+ * When this build was made, from the installer's release envelope
+ * (`apps/desktop/src/release-envelope.ts`). A source checkout has none.
+ */
+const buildTime = normalizeBuildTime(process.env.STEPCODE_BUILD_TIME);
+
+/** A parseable ISO timestamp, or undefined: the page only formats what it can trust. */
+function normalizeBuildTime(value: string | undefined): string | undefined {
+	const trimmed = value?.trim();
+	if (!trimmed || Number.isNaN(Date.parse(trimmed))) return undefined;
+	return new Date(trimmed).toISOString();
+}
 /** One system dialog at a time; a second would stack invisibly behind the first. */
 let pickerOpen = false;
 const auth = new WebAuth([`http://127.0.0.1:${port}`, `http://localhost:${port}`], authSecretPath);
@@ -196,7 +221,8 @@ function authorized(request: IncomingMessage): boolean {
 		.map((part) => part.trim())
 		.find((part) => part.startsWith("stepcode_web="))
 		?.slice("stepcode_web=".length);
-	return auth.authorize(cookie, request.headers.origin);
+	const fetchSite = request.headers["sec-fetch-site"];
+	return auth.authorize(cookie, request.headers.origin, typeof fetchSite === "string" ? fetchSite : undefined);
 }
 
 async function body(request: IncomingMessage): Promise<Record<string, unknown>> {
@@ -261,6 +287,16 @@ async function directoryList(inputPath: string): Promise<unknown> {
 	};
 }
 
+// Closing one chat must not stop servers the next chat would start again:
+// released MCP connections idle in the process pool, and shutdown closes them.
+configureStepMcpPool({ quitRelease: "idle" });
+/**
+ * The host holds the global MCP servers itself, connected from startup, so a
+ * new chat's first message already has their tools instead of waiting for them.
+ * Re-synced after anything that changes which servers exist or how they start.
+ */
+const mcpWarmup = createStepMcpHostWarmup();
+const resyncMcp = (): void => void mcpWarmup.sync(defaultWorkspace());
 const sessionSearch = new WebSessionSearch(resolveStepAgentDir());
 const sessionImports = new SessionImportService({
 	agentDir: resolveStepAgentDir(),
@@ -270,7 +306,10 @@ const sessionImports = new SessionImportService({
 const store = new WebSessionStore({ index: sessionSearch });
 const workspaces = new WorkspaceRegistry(join(resolveStepAgentDir(), WORKSPACES_FILE));
 const embeddedBrowser = new WebBrowser([port, launchPort]);
+/** Rendered previews of workspace files, on their own origin (see site-preview.ts). */
+const sitePreview = new SitePreviewServer();
 const terminals = new WebTerminals();
+const voice = new VoiceRelay();
 
 /**
  * Resolve the `cwd` of a workspace-scoped request, or undefined when the folder
@@ -347,6 +386,8 @@ const login = new WebLoginController({
 		loginCache = undefined;
 		account.invalidate();
 		void store.reloadCredentials();
+		// The Step login key is part of a server's environment: reconnect with it.
+		resyncMcp();
 	},
 });
 
@@ -382,6 +423,7 @@ async function signOutOfStep(response: ServerResponse): Promise<void> {
 	});
 	loginCache = undefined;
 	account.invalidate();
+	resyncMcp();
 	const [report, customModels] = await Promise.all([loginReport(), hasUsableCustomModel()]);
 	return json(response, 200, { ...outcome, customModels, login: report });
 }
@@ -412,6 +454,47 @@ async function pickWorkspaceFolder(request: IncomingMessage, response: ServerRes
 }
 
 /**
+ * `/api/v1/workspace/git/*`: the composer branch pill (see git.ts). `parts`
+ * starts after `git`, URL-decoded: nothing (state + branches), `switch` or
+ * `branches`. A branch operation is a write, so it answers 400 with the code
+ * and blocking paths the client renders instead of a bare message.
+ */
+async function gitRoute(
+	parts: string[],
+	method: string,
+	url: URL,
+	request: IncomingMessage,
+	response: ServerResponse,
+): Promise<void> {
+	const cwd = await knownWorkspace(url.searchParams.get("cwd"));
+	if (!cwd) return error(response, 403, "Folder is not a known workspace");
+	try {
+		if (parts.length === 0 && method === "GET") {
+			const state = await readGitState(cwd);
+			if (!state.repository) return json(response, 200, { state, branches: [] });
+			const { branches } = await listLocalBranches(cwd, state);
+			return json(response, 200, { state, branches });
+		}
+		if (parts.length === 1 && parts[0] === "switch" && method === "POST") {
+			const input = await body(request);
+			if (typeof input.branch !== "string" || !input.branch.trim()) {
+				return error(response, 400, "branch is required");
+			}
+			const create = input.create === true;
+			const state = create
+				? await createBranch(cwd, input.branch, typeof input.from === "string" ? input.from : undefined)
+				: await switchBranch(cwd, input.branch);
+			return json(response, 200, { state });
+		}
+		return error(response, 404, "Not found");
+	} catch (caught) {
+		if (!(caught instanceof GitBranchError)) throw caught;
+		// Not a repository or no git on PATH is the caller's folder, not a server fault.
+		return json(response, 400, { error: caught.message, code: caught.code, paths: caught.paths });
+	}
+}
+
+/**
  * `/api/v1/settings/*`: the settings screen's MCP, plugin, marketplace and skill
  * management (see settings.ts). `parts` starts after `settings`, URL-decoded.
  */
@@ -423,6 +506,7 @@ async function settingsRoute(
 	response: ServerResponse,
 ): Promise<void> {
 	const [area, name, action] = parts;
+	const changesMcp = method !== "GET" && (area === "mcp" || area === "plugins" || area === "marketplaces");
 	try {
 		if (area === "mcp") {
 			if (!name && method === "GET") return json(response, 200, { servers: await listMcpServers() });
@@ -512,6 +596,11 @@ async function settingsRoute(
 			if (name === "discover" && !action && method === "POST") {
 				return json(response, 200, { models: await discoverProviderModels(await body(request)) });
 			}
+			// A connection test answers for the same draft in the form.
+			if (name === "test" && !action && method === "POST") {
+				await testProviderModel(await body(request));
+				return json(response, 200, { ok: true });
+			}
 			if (name && !action && method === "PUT") {
 				// A blank key field keeps the stored key; only an explicit flag removes it.
 				const input = await body(request);
@@ -527,6 +616,9 @@ async function settingsRoute(
 	} catch (caught) {
 		if (caught instanceof SettingsError) return error(response, caught.status, caught.message);
 		throw caught;
+	} finally {
+		// Connect what was added or enabled now; what was removed closes once no chat uses it.
+		if (changesMcp && response.statusCode < 400) resyncMcp();
 	}
 }
 
@@ -547,17 +639,70 @@ async function searchSessions(url: URL, response: ServerResponse): Promise<void>
 	}
 }
 
-async function serveWorkspaceImage(response: ServerResponse, cwd: string, inputPath: string): Promise<void> {
-	const file = await readWorkspaceFile(cwd, inputPath);
-	if (file.kind !== "image") return error(response, 415, "Only images can be served raw");
-	if (file.size > MAX_IMAGE_BYTES) return error(response, 413, "Image is too large to preview");
+/** GET workspace file completion; a disconnected composer cancels its bounded walk. */
+async function completeFiles(cwd: string, url: URL, response: ServerResponse): Promise<void> {
+	const query = url.searchParams.get("q");
+	if (query === null) return error(response, 400, "q is required");
+	const controller = new AbortController();
+	const onClose = () => {
+		if (!response.writableFinished) controller.abort();
+	};
+	response.on("close", onClose);
+	try {
+		const listing = await completeWorkspaceFiles(cwd, query, controller.signal);
+		if (!controller.signal.aborted) return json(response, 200, listing);
+	} catch (caught) {
+		if (controller.signal.aborted) return;
+		return error(response, 400, caught instanceof Error ? caught.message : String(caught));
+	} finally {
+		response.off("close", onClose);
+	}
+}
+
+async function serveImageFile(
+	response: ServerResponse,
+	target: string,
+	file: Extract<WorkspaceFile, { kind: "image" }>,
+): Promise<void> {
 	response.writeHead(200, {
 		"content-type": file.mimeType,
 		"content-length": String(file.size),
 		"cache-control": "no-store",
 		"x-content-type-options": "nosniff",
 	});
-	createReadStream(await containedWorkspacePath(cwd, inputPath)).pipe(response);
+	createReadStream(target).pipe(response);
+}
+
+async function serveWorkspaceImage(response: ServerResponse, cwd: string, inputPath: string): Promise<void> {
+	const file = await readWorkspaceFile(cwd, inputPath);
+	if (file.kind !== "image") {
+		imageRefused(response, file, inputPath);
+		return;
+	}
+	await serveImageFile(response, await containedWorkspacePath(cwd, inputPath), file);
+}
+
+async function serveLocalImage(response: ServerResponse, inputPath: string): Promise<void> {
+	const file = await readLocalFile(inputPath);
+	if (file.kind !== "image") {
+		imageRefused(response, file, inputPath);
+		return;
+	}
+	await serveImageFile(response, await absoluteLocalPath(inputPath), file);
+}
+
+/**
+ * Why a raw request was refused. The preview never asks for an oversized image
+ * (the read classifies it as "too large"), so this only answers a direct caller:
+ * an image over the limit keeps its documented 413, everything else is simply
+ * not servable here.
+ */
+function imageRefused(response: ServerResponse, file: WorkspaceFile, inputPath: string): void {
+	if (file.kind === "too-large" && imageMimeType(inputPath)) {
+		error(response, 413, "Image is too large to preview");
+		return;
+	}
+	error(response, 415, "Only images can be served raw");
 }
 
 const server = createServer(async (request, response) => {
@@ -596,9 +741,25 @@ const server = createServer(async (request, response) => {
 		if (parts[2] === "browser") return await browserRoute(embeddedBrowser, parts.slice(3), request, response);
 		if (parts[2] === "terminals")
 			return await terminalRoute(terminals, parts.slice(3), url, request, response, knownWorkspace);
+		if (parts[2] === "voice") return await voiceRoute(voice, parts.slice(3), request, response);
 		if (parts[2] === "bootstrap" && method === "GET") {
 			const [report, customModels] = await Promise.all([loginReport(), hasUsableCustomModel()]);
-			return json(response, 200, { cwd: defaultWorkspace(), directoryPicker, login: report, customModels });
+			// The identity of the running build, so a page (and the person looking at
+			// it) can tell which build it is talking to. `buildTime` is staged beside
+			// the server entry by the installer; a source checkout reports none.
+			return json(response, 200, {
+				// The page names its launch folder with this, and it has to agree with
+				// the cwd session headers record and the registry stores. Reporting the
+				// spelling the process was started with (a symlinked folder, a trailing
+				// slash) made the removed real folder keep appearing in the composer's
+				// picker, because only the canonical spelling was marked hidden.
+				cwd: await canonicalWorkspacePath(defaultWorkspace()),
+				directoryPicker,
+				login: report,
+				customModels,
+				version: resolveStepCodeVersion().value,
+				...(buildTime ? { buildTime } : {}),
+			});
 		}
 		if (parts[2] === "account" && parts.length === 3 && method === "GET") {
 			return json(response, 200, await account.get());
@@ -662,15 +823,54 @@ const server = createServer(async (request, response) => {
 				return removed ? json(response, 200, { ok: true }) : error(response, 404, "Workspace is not registered");
 			}
 		}
+		// Read-only preview of one file named by an absolute path from message
+		// content. Same cookie authentication as every other route; unlike
+		// /workspace/* there is no folder-registry check — the path is the
+		// user's own message reference, and these routes only read a single
+		// known file, never list directories or write.
+		if (
+			parts[2] === "file" &&
+			method === "GET" &&
+			(parts.length === 3 || (parts.length === 4 && parts[3] === "raw"))
+		) {
+			const inputPath = url.searchParams.get("path") ?? "";
+			try {
+				if (parts.length === 4) return await serveLocalImage(response, inputPath);
+				return json(response, 200, await readLocalFile(inputPath));
+			} catch (caught) {
+				return error(response, 400, caught instanceof Error ? caught.message : String(caught));
+			}
+		}
+		// Show the workspace folder in Finder / File Explorer: only a folder this Host already works in.
+		if (parts[2] === "workspace" && parts[3] === "open" && parts.length === 4 && method === "POST") {
+			const cwd = await knownWorkspace(url.searchParams.get("cwd"));
+			if (!cwd) return error(response, 403, "Folder is not a known workspace");
+			try {
+				await openFolder(cwd);
+				return json(response, 200, { ok: true });
+			} catch (caught) {
+				return error(response, 500, caught instanceof Error ? caught.message : String(caught));
+			}
+		}
+		if (parts[2] === "workspace" && parts[3] === "site" && parts.length === 4 && method === "POST") {
+			const cwd = await knownWorkspace(url.searchParams.get("cwd"));
+			if (!cwd) return error(response, 403, "Folder is not a known workspace");
+			try {
+				return json(response, 200, { url: await sitePreview.url(cwd, url.searchParams.get("path") ?? "") });
+			} catch (caught) {
+				return error(response, 400, caught instanceof Error ? caught.message : String(caught));
+			}
+		}
 		if (parts[2] === "workspace" && parts.length === 4 && method === "GET") {
 			const cwd = await knownWorkspace(url.searchParams.get("cwd"));
 			if (!cwd) return error(response, 403, "Folder is not a known workspace");
 			const path = url.searchParams.get("path") ?? "";
+			if (parts[3] === "completions") return await completeFiles(cwd, url, response);
 			try {
 				if (parts[3] === "files") return json(response, 200, await listDirectory(cwd, path));
 				if (parts[3] === "file") return json(response, 200, await readWorkspaceFile(cwd, path));
 				if (parts[3] === "raw") return await serveWorkspaceImage(response, cwd, path);
-				if (parts[3] === "skills") return json(response, 200, { skills: await store.skillsFor(cwd) });
+				if (parts[3] === "skills") return json(response, 200, await store.slashResourcesFor(cwd));
 				if (parts[3] === "search") {
 					return json(response, 200, await searchWorkspaceFiles(cwd, url.searchParams.get("q") ?? ""));
 				}
@@ -679,24 +879,24 @@ const server = createServer(async (request, response) => {
 				return error(response, 400, caught instanceof Error ? caught.message : String(caught));
 			}
 		}
+		if (parts[2] === "workspace" && parts[3] === "git") {
+			return await gitRoute(parts.slice(4).map(decodeURIComponent), method, url, request, response);
+		}
 		if (parts[2] === "session-imports") {
 			try {
 				if (parts.length === 3 && method === "GET")
 					return json(response, 200, { jobs: await sessionImports.listJobs() });
 				if (parts.length === 4 && parts[3] === "scan" && method === "POST") {
 					const input = await body(request);
-					for (const key of ["codexRoot", "claudeRoot", "customRoot"])
-						if (input[key] !== undefined && typeof input[key] !== "string")
-							return error(response, 400, `${key} must be a string`);
+					for (const key of Object.keys(input))
+						if (key !== "includeArchived")
+							return error(response, 400, "Only default-directory scanning is supported");
 					if (input.includeArchived !== undefined && typeof input.includeArchived !== "boolean")
 						return error(response, 400, "includeArchived must be a boolean");
 					return json(
 						response,
 						200,
 						await sessionImports.scan({
-							customRoot: typeof input.customRoot === "string" ? input.customRoot : undefined,
-							codexRoot: typeof input.codexRoot === "string" ? input.codexRoot : undefined,
-							claudeRoot: typeof input.claudeRoot === "string" ? input.claudeRoot : undefined,
 							includeArchived: input.includeArchived === true,
 						}),
 					);
@@ -756,6 +956,9 @@ const server = createServer(async (request, response) => {
 			const sessions = await store.list();
 			return json(response, 200, { sessions });
 		}
+		if (parts[2] === "session-status" && parts.length === 3 && method === "GET") {
+			return json(response, 200, { sessions: store.statuses() });
+		}
 		if (parts[2] === "sessions" && parts.length === 3 && method === "POST") {
 			const input = await body(request);
 			const session = await store.create(typeof input.cwd === "string" ? input.cwd : defaultWorkspace());
@@ -801,11 +1004,14 @@ const server = createServer(async (request, response) => {
 					const eventName = event.type === "error" ? "web_error" : event.type;
 					response.write(`event: ${eventName}\ndata: ${JSON.stringify(event)}\n\n`);
 				});
+				// Following the stream is looking at the session: its outcome is seen.
+				const unwatch = session.watch();
 				// A closed session (e.g. rebuilt after sign-in) sends nothing more; end
 				// the stream so the page's EventSource reconnects to its replacement.
 				const stopOnClose = session.onClose(() => response.end());
 				response.on("close", () => {
 					unsubscribe();
+					unwatch();
 					stopOnClose();
 				});
 				return;
@@ -901,6 +1107,19 @@ const server = createServer(async (request, response) => {
 					return error(response, 404, "Selection not found");
 				return json(response, 200, session.snapshot());
 			}
+			if (parts[4] === "text-inputs" && parts[5] === "response" && parts.length === 6 && method === "POST") {
+				const input = await body(request);
+				if (typeof input.id !== "string") return error(response, 400, "Text input id is required");
+				// An absent value means the user dismissed the dialog; "" is a real answer.
+				if (input.value !== undefined && typeof input.value !== "string")
+					return error(response, 400, "value must be a string");
+				if (!session.respondTextInput(input.id, input.value)) return error(response, 404, "Text input not found");
+				return json(response, 200, session.snapshot());
+			}
+			if (parts[4] === "side-answers" && parts[5] === "clear" && parts.length === 6 && method === "POST") {
+				session.clearSideAnswers();
+				return json(response, 200, { ok: true });
+			}
 			if (parts[4] === "approvals" && parts[5] === "decision" && method === "POST") {
 				const input = await body(request);
 				const verdict = input.verdict;
@@ -911,7 +1130,22 @@ const server = createServer(async (request, response) => {
 				return json(response, 200, { ok: true });
 			}
 			if (parts[4] === "skills" && parts.length === 5 && method === "GET") {
-				return json(response, 200, { skills: session.skills() });
+				return json(response, 200, { skills: session.skills(), commands: session.commands() });
+			}
+			// A delivered page as its turn left it: later turns' patches reversed, served beside the
+			// workspace on the site preview origin. Falls back to the current file when that is not exact.
+			if (parts[4] === "turns" && parts[5] && parts[6] === "site" && parts.length === 7 && method === "POST") {
+				const path = url.searchParams.get("path") ?? "";
+				try {
+					const version = await session.fileAtTurn(decodeURIComponent(parts[5]), path);
+					const target =
+						version.text === undefined
+							? await sitePreview.url(session.cwd, path)
+							: await sitePreview.versionUrl(session.cwd, path, version.text);
+					return json(response, 200, { url: target, exact: version.exact });
+				} catch (caught) {
+					return error(response, 400, caught instanceof Error ? caught.message : String(caught));
+				}
 			}
 			if (parts[4] === "turns" && parts[5] && parts[6] === "revert" && parts.length === 7 && method === "POST") {
 				try {
@@ -955,6 +1189,22 @@ const server = createServer(async (request, response) => {
 				await session.setModel(input.provider, input.modelId);
 				return json(response, 200, session.snapshot());
 			}
+			if (parts[4] === "models" && parts[5] === "refresh" && parts.length === 6 && method === "POST") {
+				// A provider added in settings must reach an open session's picker; the
+				// session's catalog is otherwise frozen at creation.
+				await session.refreshModels();
+				return json(response, 200, session.snapshot());
+			}
+			if (parts[4] === "feedback" && parts[5] === "evidence" && parts.length === 6 && method === "GET") {
+				// The consent dialog reads this before it offers to send anything: it
+				// names the evidence the submission will carry, and prepares it once.
+				try {
+					return json(response, 200, await session.prepareFeedback());
+				} catch (caught) {
+					// Nothing configured is the caller's problem to show, not a fault.
+					return error(response, 400, caught instanceof Error ? caught.message : String(caught));
+				}
+			}
 			if (parts[4] === "feedback" && method === "POST") {
 				const input = await body(request);
 				if (input.sentiment !== "up" && input.sentiment !== "down") {
@@ -962,10 +1212,14 @@ const server = createServer(async (request, response) => {
 				}
 				if (typeof input.comment !== "string") return error(response, 400, "comment is required");
 				const topic = typeof input.topic === "string" ? input.topic : undefined;
+				// The dialog sends back the token of the evidence it displayed, so the
+				// report cannot describe something the user was never shown.
+				const token = typeof input.token === "string" ? input.token : undefined;
 				const result = await session.submitFeedback({
 					sentiment: input.sentiment,
 					...(topic ? { topic } : {}),
 					comment: input.comment,
+					...(token ? { token } : {}),
 				});
 				// A rejected submission is the caller's problem to show, not a 500.
 				return json(response, result.ok ? 200 : 400, result);
@@ -981,6 +1235,28 @@ const server = createServer(async (request, response) => {
 					// from), not a server fault.
 					return error(response, 400, caught instanceof Error ? caught.message : String(caught));
 				}
+			}
+			if (parts[4] === "goal" && method === "PATCH") {
+				const input = await body(request);
+				const action = input.action;
+				if (
+					action !== "start" &&
+					action !== "pause" &&
+					action !== "resume" &&
+					action !== "edit" &&
+					action !== "clear"
+				) {
+					return error(response, 400, "action must be start, pause, resume, edit or clear");
+				}
+				const objective = typeof input.objective === "string" ? input.objective : undefined;
+				if ((action === "start" || action === "edit") && !objective?.trim()) {
+					return error(response, 400, "objective is required to start or edit a goal");
+				}
+				// Slash commands, so fire-and-forget like /messages.
+				void session
+					.controlGoal(action, objective)
+					.catch((caught) => session.publishError(caught instanceof Error ? caught.message : String(caught)));
+				return json(response, 202, { ok: true });
 			}
 			if (parts[4] === "mode" && method === "PATCH") {
 				const input = await body(request);
@@ -1029,6 +1305,8 @@ const server = createServer(async (request, response) => {
 // models page and the first session already see them. It runs once per
 // installation and never rejects; listening must not wait on anything else.
 void importLocalStepgoModels().finally(() => {
+	// Connect in the background: listening must not wait on slow servers.
+	resyncMcp();
 	server.listen(port, bindHost, () => {
 		console.log(
 			formatStartupBanner({
@@ -1054,14 +1332,18 @@ const shutdown = async (): Promise<void> => {
 	try {
 		const results = await Promise.allSettled([
 			embeddedBrowser.close(),
+			sitePreview.close(),
 			terminals.stopAll(),
+			voice.stopAll(),
 			(async () => {
 				try {
 					await sessionImports.close();
 					await store.close();
 				} finally {
 					// Flush sessions before stopping their index, even if session teardown fails.
-					await sessionSearch.close();
+					// Sessions only release their MCP leases; the pool owns the server processes.
+					await mcpWarmup.release();
+					await Promise.all([sessionSearch.close(), closeStepMcpPool()]);
 				}
 			})(),
 		]);

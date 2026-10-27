@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { createSyntheticSourceInfo } from "../src/core/source-info.ts";
-import { buildSystemPrompt } from "../src/core/system-prompt.ts";
+import { buildSystemPrompt, localCalendarDate } from "../src/core/system-prompt.ts";
 
 describe("buildSystemPrompt", () => {
 	describe("empty tools", () => {
@@ -288,5 +288,43 @@ describe("buildSystemPrompt", () => {
 
 		expect(prompt).toContain("review");
 		expect(prompt).toContain("Review guidance");
+	});
+});
+
+describe("localCalendarDate", () => {
+	// The prompt tells the model "today"; reading it in UTC made every morning
+	// east of Greenwich report yesterday's date.
+	test("answers the calendar date the user is living in, not the UTC one", () => {
+		const original = process.env.TZ;
+		try {
+			process.env.TZ = "Asia/Shanghai";
+			// 2026-10-22 06:30 in Shanghai is still 2026-10-21 in UTC.
+			const instant = new Date("2026-10-21T22:30:00.000Z");
+			expect(instant.toISOString().slice(0, 10)).toBe("2026-10-21");
+			expect(localCalendarDate(instant)).toBe("2026-10-22");
+
+			// Late evening in Shanghai is the same UTC day.
+			expect(localCalendarDate(new Date("2026-10-22T15:00:00.000Z"))).toBe("2026-10-22");
+		} finally {
+			if (original === undefined) delete process.env.TZ;
+			else process.env.TZ = original;
+		}
+	});
+
+	test("a zone west of Greenwich is not a day ahead", () => {
+		const original = process.env.TZ;
+		try {
+			process.env.TZ = "America/New_York";
+			// 2026-10-22 01:00 in New York is already 2026-10-22 in UTC, but the
+			// local calendar still says the 21st a moment earlier.
+			expect(localCalendarDate(new Date("2026-10-22T03:00:00.000Z"))).toBe("2026-10-21");
+		} finally {
+			if (original === undefined) delete process.env.TZ;
+			else process.env.TZ = original;
+		}
+	});
+
+	test("the shape stays YYYY-MM-DD", () => {
+		expect(localCalendarDate(new Date("2026-01-05T12:00:00.000Z"))).toMatch(/^\d{4}-\d{2}-\d{2}$/u);
 	});
 });

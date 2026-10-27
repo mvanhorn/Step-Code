@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
-import type { AssistantMessage, ImageContent, TextContent, ToolCall } from "@step-harness/providers";
+import type { AssistantMessage, ImageContent, TextContent, ThinkingContent, ToolCall } from "@step-harness/providers";
 import type { SessionEntry } from "../session-manager.ts";
+import { stripImportedUserControls } from "./content.ts";
 import type { ImportSource, ImportWarning, ParsedImport } from "./types.ts";
 
 type RecordValue = Record<string, unknown>;
@@ -18,7 +19,7 @@ function list(value: unknown): unknown[] {
 }
 
 function time(value: unknown): string {
-	const parsed = typeof value === "string" ? Date.parse(value) : Number.NaN;
+	const parsed = typeof value === "number" ? value : typeof value === "string" ? Date.parse(value) : Number.NaN;
 	return Number.isFinite(parsed) ? new Date(parsed).toISOString() : new Date(0).toISOString();
 }
 
@@ -46,7 +47,12 @@ export function parseForeignSession(source: ImportSource, input: string): Parsed
 		}
 	}
 	const meta = source === "codex" ? record(records.find((r) => r.type === "session_meta")?.payload) : {};
-	const first = source === "codex" ? meta : (records.find((r) => typeof r.sessionId === "string") ?? {});
+	const first =
+		source === "codex"
+			? meta
+			: (records.find((r) => typeof r.sessionId === "string" && typeof r.cwd === "string") ??
+				records.find((r) => typeof r.sessionId === "string") ??
+				{});
 	const sessionId = text(source === "codex" ? first.id : first.sessionId);
 	if (!sessionId) throw new Error("Source session ID is missing");
 	const result: ParsedImport = {
@@ -65,12 +71,14 @@ export function parseForeignSession(source: ImportSource, input: string): Parsed
 	const warnings = new Map<string, number>();
 	const warn = (code: string) => warnings.set(code, (warnings.get(code) ?? 0) + 1);
 	let activeClaudeIds: Set<string> | undefined;
-	if (source === "claude-code") {
+	if (source === "claude-code" || source === "qoder") {
 		const byId = new Map(records.filter((r) => typeof r.uuid === "string").map((r) => [text(r.uuid), r]));
 		const messages = records.filter((r) => (r.type === "user" || r.type === "assistant") && r.isSidechain !== true);
 		if (messages.some((r) => typeof r.parentUuid === "string")) {
 			activeClaudeIds = new Set();
-			let current = messages.at(-1);
+			const leaf = source === "qoder" ? text(records.filter((r) => r.type === "active-leaf").at(-1)?.leafUuid) : "";
+			let current = leaf ? byId.get(leaf) : messages.at(-1);
+			if (leaf && !current) throw new Error("Qoder active leaf is missing from the source snapshot");
 			while (current && typeof current.uuid === "string") {
 				if (activeClaudeIds.has(current.uuid)) throw new Error("Cycle in source message chain");
 				activeClaudeIds.add(current.uuid);
@@ -132,12 +140,12 @@ export function parseForeignSession(source: ImportSource, input: string): Parsed
 		return blocks;
 	};
 	const assistant = (
-		blocks: (TextContent | ImageContent | ToolCall)[],
+		blocks: (TextContent | ImageContent | ThinkingContent | ToolCall)[],
 		timestamp: unknown,
 		itemId: string,
 		usage?: unknown,
 	) => {
-		const supported = blocks.filter((b): b is TextContent | ToolCall => b.type !== "image");
+		const supported = blocks.filter((b): b is TextContent | ThinkingContent | ToolCall => b.type !== "image");
 		if (!supported.length) return;
 		append(
 			{
@@ -159,9 +167,15 @@ export function parseForeignSession(source: ImportSource, input: string): Parsed
 		);
 	};
 	const user = (blocks: (TextContent | ImageContent)[], timestamp: unknown, itemId: string) => {
-		if (!blocks.length) return;
+		const safeBlocks = blocks.flatMap((block): (TextContent | ImageContent)[] => {
+			if (block.type !== "text") return [block];
+			const cleaned = stripImportedUserControls(block.text);
+			if (cleaned.removed) warn("source_instructions_excluded");
+			return cleaned.text ? [{ ...block, text: cleaned.text }] : [];
+		});
+		if (!safeBlocks.length) return;
 		if (!result.title)
-			result.title = blocks
+			result.title = safeBlocks
 				.filter((b) => b.type === "text")
 				.map((b) => b.text)
 				.join(" ")
@@ -170,7 +184,7 @@ export function parseForeignSession(source: ImportSource, input: string): Parsed
 			{
 				...base(timestamp),
 				type: "message",
-				message: { role: "user", content: blocks, timestamp: Date.parse(time(timestamp)) },
+				message: { role: "user", content: safeBlocks, timestamp: Date.parse(time(timestamp)) },
 			},
 			itemId,
 		);
@@ -222,7 +236,7 @@ export function parseForeignSession(source: ImportSource, input: string): Parsed
 		const fallbackId = `record-${sequence++}`;
 		const p = record(r.payload);
 		const id =
-			text(source === "codex" ? p.id : r.uuid) ||
+			text(source === "codex" ? p.id : source === "workbuddy" ? r.id : r.uuid) ||
 			(source === "codex" && r.type === "response_item" && typeof p.call_id === "string"
 				? `${text(p.type)}:${p.call_id}`
 				: fallbackId);
@@ -247,17 +261,7 @@ export function parseForeignSession(source: ImportSource, input: string): Parsed
 			} else if (r.type === "response_item") {
 				if (p.type === "message") {
 					if (p.role === "user") {
-						const blocks = content(p.content);
-						// Codex may put host control envelopes in user-shaped records.
-						const safe = blocks.filter(
-							(b) =>
-								b.type !== "text" ||
-								!/^<(?:environment_context|permissions instructions|turn_aborted|request_id|turn_id|model)>/u.test(
-									b.text.trim(),
-								),
-						);
-						if (safe.length !== blocks.length) warn("source_instructions_excluded");
-						user(safe, r.timestamp, id);
+						user(content(p.content), r.timestamp, id);
 					} else if (p.role === "assistant") assistant(content(p.content), r.timestamp, id);
 					else warn("source_instructions_excluded");
 				} else if (p.type === "function_call" || p.type === "custom_tool_call") {
@@ -268,7 +272,7 @@ export function parseForeignSession(source: ImportSource, input: string): Parsed
 					const summary = list(p.summary)
 						.map((s) => text(record(s).text))
 						.filter(Boolean);
-					if (summary.length) assistant([{ type: "text", text: summary.join("\n") }], r.timestamp, id);
+					if (summary.length) assistant([{ type: "thinking", thinking: summary.join("\n") }], r.timestamp, id);
 					if (p.encrypted_content) warn("encrypted_reasoning_excluded");
 				} else {
 					warn("unsupported_item");
@@ -345,7 +349,33 @@ export function parseForeignSession(source: ImportSource, input: string): Parsed
 			) {
 				throw new Error(`Unsupported Codex record: ${text(r.type)}`);
 			}
+		} else if (source === "workbuddy") {
+			if (r.sessionId && r.sessionId !== sessionId) continue;
+			if (r.type === "ai-title") {
+				if (text(r.aiTitle)) result.title = text(r.aiTitle).slice(0, 120);
+			} else if (r.type === "message") {
+				if (r.role === "user") user(content(r.content), r.timestamp, id);
+				else if (r.role === "assistant") assistant(content(r.content), r.timestamp, id, record(r.message).usage);
+				else warn("source_instructions_excluded");
+			} else if (r.type === "function_call") {
+				assistant([tool(text(r.callId), text(r.name), r.arguments)], r.timestamp, id);
+			} else if (r.type === "function_call_result") {
+				const output = record(r.output);
+				const failed =
+					r.status === "failed" || r.status === "error" ? true : r.status === "completed" ? false : undefined;
+				toolResult(text(r.callId), output.type === "text" ? output.text : r.output, failed, r.timestamp, id);
+			} else if (r.type === "reasoning") {
+				const thinking = content(r.content)
+					.flatMap((block) => (block.type === "text" ? [block.text] : []))
+					.join("\n");
+				if (thinking) assistant([{ type: "thinking", thinking }], r.timestamp, id);
+				else warn("unsupported_content");
+			} else if (!["session-meta", "file-history-snapshot"].includes(text(r.type))) {
+				warn("unsupported_item");
+			}
 		} else {
+			if (source === "qoder" && r.type === "attachment" && (!activeClaudeIds || activeClaudeIds.has(text(r.uuid))))
+				warn("unsupported_content");
 			if (r.isCompactSummary === true || (r.type === "system" && r.subtype === "compact_boundary"))
 				warn("claude_compaction");
 			if (r.isSidechain === true) {
@@ -373,12 +403,12 @@ export function parseForeignSession(source: ImportSource, input: string): Parsed
 						);
 				}
 			} else {
-				const blocks: (TextContent | ImageContent | ToolCall)[] = [];
+				const blocks: (TextContent | ImageContent | ThinkingContent | ToolCall)[] = [];
 				for (const raw of list(message.content)) {
 					const block = record(raw);
 					if (block.type === "tool_use") blocks.push(tool(text(block.id), text(block.name), block.input));
 					else if (block.type === "thinking") {
-						if (text(block.thinking)) blocks.push({ type: "text", text: text(block.thinking) });
+						if (text(block.thinking)) blocks.push({ type: "thinking", thinking: text(block.thinking) });
 					} else blocks.push(...content([block]));
 				}
 				assistant(blocks, r.timestamp, id, message.usage);

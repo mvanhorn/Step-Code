@@ -8,6 +8,7 @@ export const DESKTOP_IPC = {
 	pickDirectory: "stepcode-desktop:pick-directory",
 	openExternal: "stepcode-desktop:open-external",
 	revealPath: "stepcode-desktop:reveal-path",
+	defaultBrowser: "stepcode-desktop:default-browser",
 } as const;
 
 /** Argument the main process passes to the preload so the bridge can report the app version synchronously. */

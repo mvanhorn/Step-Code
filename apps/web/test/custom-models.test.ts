@@ -6,11 +6,12 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { hasUsableCustomModel } from "../src/model-providers.ts";
+import { logoutStepCredentials } from "@step-harness/coding-agent";
 
 const ENV_KEYS = [
 	"HOME",
@@ -73,6 +74,27 @@ test("a custom provider without a key or models is not usable", async () => {
 	assert.equal(await hasUsableCustomModel(), false);
 	await writeConfig({ models: { providers: { gateway: { ...gateway, apiKey: "fixture-only", models: [] } } } });
 	assert.equal(await hasUsableCustomModel(), false);
+});
+
+test("a Step sign-out keeps the custom provider running", async () => {
+	// A Step account and a BYOK provider coexist; signing out removes only
+	// StepFun's credential and account session, never the user's own provider.
+	await writeConfig({
+		models: { providers: { gateway: { ...gateway, apiKey: "fixture-only" } } },
+		auth: {
+			step: { type: "api_key", key: "fixture-only", profile: "platform_cn" },
+			gateway: { type: "api_key", key: "fixture-only" },
+		},
+	});
+	assert.equal(await hasUsableCustomModel(), true);
+
+	await logoutStepCredentials({ nativePath: join(home, ".stepcode", "auth.json"), env: {} });
+
+	// StepFun's entry is gone; the custom provider still runs without the gate.
+	assert.equal(await hasUsableCustomModel(), true);
+	const auth = JSON.parse(await readFile(join(home, ".stepcode", "auth.json"), "utf8")) as Record<string, unknown>;
+	assert.equal("step" in auth, false, "the StepFun credential must be removed");
+	assert.equal("gateway" in auth, true, "the user's own provider key must survive");
 });
 
 test("an unreadable models.json answers false instead of throwing", async () => {

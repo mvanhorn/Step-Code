@@ -19,14 +19,13 @@ import {
 } from "electron";
 import { VERSION_ARGUMENT } from "./ipc-channels.ts";
 import { canvasColor } from "./pages.ts";
+import { isAllowedPermission, originOf } from "./permissions.ts";
 import type { DesktopStateStore, WindowState } from "./state.ts";
 
 const DEFAULT_SIZE = { width: 1280, height: 840 };
 const MIN_SIZE = { width: 720, height: 480 };
 /** Where macOS draws the traffic lights; the web client reserves this strip in its desktop CSS. */
 export const TRAFFIC_LIGHT_POSITION = { x: 16, y: 16 };
-/** Permissions the web client uses: navigator.clipboard.writeText and fullscreen. */
-const ALLOWED_PERMISSIONS = new Set(["clipboard-sanitized-write", "fullscreen"]);
 
 export interface MainWindowOptions {
 	readonly preload: string;
@@ -36,14 +35,6 @@ export interface MainWindowOptions {
 	readonly icon: string;
 	/** Origin the window may navigate within; undefined while the server is down. */
 	readonly getServerOrigin: () => string | undefined;
-}
-
-function originOf(url: string): string | undefined {
-	try {
-		return new URL(url).origin;
-	} catch {
-		return undefined;
-	}
 }
 
 function openIfWeb(url: string): void {
@@ -76,11 +67,17 @@ let sessionConfigured = false;
 function configureSession(getServerOrigin: () => string | undefined): void {
 	if (sessionConfigured) return;
 	sessionConfigured = true;
-	session.defaultSession.setPermissionRequestHandler((_contents, permission, callback, details) => {
+	// Both handlers answer for our own server origin only: a page from any
+	// other origin gets Electron's default denial.
+	const allowed = (_contents: unknown, permission: string, requestingUrl: string): boolean => {
 		const origin = getServerOrigin();
-		callback(
-			ALLOWED_PERMISSIONS.has(permission) && origin !== undefined && originOf(details.requestingUrl) === origin,
-		);
+		return isAllowedPermission(permission, requestingUrl, origin);
+	};
+	session.defaultSession.setPermissionCheckHandler((_contents, permission, requestingUrl) =>
+		allowed(_contents, permission, requestingUrl),
+	);
+	session.defaultSession.setPermissionRequestHandler((_contents, permission, callback, details) => {
+		callback(allowed(_contents, permission, details.requestingUrl));
 	});
 }
 

@@ -1,6 +1,6 @@
 import type { FileEntry, SessionEntry } from "../session-manager.ts";
 
-export type ImportSource = "codex" | "claude-code";
+export type ImportSource = "codex" | "claude-code" | "workbuddy" | "qoder";
 
 export interface ImportProvenance {
 	source: ImportSource;
@@ -79,12 +79,12 @@ export interface ImportDocument {
 	entries: FileEntry[];
 }
 
+export function isImportSource(value: unknown): value is ImportSource {
+	return value === "codex" || value === "claude-code" || value === "workbuddy" || value === "qoder";
+}
+
 export function isImportProvenance(value: unknown): value is ImportProvenance {
 	if (!value || typeof value !== "object") return false;
 	const record = value as Record<string, unknown>;
-	return (
-		(record.source === "codex" || record.source === "claude-code") &&
-		typeof record.sessionId === "string" &&
-		typeof record.itemId === "string"
-	);
+	return isImportSource(record.source) && typeof record.sessionId === "string" && typeof record.itemId === "string";
 }

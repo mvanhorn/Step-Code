@@ -17,11 +17,12 @@
 .message-action {
 	display: inline-grid;
 	place-items: center;
-	width: var(--control-h-xs);
-	height: var(--control-h-xs);
-	border-radius: var(--radius-chip);
+	/* 28px targets: these are the turn's real controls, not decoration. */
+	width: 28px;
+	height: 28px;
+	border-radius: var(--radius-control);
 	color: var(--ink-3);
-	font-size: 11px;
+	font-size: 12px;
 }
 .message-action:hover {
 	background: var(--hover);
@@ -30,11 +31,20 @@
 .message-action[aria-pressed="true"] {
 	color: var(--ink);
 }
+/* A copy button confirming in place: green check, and its hover-revealed row stays visible meanwhile. */
+.message-action[data-copied],
+.tool-cx-action[data-copied] {
+	color: var(--success);
+}
+.message-actions:has([data-copied]),
+.prompt-actions:has([data-copied]) {
+	opacity: 1;
+}
 .message-actions .message-usage,
 .message-actions .message-time {
 	padding: 0 6px;
 	color: var(--ink-3);
-	font-size: 11px;
+	font-size: 12px;
 }
 .message-actions .message-usage {
 	display: inline-flex;

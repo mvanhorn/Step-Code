@@ -35,15 +35,19 @@ async function fixture() {
 	const cwd = join(root, "project");
 	const codexRoot = join(root, "codex");
 	const claudeRoot = join(root, "claude");
+	const workbuddyRoot = join(root, "workbuddy");
+	const qoderRoot = join(root, "qoder");
 	const agentDir = join(root, "target", "agent");
 	await mkdir(cwd, { recursive: true });
 	await mkdir(join(codexRoot, "sessions"), { recursive: true });
 	await mkdir(claudeRoot);
+	await mkdir(workbuddyRoot);
+	await mkdir(qoderRoot);
 	const source = join(codexRoot, "sessions", "rollout-one.jsonl");
 	await writeFile(source, jsonl([meta(cwd), user("Keep migration facts"), reply("Confirmed")]));
 	const events: string[] = [];
 	const service = new SessionImportService({ agentDir, onPersisted: (event) => events.push(event.path) });
-	return { root, cwd, codexRoot, claudeRoot, agentDir, source, service, events };
+	return { root, cwd, codexRoot, claudeRoot, workbuddyRoot, qoderRoot, agentDir, source, service, events };
 }
 
 async function finish(service: SessionImportService, id: string) {
@@ -56,6 +60,166 @@ async function finish(service: SessionImportService, id: string) {
 }
 
 describe("foreign adapters", () => {
+	it("strips source control envelopes from user text and keeps thinking blocks typed per platform", () => {
+		const control = "<command-name>/exit</command-name> <command-message>exit</command-message>";
+		const codex = parseForeignSession(
+			"codex",
+			jsonl([
+				meta(),
+				user(`<environment_context>home</environment_context>`),
+				user(`${control}\n真实问题`),
+				item({ type: "reasoning", summary: [{ type: "summary_text", text: "think codex" }] }),
+			]),
+		);
+		const codexUsers = codex.entries.filter((e) => e.type === "message" && e.message.role === "user");
+		expect(codexUsers).toHaveLength(1);
+		expect(JSON.stringify(codexUsers)).toContain("真实问题");
+		expect(JSON.stringify(codexUsers)).not.toContain("command-name");
+		expect(codex.warnings.some((w) => w.code === "source_instructions_excluded")).toBe(true);
+		const claude = parseForeignSession(
+			"claude-code",
+			jsonl([
+				{ type: "user", uuid: "u", sessionId: "c", cwd: "/p", message: { content: `${control}` } },
+				{ type: "user", uuid: "u2", parentUuid: "u", sessionId: "c", message: { content: "Claude real ask" } },
+				{
+					type: "assistant",
+					uuid: "a",
+					parentUuid: "u2",
+					sessionId: "c",
+					message: {
+						content: [
+							{ type: "thinking", thinking: "think claude" },
+							{ type: "text", text: "answer" },
+						],
+					},
+				},
+			]),
+		);
+		const wb = parseForeignSession(
+			"workbuddy",
+			jsonl([
+				{ type: "session-meta", sessionId: "wb" },
+				{
+					type: "message",
+					id: "w1",
+					sessionId: "wb",
+					cwd: "/p",
+					role: "user",
+					content: [{ type: "input_text", text: `${control}\nWB ask` }],
+				},
+				{ type: "reasoning", id: "w2", sessionId: "wb", content: [{ type: "text", text: "think wb" }] },
+			]),
+		);
+		const qoder = parseForeignSession(
+			"qoder",
+			jsonl([
+				{
+					type: "user",
+					uuid: "q1",
+					parentUuid: null,
+					sessionId: "q",
+					cwd: "/p",
+					message: { content: "Qoder ask" },
+				},
+				{
+					type: "assistant",
+					uuid: "q2",
+					parentUuid: "q1",
+					sessionId: "q",
+					message: { content: [{ type: "thinking", thinking: "think qoder" }] },
+				},
+				{ type: "active-leaf", sessionId: "q", leafUuid: "q2" },
+			]),
+		);
+		for (const [parsed, thinking] of [
+			[codex, "think codex"],
+			[claude, "think claude"],
+			[wb, "think wb"],
+			[qoder, "think qoder"],
+		] as const) {
+			const blocks = parsed.entries.flatMap((e) =>
+				e.type === "message" && e.message.role === "assistant" ? e.message.content : [],
+			);
+			expect(blocks.filter((b) => b.type === "thinking").map((b) => b.type === "thinking" && b.thinking)).toContain(
+				thinking,
+			);
+		}
+		expect(JSON.stringify([claude.entries, wb.entries])).not.toContain("command-name");
+	});
+	it("parses WorkBuddy messages and tools without activating source controls", () => {
+		const parsed = parseForeignSession(
+			"workbuddy",
+			jsonl([
+				{ type: "session-meta", sessionId: "wb" },
+				{
+					type: "message",
+					id: "u",
+					sessionId: "wb",
+					cwd: "/project",
+					role: "user",
+					timestamp: 1792990000000,
+					content: [{ type: "input_text", text: "WorkBuddy task" }],
+				},
+				{ type: "ai-title", sessionId: "wb", aiTitle: "Named WorkBuddy task" },
+				{ type: "message", id: "s", role: "system", content: [{ type: "input_text", text: "SOURCE CONTROL" }] },
+				{
+					type: "function_call",
+					id: "c",
+					callId: "call",
+					name: "write_file",
+					arguments: '{"path":"never-write.txt"}',
+				},
+				{
+					type: "function_call_result",
+					id: "r",
+					callId: "call",
+					status: "failed",
+					output: { type: "text", text: "Permission denied" },
+				},
+			]),
+		);
+		expect(parsed.title).toBe("Named WorkBuddy task");
+		expect(parsed.cwd).toBe("/project");
+		expect(parsed.entries.every((entry) => entry.imported?.source === "workbuddy")).toBe(true);
+		expect(JSON.stringify(parsed.entries)).not.toContain("SOURCE CONTROL");
+		const output = parsed.entries.find((entry) => entry.type === "message" && entry.message.role === "toolResult");
+		expect(output?.type === "message" && output.message.role === "toolResult" && output.message.isError).toBe(true);
+	});
+
+	it("uses Qoder active-leaf rather than the last stored branch", () => {
+		const parsed = parseForeignSession(
+			"qoder",
+			jsonl([
+				{ type: "workspace-directories", sessionId: "qoder" },
+				{ type: "runtime-config", sessionId: "qoder", model: "never-select" },
+				{
+					type: "user",
+					sessionId: "qoder",
+					cwd: "/project",
+					uuid: "u",
+					parentUuid: null,
+					message: { role: "user", content: "Qoder task" },
+				},
+				{
+					type: "assistant",
+					uuid: "kept",
+					parentUuid: "u",
+					message: { role: "assistant", content: [{ type: "text", text: "Current branch" }] },
+				},
+				{
+					type: "assistant",
+					uuid: "other",
+					parentUuid: "u",
+					message: { role: "assistant", content: [{ type: "text", text: "Unselected branch" }] },
+				},
+				{ type: "active-leaf", sessionId: "qoder", leafUuid: "kept" },
+			]),
+		);
+		expect(parsed.cwd).toBe("/project");
+		expect(JSON.stringify(parsed.entries)).toContain("Current branch");
+		expect(JSON.stringify(parsed.entries)).not.toContain("Unselected branch");
+		expect(parsed.entries.every((entry) => entry.imported?.source === "qoder")).toBe(true);
+	});
 	it("deduplicates record identities, not legitimate repeated text or event mirrors", () => {
 		const parsed = parseForeignSession(
 			"codex",
@@ -339,6 +503,82 @@ describe("foreign adapters", () => {
 });
 
 describe("offline import lifecycle", () => {
+	it("discovers four mixed source formats once and imports new sources with durable provenance", async () => {
+		const f = await fixture();
+		try {
+			await writeFile(
+				join(f.claudeRoot, "claude.jsonl"),
+				jsonl([{ type: "user", sessionId: "claude", cwd: f.cwd, uuid: "cu", message: { content: "Claude task" } }]),
+			);
+			await writeFile(
+				join(f.workbuddyRoot, "wb.jsonl"),
+				jsonl([
+					{ type: "session-meta", sessionId: "wb" },
+					{
+						type: "message",
+						id: "wu",
+						sessionId: "wb",
+						cwd: f.cwd,
+						role: "user",
+						content: [{ type: "input_text", text: "WorkBuddy task" }],
+					},
+					{ type: "ai-title", sessionId: "wb", aiTitle: "Named WorkBuddy task" },
+				]),
+			);
+			await writeFile(
+				join(f.qoderRoot, "qoder.jsonl"),
+				jsonl([
+					{ type: "workspace-directories", sessionId: "qoder" },
+					{ type: "user", sessionId: "qoder", cwd: f.cwd, uuid: "qu", message: { content: "Qoder task" } },
+				]),
+			);
+			const scan = await f.service.scan({ customRoot: f.root });
+			expect(scan.errors).toEqual([]);
+			expect(scan.candidates.map((c) => c.source).sort()).toEqual(["claude-code", "codex", "qoder", "workbuddy"]);
+			for (const source of ["workbuddy", "qoder"] as const) {
+				const candidate = scan.candidates.find((c) => c.source === source);
+				expect(candidate?.cwd).toBe(f.cwd);
+				const preview = await f.service.preview(candidate?.id ?? "");
+				const job = await finish(
+					f.service,
+					(await f.service.start([{ candidateId: preview.id, fingerprint: preview.fingerprint, cwd: f.cwd }])).id,
+				);
+				expect(job.results[0].status).toBe("imported");
+				expect(job.results[0].source).toBe(source);
+				expect(JSON.stringify(SessionManager.open(job.results[0].path as string).getEntries())).toContain(source);
+			}
+		} finally {
+			await f.service.close();
+		}
+	});
+	it("appends custom scans without invalidating existing reviewed candidates and deduplicates repeated paths", async () => {
+		const f = await fixture();
+		try {
+			const original = (await f.service.scan(f)).candidates[0];
+			const reviewed = await f.service.preview(original.id);
+			const customRoot = join(f.root, "extra");
+			await mkdir(customRoot);
+			await writeFile(join(customRoot, "rollout-extra.jsonl"), jsonl([meta(f.cwd, "extra"), user("Extra history")]));
+			const extra = await f.service.scan({ customRoot });
+			expect(extra.errors).toEqual([]);
+			expect(extra.candidates).toHaveLength(1);
+			expect(extra.candidates[0].sessionId).toBe("extra");
+			const repeated = await f.service.scan({ customRoot });
+			expect(repeated.candidates).toHaveLength(0);
+			expect(repeated.existingCount).toBe(1);
+			expect((await f.service.preview(original.id)).sessionId).toBe(original.sessionId);
+			const imported = await finish(
+				f.service,
+				(await f.service.start([{ candidateId: original.id, fingerprint: reviewed.fingerprint, cwd: f.cwd }])).id,
+			);
+			expect(imported.results[0].status).toBe("imported");
+			const missing = await f.service.scan({ customRoot: join(f.root, "missing") });
+			expect(missing.errors.length).toBeGreaterThan(0);
+			expect((await f.service.preview(extra.candidates[0].id)).sessionId).toBe("extra");
+		} finally {
+			await f.service.close();
+		}
+	});
 	it("returns readable scan titles without previewing or validating the full transcript", async () => {
 		const f = await fixture();
 		const claude = join(f.claudeRoot, "named.jsonl");
@@ -561,7 +801,13 @@ describe("offline import lifecycle", () => {
 			expect((await f.service.scan({ ...f, codexRoot: dateRoot })).candidates).toHaveLength(1);
 			const scan = await f.service.scan({ ...f, codexRoot: archivedRoot });
 			expect(scan).toEqual({
-				roots: { codex: await realpath(archivedRoot), "claude-code": await realpath(f.claudeRoot) },
+				existingCount: 0,
+				roots: {
+					codex: await realpath(archivedRoot),
+					"claude-code": await realpath(f.claudeRoot),
+					workbuddy: await realpath(f.workbuddyRoot),
+					qoder: await realpath(f.qoderRoot),
+				},
 				candidates: [],
 				errors: [],
 			});

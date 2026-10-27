@@ -6,17 +6,10 @@ import { setState, useAppStore } from "../../state/store";
 import type { LoginMethod, LoginReport } from "../../state/types";
 import { Icon, IconButton, Spinner, Tooltip } from "../../ui";
 import { cancelBrowserSignIn, openLoginPage, signInWithApiKey, signInWithBrowser } from "../login/actions";
-import { canLogout, logout, requireSignIn, stepPlanUrl } from "../shell/actions";
+import { canLogout, logout, stepPlanUrl } from "../shell/actions";
 import { useSettingsResource } from "./actions";
 import { PageHeader, ResourceState, SectionHeader, StatusDot } from "./parts";
 import "./account.css";
-
-const SESSION_LABELS: Readonly<Record<LoginReport["session"]["state"], string>> = {
-	ready: "settingsAccountSessionReady",
-	expiring: "settingsAccountSessionExpiring",
-	expired: "settingsAccountSessionExpired",
-	missing: "settingsAccountSessionMissing",
-};
 
 const PROFILE_LABELS: Readonly<Record<string, string>> = {
 	step_plan: "settingsAccountStepPlanCn",
@@ -54,6 +47,8 @@ export function AccountPage() {
 	const selected = methods.data?.methods.find((method) => method.id === profile);
 	const environment = login?.source === "environment";
 	const disabled = busy || running || environment || refreshing || !!refreshError;
+	// Signed in with the selected method already: signing in is a repair, not the page's main action.
+	const current = Boolean(login?.configured && login.validity !== "invalid" && login.profile === profile);
 
 	// biome-ignore lint/correctness/useExhaustiveDependencies: revision requests a fresh host credential report.
 	useEffect(() => {
@@ -141,6 +136,7 @@ export function AccountPage() {
 		<>
 			<PageHeader
 				title={t("settingsAccount")}
+				description={t("settingsAccountDesc")}
 				actions={
 					<Tooltip content={t("settingsAccountRefresh")}>
 						<IconButton
@@ -162,47 +158,31 @@ export function AccountPage() {
 				</span>
 				<div className="settings-account-identity-text">
 					<strong id="settingsAccountLabel">{accountLabel(t, login)}</strong>
-					<StatusDot tone={verified ? "success" : rejected ? "danger" : "off"} label={t(status)} />
+					{/* Signed out, the label above already says so; the line points at the way in instead. */}
+					<StatusDot
+						tone={verified ? "success" : rejected ? "danger" : "off"}
+						label={login?.configured ? t(status) : t("settingsAccountConnectHint")}
+					/>
 					{login?.userId && (
 						<span className="settings-account-uid">{t("settingsAccountUid", { uid: login.userId })}</span>
 					)}
-					{login?.session && (
-						<span className="settings-account-uid" id="settingsAccountSession">
-							{t("settingsAccountSession", {
-								state: t(SESSION_LABELS[login.session.state]),
-							})}
-						</span>
-					)}
 				</div>
-				<Tooltip content={t(removable ? "settingsLogoutDesc" : "settingsLogoutUnavailable")}>
-					<button
-						type="button"
-						className="settings-btn settings-account-logout"
-						id="logoutButton"
-						disabled={busy || !removable}
-						onClick={() => void logout()}
-					>
-						<Icon name="accountLogout" size="xs" />
-						{t("logout")}
-					</button>
-				</Tooltip>
+				{/* Nothing to sign out of without an account. */}
+				{login?.configured ? (
+					<Tooltip content={t(removable ? "settingsLogoutDesc" : "settingsLogoutUnavailable")}>
+						<button
+							type="button"
+							className="settings-btn settings-account-logout"
+							id="logoutButton"
+							disabled={busy || !removable}
+							onClick={() => void logout()}
+						>
+							<Icon name="accountLogout" size="xs" />
+							{t("logout")}
+						</button>
+					</Tooltip>
+				) : null}
 			</section>
-			{/* One sign-in surface: without a credential this page leads to the same
-			    gate the sidebar button opens, instead of a second, differently-shaped form. */}
-			{!login?.configured && (
-				<div className="settings-account-link">
-					<button
-						type="button"
-						className="settings-btn primary"
-						id="settingsAccountSignIn"
-						onClick={requireSignIn}
-					>
-						<Icon name="accountSignIn" size="xs" />
-						{t("accountSignIn")}
-					</button>
-					<p className="settings-account-note">{t("settingsAccountSignInHint")}</p>
-				</div>
-			)}
 			{login?.configured &&
 				login.profile?.startsWith("step_plan") &&
 				(login.session?.state === "expired" || login.session?.state === "missing") && (
@@ -293,7 +273,7 @@ export function AccountPage() {
 						<div className="settings-account-actions">
 							<button
 								type="submit"
-								className="settings-btn primary"
+								className={current ? "settings-btn" : "settings-btn primary"}
 								id="settingsAccountLogin"
 								disabled={disabled || !selected || (selected.credentialSource === "apiKey" && !apiKey.trim())}
 							>
@@ -303,7 +283,9 @@ export function AccountPage() {
 										? selected?.credentialSource === "browser"
 											? "loginBrowserWaiting"
 											: "loginVerifying"
-										: "settingsAccountSignIn",
+										: current
+											? "settingsAccountSignInAgain"
+											: "settingsAccountSignIn",
 								)}
 							</button>
 							{busy && selected?.credentialSource === "browser" && (

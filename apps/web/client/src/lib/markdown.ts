@@ -3,9 +3,9 @@
  * `contentText`, `renderMarkdown`).
  *
  * The renderer is deliberately tiny: fenced code blocks, `#`/`##`/`###`
- * headings, `-` / `*` bullets, GFM pipe tables, links, `**bold**`, inline code,
- * line breaks and paragraph gaps. Everything else is
- * escaped. Its output is an HTML string meant for `dangerouslySetInnerHTML`
+ * headings, `-` / `*` bullets, GFM pipe tables, links, `**bold**`, `*italic*`,
+ * `~~strikethrough~~`, inline code, line breaks and paragraph gaps. Everything
+ * else is escaped. Its output is an HTML string meant for `dangerouslySetInnerHTML`
  * (see ui/MarkdownView, which also wires the `.copy-code` buttons).
  */
 
@@ -51,10 +51,24 @@ export interface MarkdownFileReference {
 export interface MarkdownOptions {
 	readonly localFiles?: boolean;
 	readonly onFileReference?: (reference: MarkdownFileReference) => void;
+	/** Colours a fenced block; returns escaped HTML. Without it code is plain escaped text. */
+	readonly highlightCode?: (code: string, language: string) => string;
 }
 
+/**
+ * Bold, italic and strikethrough, in that order: bold consumes its `**` pair
+ * first, so the italic rule only sees single markers. Italic follows the
+ * flanking rule loosely — the opening marker must be preceded by a non-word
+ * character and followed by non-space, the closing one preceded by non-space
+ * and followed by a non-word character — so `2 * 3 * 4`, `a*b*c` and
+ * `snake_case` stay literal. `_italic_` is deliberately unsupported for the
+ * same reason; inline code and links are already protected by the caller.
+ */
 function renderInline(value: string): string {
-	return escapeHtml(value).replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+	return escapeHtml(value)
+		.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+		.replace(/(^|[^*\w])\*(?=\S)([^*\n]*\S)\*(?![*\w])/g, "$1<em>$2</em>")
+		.replace(/~~(?=\S)([^~\n]*\S)~~/g, "<del>$1</del>");
 }
 
 /** Inline code/links are already protected; escaped pipes are cell content. */
@@ -161,6 +175,8 @@ export function renderMarkdown(value: unknown, labels: MarkdownLabels, options: 
 	const blocks: string[] = [];
 	const inlines: string[] = [];
 	const definitions = new Map<string, string>();
+	const fenceHtml = (code: string, language: string): string =>
+		options.highlightCode ? options.highlightCode(code, language.toLowerCase()) : escapeHtml(code);
 	const source = String(value)
 		.replace(/[\u0000\u0001]/g, "")
 		.replace(/\r\n?/g, "\n")
@@ -170,7 +186,7 @@ export function renderMarkdown(value: unknown, labels: MarkdownLabels, options: 
 				const label = language.trim() || labels.code;
 				const index =
 					blocks.push(
-						`<div class="code-block"><div class="code-block-header"><span>${escapeHtml(label)}</span><button class="copy-code" type="button">${escapeHtml(labels.copy)}</button></div><pre><code>${escapeHtml(code.replace(/\n$/, ""))}</code></pre></div>`,
+						`<div class="code-block"><div class="code-block-header"><span>${escapeHtml(label)}</span><button class="copy-code" type="button">${escapeHtml(labels.copy)}</button></div><pre><code>${fenceHtml(code.replace(/\n$/, ""), language.trim().split(/\s+/)[0] ?? "")}</code></pre></div>`,
 					) - 1;
 				return `\u0000${index}\u0000`;
 			},
@@ -185,10 +201,11 @@ export function renderMarkdown(value: unknown, labels: MarkdownLabels, options: 
 	// Protect inline code and links before formatting so URL punctuation and HTML
 	// attributes cannot be interpreted as Markdown. Fenced code is already protected.
 	const inlineSource = source.replace(
-		/`([^`]+)`|\[([^\]\n]+)\]\([ \t]*(<[^<>\n]+>|(?:[^\s()<>]|\([^()\n]*\))+)[ \t]*\)|\[([^\]\n]+)\]\[([^\]\n]*)\]|https?:\/\/[^\s<>\u0000\u0001\u0002]+/g,
+		/(`+)([\s\S]*?[^`])\1(?!`)|\[([^\]\n]+)\]\([ \t]*(<[^<>\n]+>|(?:[^\s()<>]|\([^()\n]*\))+)[ \t]*\)|\[([^\]\n]+)\]\[([^\]\n]*)\]|https?:\/\/[^\s<>\u0000\u0001\u0002，。、；：！？）」』】》]+/g,
 		(
 			match,
-			code: string | undefined,
+			ticks: string | undefined,
+			rawCode: string | undefined,
 			label: string | undefined,
 			destination: string | undefined,
 			referenceLabel: string | undefined,
@@ -196,7 +213,11 @@ export function renderMarkdown(value: unknown, labels: MarkdownLabels, options: 
 		) => {
 			let html: string;
 			let suffix = "";
-			if (code !== undefined) {
+			if (ticks !== undefined && rawCode !== undefined) {
+				// CommonMark: a run of backticks spans code that itself contains backticks,
+				// and one space of padding at both ends is removed.
+				const code =
+					rawCode.startsWith(" ") && rawCode.endsWith(" ") && rawCode.trim() ? rawCode.slice(1, -1) : rawCode;
 				const local = localFileReference(code);
 				if (local) options.onFileReference?.({ path: code, label: code, inlineCode: true });
 				html = `<code>${escapeHtml(code)}</code>`;
@@ -207,6 +228,11 @@ export function renderMarkdown(value: unknown, labels: MarkdownLabels, options: 
 				html = destination ? renderLink(referenceLabel, destination, options) : escapeHtml(match);
 			} else {
 				let url = match.replace(/[.,!?;:，。！？；：、]+$/, "");
+				// A CJK path segment is part of the address, but CJK after the query starts is the sentence
+				// resuming (`?ref=main这个分支`): real query values arrive percent-encoded.
+				const query = url.indexOf("?");
+				const prose = query < 0 ? -1 : url.slice(query).search(/[\u3000-\u9fff\uff00-\uffef]/);
+				if (prose > 0) url = url.slice(0, query + prose);
 				while (url.endsWith(")") && url.split(")").length > url.split("(").length) url = url.slice(0, -1);
 				suffix = match.slice(url.length);
 				html = renderLink(url, url, options);
@@ -214,19 +240,40 @@ export function renderMarkdown(value: unknown, labels: MarkdownLabels, options: 
 			return `\u0001${inlines.push(html) - 1}\u0001${suffix}`;
 		},
 	);
-	const html = renderInline(protectTables(inlineSource, blocks, labels).replace(/\n{3,}/g, "\n\n"))
+	// Blockquotes are extracted after inline protection and rendered as their own
+	// block: a quoted line is prose with inline formatting, not a stray ">".
+	const quotes: string[] = [];
+	const withoutQuotes = inlineSource.replace(/(?:^ {0,3}>[ \t]?.*(?:\n|$))+/gm, (block) => {
+		const inner = block.replace(/^ {0,3}>[ \t]?/gm, "").replace(/\n+$/, "");
+		return `\u0003${quotes.push(inner) - 1}\u0003`;
+	});
+	const html = renderInline(protectTables(withoutQuotes, blocks, labels).replace(/\n{3,}/g, "\n\n"))
 		.replace(/^### (.+)$/gm, "<h4>$1</h4>")
 		.replace(/^## (.+)$/gm, "<h3>$1</h3>")
 		.replace(/^# (.+)$/gm, "<h2>$1</h2>")
+		// A line of only -, * or _ is a rule, never a list item or emphasis.
+		.replace(/^ {0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$/gm, "<hr>")
+		// An indented item is nested; a numbered item keeps the number the model wrote.
+		.replace(/^(\s{2,})[-*] (.+)$/gm, '<span class="md-li md-li-nested">$2</span>')
+		.replace(
+			/^([ \t]*)(\d+)\. (.+)$/gm,
+			(_match, indent: string, number: string, body: string) =>
+				`<span class="md-li md-oli${indent.length >= 2 ? " md-li-nested" : ""}" data-n="${number}">${body}</span>`,
+		)
 		.replace(/^[-*] (.+)$/gm, '<span class="md-li">$1</span>')
 		// Headings and code blocks are blocks: the line breaks around them would only add empty lines.
-		.replace(/\n*(<h[234]>.*?<\/h[234]>|\u0000\d+\u0000)\n*/g, "$1")
+		.replace(/\n*(<h[234]>.*?<\/h[234]>|<hr>|\u0000\d+\u0000)\n*/g, "$1")
 		// List items are blocks too; only the line break after each one goes.
-		.replace(/(<span class="md-li">.*?<\/span>)\n(?!\n)/g, "$1")
+		.replace(/(<span class="md-li[^>]*>.*?<\/span>)\n(?!\n)/g, "$1")
 		// A blank line separates paragraphs with a small gap rather than a whole empty line.
 		.replace(/\n\n/g, '<span class="md-gap"></span>')
 		.replace(/\n/g, "<br>");
 	return html
+		.replace(
+			/\u0003(\d+)\u0003/g,
+			(_match, index: string) =>
+				`<blockquote>${renderInline(quotes[Number(index)] ?? "").replace(/\n/g, "<br>")}</blockquote>`,
+		)
 		.replace(/\u0000(\d+)\u0000/g, (_match, index: string) => blocks[Number(index)] ?? "")
 		.replace(/\u0001(\d+)\u0001/g, (_match, index: string) => inlines[Number(index)] ?? "");
 }
@@ -263,6 +310,36 @@ export function skillInvocation(text: string): SkillInvocation | null {
 	if (block) return { name: block[1], request: block[2]?.trim() ?? "" };
 	const command = /^\/skill:(\S+)(?:\s+([\s\S]*))?$/.exec(text);
 	return command ? { name: command[1], request: command[2]?.trim() ?? "" } : null;
+}
+
+/** A quoted other-session context: the source session's name and its capped transcript. */
+export interface SessionContextQuote {
+	readonly title: string;
+	readonly transcript: string;
+}
+
+/**
+ * A quoted other-session context (`packageSessionContext`) rides at the tail of
+ * the message it was sent with: a heading naming the source session followed by
+ * a fenced transcript. Split it off so the bubble shows the user's own words
+ * and the quote collapses into one row.
+ */
+export function sessionContextOf(text: string): { readonly body: string; readonly quote: SessionContextQuote } | null {
+	const match = /\n*# 引用会话「([^」]+)」的上下文\n```session-context\n([\s\S]*?)\n```[ \t]*$/.exec(text);
+	if (!match) return null;
+	return {
+		body: text.slice(0, match.index).trim(),
+		quote: { title: match[1], transcript: match[2] },
+	};
+}
+
+/**
+ * A user message that opted its turn into the ultraloop workflow through the
+ * keyword form (`ultracode: request`): the request the user typed after it.
+ */
+export function ultraloopInvocation(text: string): { readonly request: string } | null {
+	const match = /^ultracode:[ \t]*([\s\S]+)$/.exec(text);
+	return match ? { request: match[1].trim() } : null;
 }
 
 /** A plugin install sent from the composer's pick chip: `/plugin install <name>`. */

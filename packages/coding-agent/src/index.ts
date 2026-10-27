@@ -181,6 +181,8 @@ export type {
 	SessionShutdownEvent,
 	SessionStartEvent,
 	SessionTreeEvent,
+	// Side answers (`/btw`) with a host surface of their own
+	SideAnswer,
 	SlashCommandInfo,
 	SlashCommandSource,
 	SourceInfo,
@@ -302,6 +304,8 @@ export type {
 } from "./core/package-manager.ts";
 export { DefaultPackageManager } from "./core/package-manager.ts";
 export type { AppMode } from "./core/project-trust.ts";
+/** How `AgentSession.prompt` turns `/<template> args` into a prompt; hosts use it to recognise what was sent. */
+export { expandPromptTemplate } from "./core/prompt-templates.ts";
 export type {
 	ResourceCollision,
 	ResourceDiagnostic,
@@ -525,7 +529,12 @@ export {
 } from "./features/step-cron.ts";
 // Plan mode and the Ultracode/Ultraloop opt-in are product capabilities the Web
 // host has to install alongside the others, so they need the same public entry.
-export { createStepPlanExtension, stepPlanExtension } from "./features/step-plan.ts";
+export {
+	createStepPlanExtension,
+	getStepPlanState,
+	type StepPlanState,
+	stepPlanExtension,
+} from "./features/step-plan.ts";
 export { createStepProviderConfig, STEP_PROVIDER_ID } from "./features/step-provider/index.ts";
 export {
 	CreateGoalParams,
@@ -534,6 +543,7 @@ export {
 	createStepScheduleExtension,
 	GetGoalParams,
 	type GoalContinuation,
+	getStepGoal,
 	getStepGoalStatus,
 	type StepGoalClearSnapshot,
 	type StepGoalExtensionOptions,
@@ -618,6 +628,7 @@ export {
 	logoutStepCredentials,
 	migrateLegacyStepCredential,
 } from "./step/auth.ts";
+export { readStepBuildIdentity, type StepBuildIdentity } from "./step/build-identity.ts";
 export {
 	isStepConfigCommand,
 	normalizeStepSessionSelectorArgs,
@@ -665,14 +676,25 @@ export {
 	STEPCODE_CONFIG_DIR,
 	type StepEnvironmentOptions,
 } from "./step/environment.ts";
+export { describeFeedbackBundle, type FeedbackBundleResult } from "./step/feedback/bundle.ts";
 export {
 	type FeedbackSubmitInput,
 	type FeedbackSubmitResult,
+	formatFeedbackBundleFailureDetails,
+	formatFeedbackBundleSkipMessage,
+	formatFeedbackPendingDetails,
 	runFeedbackCommand,
 	submitFeedback,
 } from "./step/feedback/command.ts";
 export { readFeedbackUsername } from "./step/feedback/context.ts";
+export type { FeedbackDiagnosticsSelection } from "./step/feedback/diagnostics.ts";
 export { resolveFeedbackEndpoint } from "./step/feedback/endpoints.ts";
+export { type FeedbackEvidence, prepareFeedbackEvidence } from "./step/feedback/evidence.ts";
+export type {
+	FeedbackRequestProvenance,
+	FeedbackRuntimeFacts,
+	FeedbackSessionSummary,
+} from "./step/feedback/session-summary.ts";
 export { resolveFeedbackSettings } from "./step/feedback/settings.ts";
 export { FEEDBACK_CATEGORIES, type FeedbackCategory } from "./step/feedback/types.ts";
 export { normalizeFeedbackCategory } from "./step/feedback/validate.ts";
@@ -718,9 +740,15 @@ export {
 } from "./step/login-status.ts";
 export {
 	ambiguousPluginServerNames,
+	closeStepMcpPool,
+	configureStepMcpPool,
+	createStepMcpHostWarmup,
+	getStepMcpPoolSnapshot,
 	getStepMcpStatuses,
 	listStepPluginMcpServers,
 	resolveStepMcpServer,
+	type StepMcpHostWarmup,
+	type StepMcpPoolPolicy,
 	type StepMcpStatus,
 	type StepPluginMcpServerEntry,
 } from "./step/mcp.ts";
@@ -858,7 +886,10 @@ export {
 	loadStepCodeConfig,
 	type StepCodeConfig,
 } from "./step/stepcode-config.ts";
-export { buildStepSystemPromptAppendix } from "./step/system-prompt.ts";
+export {
+	buildStepSystemPromptAppendix,
+	STEP_APP_SYSTEM_PROMPT_PRODUCT,
+} from "./step/system-prompt.ts";
 export {
 	classifyStepEndpoint,
 	type StepModelRequestEventName,
@@ -926,7 +957,9 @@ export {
 	initTheme,
 	loadThemeFromPath,
 	onThemeChange,
+	PlainTheme,
 	parseAutoThemeSetting,
+	plainTheme,
 	resolveThemeSetting,
 	setRegisteredThemes,
 	setTheme,

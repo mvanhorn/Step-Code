@@ -1,4 +1,4 @@
-import { open, readdir, realpath, stat } from "node:fs/promises";
+import { open, opendir, readdir, realpath, stat } from "node:fs/promises";
 import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 /** Entries returned for one directory before the listing is cut off. */
@@ -9,6 +9,10 @@ export const MAX_PREVIEW_BYTES = 1_000_000;
 export const MAX_IMAGE_BYTES = 10_000_000;
 /** How many directories a name search may visit before giving up. */
 const MAX_SEARCH_DIRECTORIES = 4000;
+/** Maximum candidates returned by the composer's workspace file completion. */
+export const MAX_FILE_COMPLETIONS = 20;
+/** Bound the work of a completion request even in directories containing many files. */
+const MAX_COMPLETION_ENTRIES = 20_000;
 /** Bytes sniffed to decide whether a file is text. */
 const SNIFF_BYTES = 8192;
 
@@ -18,6 +22,14 @@ const SNIFF_BYTES = 8192;
  * dependency and VCS internals.
  */
 const SEARCH_SKIPPED_DIRECTORIES = new Set([".git", "node_modules", ".pnpm-store"]);
+const COMPLETION_SKIPPED_DIRECTORIES = new Set([
+	...SEARCH_SKIPPED_DIRECTORIES,
+	"dist",
+	"build",
+	".next",
+	".turbo",
+	"target",
+]);
 
 const IMAGE_TYPES: Readonly<Record<string, string>> = {
 	".png": "image/png",
@@ -110,18 +122,23 @@ function looksBinary(sample: Buffer): boolean {
 }
 
 /**
- * Read a workspace file for the preview. Never throws for "cannot show this":
- * images, binaries and oversized files come back as a kind the client renders
- * as a placeholder, so one odd file does not look like a server fault.
+ * Read one absolute file for the preview; `path` is the path the client should
+ * see (workspace-relative or absolute, depending on the calling scope). Never
+ * throws for "cannot show this": images, binaries and oversized files come
+ * back as a kind the client renders as a placeholder, so one odd file does not
+ * look like a server fault.
  */
-export async function readWorkspaceFile(cwd: string, inputPath: string): Promise<WorkspaceFile> {
-	const root = await realpath(cwd);
-	const target = await containedWorkspacePath(root, inputPath);
+async function previewFileAt(target: string, path: string): Promise<WorkspaceFile> {
 	const info = await stat(target);
 	if (!info.isFile()) throw new Error("Path is not a file");
-	const path = toPosix(relative(root, target));
 	const mimeType = imageMimeType(target);
-	if (mimeType) return { kind: "image", path, size: info.size, mimeType };
+	if (mimeType) {
+		// An image the raw endpoint refuses is reported as "too large" rather
+		// than handed to the client as a broken <img>: a failed image load
+		// carries no status code, so the reader would see no reason at all.
+		if (info.size > MAX_IMAGE_BYTES) return { kind: "too-large", path, size: info.size };
+		return { kind: "image", path, size: info.size, mimeType };
+	}
 	if (info.size > MAX_PREVIEW_BYTES) return { kind: "too-large", path, size: info.size };
 	const handle = await open(target, "r");
 	try {
@@ -133,6 +150,30 @@ export async function readWorkspaceFile(cwd: string, inputPath: string): Promise
 	} finally {
 		await handle.close();
 	}
+}
+
+/** Read a workspace file for the preview, as a path relative to the workspace root. */
+export async function readWorkspaceFile(cwd: string, inputPath: string): Promise<WorkspaceFile> {
+	const root = await realpath(cwd);
+	const target = await containedWorkspacePath(root, inputPath);
+	return previewFileAt(target, toPosix(relative(root, target)));
+}
+
+/**
+ * Normalise a client reference that names a file anywhere on disk. Unlike the
+ * workspace routes there is no containment check — the reference itself is the
+ * user's own message content, and the host already authenticates every caller.
+ */
+export async function absoluteLocalPath(inputPath: string): Promise<string> {
+	if (!inputPath || /[\u0000-\u001f]/u.test(inputPath) || !isAbsolute(inputPath))
+		throw new Error("Path must be absolute");
+	return realpath(inputPath);
+}
+
+/** Read an absolute path outside any workspace for the preview, named by its own path. */
+export async function readLocalFile(inputPath: string): Promise<WorkspaceFile> {
+	const target = await absoluteLocalPath(inputPath);
+	return previewFileAt(target, toPosix(target));
 }
 
 /**
@@ -175,6 +216,117 @@ export async function searchWorkspaceFiles(
 		}
 	}
 	return { entries, truncated: false };
+}
+
+/** Lower scores prefer exact names, prefixes, substrings, then in-order fuzzy matches. */
+function completionScore(name: string, path: string, query: string): number | null {
+	const lowerName = name.toLowerCase();
+	if (lowerName === query) return 0;
+	if (lowerName.startsWith(query)) return 1;
+	if (lowerName.includes(query)) return 2;
+	if (path.toLowerCase().includes(query)) return 3;
+	let cursor = 0;
+	let gaps = 0;
+	for (const character of query) {
+		const next = lowerName.indexOf(character, cursor);
+		if (next === -1) return null;
+		gaps += next - cursor;
+		cursor = next + character.length;
+	}
+	return 4 + gaps / Math.max(1, lowerName.length);
+}
+
+/**
+ * Candidates for an `@` path relative to a known workspace. An empty basename
+ * lists one directory level; other queries search below that directory. Results
+ * are ranked before the limit is applied. Dependency/build directories are not
+ * walked unless explicitly scoped, and symlinked directories are never walked
+ * recursively. Outside or dangling symlinks cannot become references.
+ * Cancellation stops the walk; `truncated` also reports an exhausted walk budget
+ * or an unreadable descendant, rather than claiming a complete empty search.
+ */
+export async function completeWorkspaceFiles(
+	cwd: string,
+	query: string,
+	signal?: AbortSignal,
+): Promise<DirectoryListing> {
+	signal?.throwIfAborted();
+	if (query.length > 1024 || /[\u0000-\u001f\u007f"]/.test(query)) throw new Error("Invalid file completion query");
+	const normalized = query.replaceAll("\\", "/").replace(/^(\.\/)+/, "");
+	if (/^(\/|~|[a-zA-Z]:)/.test(normalized) || normalized.split("/").includes("..")) {
+		throw new Error("Path is outside the workspace");
+	}
+	const slash = normalized.lastIndexOf("/");
+	const scope = slash < 0 ? "" : normalized.slice(0, slash);
+	const needle = normalized.slice(slash + 1).toLowerCase();
+	const root = await realpath(cwd);
+	const queue = [scope];
+	const matches: { entry: FileTreeEntry; score: number; depth: number }[] = [];
+	let visited = 0;
+	let scanned = 0;
+	let found = 0;
+	let truncated = false;
+	const compare = (left: (typeof matches)[number], right: (typeof matches)[number]) =>
+		left.score - right.score ||
+		left.depth - right.depth ||
+		Number(right.entry.kind === "directory") - Number(left.entry.kind === "directory") ||
+		left.entry.path.length - right.entry.path.length ||
+		left.entry.path.localeCompare(right.entry.path);
+
+	while (queue.length) {
+		signal?.throwIfAborted();
+		if (visited >= MAX_SEARCH_DIRECTORIES || scanned >= MAX_COMPLETION_ENTRIES) {
+			truncated = true;
+			break;
+		}
+		const current = queue.shift();
+		if (current === undefined) break;
+		visited += 1;
+		try {
+			const contained = await containedWorkspacePath(root, current);
+			signal?.throwIfAborted();
+			// Async iteration closes the handle on completion, budget exhaustion and cancellation.
+			const directory = await opendir(contained);
+			for await (const dirent of directory) {
+				signal?.throwIfAborted();
+				if (scanned >= MAX_COMPLETION_ENTRIES) {
+					truncated = true;
+					break;
+				}
+				scanned += 1;
+				// These names cannot be represented by the quoted @path syntax.
+				if (/[\u0000-\u001f\u007f"]/.test(dirent.name) || dirent.name === ".git") continue;
+				const path = current ? `${current}/${dirent.name}` : dirent.name;
+				let kind: FileTreeEntry["kind"] = dirent.isDirectory() ? "directory" : "file";
+				if (dirent.isSymbolicLink()) {
+					try {
+						const target = await containedWorkspacePath(root, path);
+						kind = (await stat(target)).isDirectory() ? "directory" : "file";
+					} catch {
+						// Outside and dangling links are not usable workspace references.
+						continue;
+					}
+				} else if (!dirent.isDirectory() && !dirent.isFile()) continue;
+				const score = needle ? completionScore(dirent.name, path.slice(scope.length), needle) : 0;
+				if (score !== null) {
+					found += 1;
+					matches.push({ entry: { name: dirent.name, path, kind }, score, depth: path.split("/").length });
+					matches.sort(compare);
+					if (matches.length > MAX_FILE_COMPLETIONS) matches.pop();
+				}
+				if (needle && dirent.isDirectory() && !COMPLETION_SKIPPED_DIRECTORIES.has(dirent.name)) {
+					if (queue.length + visited < MAX_SEARCH_DIRECTORIES) queue.push(path);
+					else truncated = true;
+				}
+			}
+		} catch (caught) {
+			if (signal?.aborted || visited === 1) throw caught;
+			// A disappearing or unreadable descendant leaves a partial search.
+			truncated = true;
+		}
+	}
+	signal?.throwIfAborted();
+	return { entries: matches.map((match) => match.entry), truncated: truncated || found > MAX_FILE_COMPLETIONS };
 }
 
 async function readDirents(directory: string) {

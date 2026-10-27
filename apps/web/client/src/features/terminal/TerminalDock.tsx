@@ -17,13 +17,15 @@ import {
 	terminalWorkspaceKey,
 	toggleTerminalDock,
 } from "./actions";
+import { pasteExceedsLimit, terminalKeyAction } from "./input";
 import "@xterm/xterm/css/xterm.css";
 import "./terminal.css";
 
 type View = { terminal: Terminal; fit: FitAddon; element: HTMLDivElement; seq: number; truncated: boolean };
 
 const HEIGHT_MIN = 140;
-const HEIGHT_DEFAULT = 300;
+// Room for a dozen lines while the conversation keeps most of a laptop-height window.
+const HEIGHT_DEFAULT = 240;
 const FONT_SIZE = 13;
 const LINE_HEIGHT = 1.25;
 
@@ -36,22 +38,40 @@ function clampHeight(height: number, dock: HTMLElement | null): number {
 	return Math.min(heightMax(dock), Math.max(HEIGHT_MIN, Math.round(height)));
 }
 
+/**
+ * xterm measures its cell size when it opens and again only when `fontFamily`
+ * changes; it does not notice a web font finishing its download. Until Geist Mono
+ * is available the terminal uses the system monospace stack, and the font-load
+ * listener below switches it over, which makes xterm re-measure.
+ */
+function terminalFontFamily(): string {
+	const style = getComputedStyle(document.documentElement);
+	const loaded = document.fonts.check('13px "Geist Mono Variable"');
+	return style.getPropertyValue(loaded ? "--mono" : "--mono-fallback").trim();
+}
+
 function terminalTheme(): ITheme {
 	const style = getComputedStyle(document.documentElement);
 	const color = (name: string) => style.getPropertyValue(name).trim();
 	return {
-		background: color("--canvas"),
+		background: color("--term-bg"),
 		foreground: color("--ink"),
-		cursor: color("--ink"),
+		cursor: color("--caret"),
 		selectionBackground: color("--focus-border"),
 		black: color("--ink-2"),
 		brightBlack: color("--ink-3"),
 		red: color("--danger"),
 		brightRed: color("--danger"),
-		green: color("--success"),
-		brightGreen: color("--success"),
-		blue: color("--accent"),
-		brightBlue: color("--accent"),
+		green: color("--term-green"),
+		brightGreen: color("--term-green"),
+		blue: color("--term-blue"),
+		brightBlue: color("--term-blue"),
+		yellow: color("--term-yellow"),
+		brightYellow: color("--term-yellow"),
+		cyan: color("--term-cyan"),
+		brightCyan: color("--term-cyan"),
+		magenta: color("--term-magenta"),
+		brightMagenta: color("--term-magenta"),
 		white: color("--ink"),
 		brightWhite: color("--ink"),
 	};
@@ -132,20 +152,20 @@ export function TerminalDock() {
 			setError(t("terminalClipboardFailed"));
 		}
 	};
-	const paste = async () => {
-		if (!selectedId || !connected || selected?.status !== "running") return;
-		try {
-			const text = await navigator.clipboard.readText();
-			if (selectedInfo.current?.id !== selectedId || !current.current.open) return;
-			if (new TextEncoder().encode(text).byteLength > 65536) {
-				setError(t("terminalPasteLimit"));
-				return;
-			}
-			views.current.get(selectedId)?.terminal.paste(text);
-			views.current.get(selectedId)?.terminal.focus();
-		} catch {
-			setError(t("terminalClipboardFailed"));
-		}
+	/**
+	 * xterm's paste listener forwards the whole clipboard, but the Host rejects one
+	 * input request over 64 KiB and closes the stream. Refuse an oversized paste before
+	 * xterm reads it; the browser's own paste stays the only way text gets in, so no
+	 * clipboard read permission is involved.
+	 */
+	const guardPaste = (event: ClipboardEvent): void => {
+		if (!pasteExceedsLimit(event.clipboardData?.getData("text/plain") ?? "")) return;
+		event.preventDefault();
+		// Capture phase on the dock's wrapper: stopping here keeps xterm's listener from
+		// forwarding the oversized text to the PTY.
+		event.stopPropagation();
+		// A stopped or disconnected shell takes no input, so the limit is not its problem.
+		if (selectedInfo.current?.status === "running") setError(t("terminalPasteLimit"));
 	};
 	const create = async () => {
 		if (pendingRef.current || !cwd) return;
@@ -194,8 +214,8 @@ export function TerminalDock() {
 			setPending(false);
 		}
 	};
-	const actions = useRef({ copy, paste, create });
-	actions.current = { copy, paste, create };
+	const actions = useRef({ copy, guardPaste, create });
+	actions.current = { copy, guardPaste, create };
 
 	useEffect(() => {
 		autoStart.current = open;
@@ -243,7 +263,7 @@ export function TerminalDock() {
 		let view = views.current.get(id);
 		if (!view) {
 			const terminal = new Terminal({
-				fontFamily: getComputedStyle(document.documentElement).getPropertyValue("--mono").trim(),
+				fontFamily: terminalFontFamily(),
 				fontSize: FONT_SIZE,
 				lineHeight: LINE_HEIGHT,
 				scrollback: 5000,
@@ -276,27 +296,19 @@ export function TerminalDock() {
 					connection.current.value.send("input", { data });
 			});
 			terminal.attachCustomKeyEventHandler((event) => {
-				if (event.type !== "keydown") return true;
-				// The dock toggle belongs to the shell's shortcut table, not to the PTY.
-				if (event.ctrlKey && event.code === "Backquote") return false;
-				const key = event.key.toLowerCase();
-				if (
-					(event.ctrlKey || event.metaKey) &&
-					!event.altKey &&
-					key === "c" &&
-					(event.shiftKey || terminal.hasSelection())
-				) {
+				const action = terminalKeyAction(event, terminal.hasSelection());
+				if (action === "forward") return true;
+				if (action === "copy") {
 					event.preventDefault();
 					void actions.current.copy();
-					return false;
 				}
-				if ((event.ctrlKey || event.metaKey) && !event.altKey && key === "v") {
-					event.preventDefault();
-					void actions.current.paste();
-					return false;
-				}
-				return true;
+				// "dock" and "paste" stay uncancelled: the shell shortcut table sees the
+				// dock chord, and cancelling the paste key would also cancel the browser's
+				// native paste event, which is how clipboard text reaches xterm.
+				return false;
 			});
+			// Capture on the wrapper runs before xterm's own paste listener on the textarea.
+			element.addEventListener("paste", (event) => actions.current.guardPaste(event), true);
 			view = { terminal, fit, element, seq: 0, truncated: false };
 			views.current.set(id, view);
 		}
@@ -362,12 +374,24 @@ export function TerminalDock() {
 		connection.current = { id, value: client };
 		const observer = new ResizeObserver(fit);
 		observer.observe(host.current);
+		const adoptLoadedFont = () => {
+			const family = terminalFontFamily();
+			if (!live || active.terminal.options.fontFamily === family) return;
+			active.terminal.options.fontFamily = family;
+			fit();
+		};
+		document.fonts.addEventListener("loadingdone", adoptLoadedFont);
+		adoptLoadedFont();
+		// Request the face explicitly: a terminal opened before any code block has rendered would otherwise never load it.
+		// A failed load is harmless; the terminal simply keeps the system monospace stack.
+		document.fonts.load('13px "Geist Mono Variable"').then(adoptLoadedFont, () => undefined);
 		void client.connect();
 		active.terminal.focus();
 		return () => {
 			live = false;
 			finishWrite?.();
 			observer.disconnect();
+			document.fonts.removeEventListener("loadingdone", adoptLoadedFont);
 			client.close();
 			active.terminal.options.disableStdin = true;
 			if (connection.current?.value === client) connection.current = undefined;
@@ -477,36 +501,6 @@ export function TerminalDock() {
 					))}
 				</div>
 				<div className="terminal-actions">
-					<Tooltip content={t("terminalCopy")}>
-						<IconButton
-							icon="copy"
-							disabled={!selectedId}
-							aria-label={t("terminalCopy")}
-							onClick={() => void copy()}
-						/>
-					</Tooltip>
-					<Tooltip content={t("terminalPaste")}>
-						<IconButton
-							icon="clipboardPaste"
-							disabled={!connected || selected?.status !== "running"}
-							aria-label={t("terminalPaste")}
-							onClick={() => void paste()}
-						/>
-					</Tooltip>
-					<Tooltip content={t("terminalClear")}>
-						<IconButton
-							icon="eraser"
-							disabled={!selectedId}
-							aria-label={t("terminalClear")}
-							onClick={() => {
-								if (selectedId) {
-									views.current.get(selectedId)?.terminal.clear();
-									views.current.get(selectedId)?.terminal.focus();
-								}
-							}}
-						/>
-					</Tooltip>
-					<span className="terminal-actions-divider" aria-hidden="true" />
 					<Tooltip content={t("terminalNew")}>
 						<IconButton
 							icon="plus"

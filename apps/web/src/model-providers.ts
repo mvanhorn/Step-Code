@@ -389,9 +389,26 @@ export async function deleteModelProvider(id: string): Promise<void> {
 }
 
 export interface DiscoverModelsInput {
+	readonly providerId?: unknown;
 	readonly baseUrl?: unknown;
 	readonly api?: unknown;
 	readonly apiKey?: unknown;
+}
+
+/**
+ * The key a session would use for `providerId`, resolved by the kernel from the
+ * credential file and `models.json` (stored entry first, then the declaration's
+ * own key), or `undefined` when there is none or the id is not a custom provider.
+ *
+ * The key stays on the host: it is only attached to the outgoing request.
+ */
+async function storedProviderApiKey(providerId: string): Promise<string | undefined> {
+	if (!PROVIDER_ID.test(providerId) || providerId.length > MAX_PROVIDER_ID || providerId === STEP_PROVIDER_ID) {
+		return undefined;
+	}
+	const runtime = await ModelRuntime.create({ authPath: modelsAuthPath(), modelsPath: modelsJsonPath() });
+	await runtime.refresh({ allowNetwork: false });
+	return (await runtime.getAuth(providerId))?.auth.apiKey || undefined;
 }
 
 /**
@@ -399,18 +416,23 @@ export interface DiscoverModelsInput {
  *
  * Nothing is stored: this answers for a declaration the user is still editing, so
  * a provider can be filled in and saved in one pass instead of save-then-return.
- * The key, when given, is used for this request only.
+ * A key typed in the form is used for this request only; a blank key field means
+ * "keep the stored key", as on save and in the connection test, so the stored
+ * credential for `providerId` is used instead.
  *
  * A failure keeps the endpoint's own words where the protocol reported them (an
  * HTTP status, a JSON parse failure), and maps the rest to a 4xx that names what
  * the user can change: the address, the protocol, or the key.
  */
 export async function discoverProviderModels(input: DiscoverModelsInput): Promise<DiscoveredModel[]> {
+	const typedKey = stringOf(input.apiKey);
+	const providerId = stringOf(input.providerId);
+	const apiKey = typedKey || (providerId ? await storedProviderApiKey(providerId) : undefined);
 	try {
 		return await discoverModels({
 			api: stringOf(input.api) || undefined,
 			baseUrl: stringOf(input.baseUrl),
-			apiKey: stringOf(input.apiKey) || undefined,
+			apiKey,
 		});
 	} catch (error) {
 		if (error instanceof ModelDiscoveryError) {
@@ -418,5 +440,92 @@ export async function discoverProviderModels(input: DiscoverModelsInput): Promis
 			throw new SettingsError(status, error.message);
 		}
 		throw error;
+	}
+}
+
+/** How long a connection test may take before it is reported unreachable. */
+const MODEL_TEST_TIMEOUT_MS = 20_000;
+
+export interface TestProviderModelInput {
+	readonly providerId?: unknown;
+	readonly baseUrl?: unknown;
+	readonly api?: unknown;
+	readonly apiKey?: unknown;
+	readonly modelId?: unknown;
+}
+
+/**
+ * Verify one model of the declaration **currently in the form** is callable: a
+ * one-token ping through the kernel's own provider stack, built on a runtime
+ * that reads no `models.json` — the declaration being edited may not be saved
+ * yet, exactly like 获取可用模型. A key typed in the form wins; without one the
+ * credential file's stored entry for `providerId` resolves (a blank key field
+ * means "keep the stored key").
+ *
+ * Provider and transport failures land on the answer (`errorMessage`,
+ * `stopReason: "error"`), not as rejections, so both are checked; a timeout is
+ * translated to something the user can act on.
+ */
+export async function testProviderModel(input: TestProviderModelInput): Promise<void> {
+	const providerId = stringOf(input.providerId);
+	const modelId = stringOf(input.modelId);
+	const typedUrl = stringOf(input.baseUrl);
+	const api = stringOf(input.api);
+	const typedKey = stringOf(input.apiKey);
+	if (!providerId || !modelId || !typedUrl || !api) {
+		throw new SettingsError(400, "providerId, baseUrl, api and modelId are required");
+	}
+	// A typed key must be the probe's only credential: a stored entry for the
+	// provider id outranks a declaration key, which would hide a mistyped key
+	// behind the working stored one. Pointing the runtime at a path that holds
+	// nothing gives the typed key (and only it) a clean slate; without one, the
+	// real credential file supplies the stored key, like a saved session.
+	const runtime = await ModelRuntime.create({
+		authPath: typedKey ? `${modelsAuthPath()}.probe` : modelsAuthPath(),
+		modelsPath: null,
+	});
+	runtime.registerProvider(providerId, {
+		baseUrl: normalizeProviderBaseUrl(typedUrl, api),
+		api,
+		...(typedKey ? { apiKey: typedKey } : {}),
+		models: [
+			{
+				id: modelId,
+				name: modelId,
+				// The probe is about reachability, not capability: a model that
+				// claims no thinking level keeps every adapter's request free of
+				// effort parameters, which some gateways reject outright.
+				reasoning: false,
+				input: ["text"],
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+				contextWindow: 1_000_000,
+				maxTokens: 1000,
+				thinkingLevelMap: { off: null, minimal: null, low: null, medium: null, high: null, xhigh: null, max: null },
+			},
+		],
+	});
+	await runtime.refresh({ allowNetwork: false }).catch(() => {});
+	const model = runtime.getModel(providerId, modelId);
+	if (!model) throw new SettingsError(400, `Model not found: ${providerId}/${modelId}`);
+	const controller = new AbortController();
+	const timeout = setTimeout(() => controller.abort(), MODEL_TEST_TIMEOUT_MS);
+	try {
+		const answer = await runtime.completeSimple(
+			model,
+			{ messages: [{ role: "user", content: "ping", timestamp: Date.now() }] },
+			{ maxTokens: 1, signal: controller.signal },
+		);
+		if (answer.errorMessage) throw new SettingsError(502, answer.errorMessage);
+		if (answer.stopReason === "error") throw new SettingsError(502, "The provider rejected the request");
+	} catch (caught) {
+		if (controller.signal.aborted) {
+			throw new SettingsError(
+				504,
+				`No answer within ${MODEL_TEST_TIMEOUT_MS / 1000}s — check the address and the key`,
+			);
+		}
+		throw caught;
+	} finally {
+		clearTimeout(timeout);
 	}
 }

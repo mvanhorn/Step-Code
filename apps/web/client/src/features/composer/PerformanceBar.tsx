@@ -60,6 +60,8 @@ export function PerformanceBar() {
 	const hit = usage?.cacheHit === undefined ? unavailable : `${Math.round(usage.cacheHit * 100)}%`;
 	const usageHint =
 		result?.id === sessionId && result?.error ? t("performanceUnavailable") : t("performanceTokensHint");
+	// A new conversation has nothing to measure yet; the bar appears once the session exists.
+	if (!sessionId) return null;
 	return (
 		<section className="performance-bar" aria-label={t("performanceTitle")} data-running={running}>
 			<Tooltip content={t("performanceElapsedHint")}>
@@ -82,7 +84,7 @@ export function PerformanceBar() {
 			</Tooltip>
 			<Tooltip content={t("performanceCacheHint")}>
 				<span className="performance-metric">
-					{t("rightCacheHit")} <span>{hit}</span>
+					{t("performanceCacheHit")} <span>{hit}</span>
 				</span>
 			</Tooltip>
 		</section>

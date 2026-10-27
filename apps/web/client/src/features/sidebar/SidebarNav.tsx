@@ -16,9 +16,9 @@ export function BrandRow() {
 		<div className="brand-row">
 			<div className="brand">
 				<span className="brand-mark" aria-hidden="true">
-					S
+					<Icon name="stepcode" />
 				</span>
-				<strong>StepCode</strong>
+				<strong>Step Code</strong>
 			</div>
 			<IconButton
 				id="sidebarToggle"
@@ -34,13 +34,14 @@ export function BrandRow() {
 /** `nav.sidebar-actions`: new conversation and the search launcher (legacy index.html 557-576). */
 export function SidebarActions() {
 	const t = useT();
+	const midView = useAppStore((state) => state.ui.midView);
 	return (
 		<nav className="sidebar-actions" aria-label="会话操作">
 			<button
 				className="sidebar-action primary"
 				id="newSession"
 				type="button"
-				onClick={() => startDraft(activeCwd())}
+				onClick={() => startDraft(activeCwd(), { listed: true })}
 			>
 				<Icon name="newChat" />
 				<span>{t("newConversation")}</span>
@@ -49,6 +50,9 @@ export function SidebarActions() {
 				className="sidebar-action"
 				id="cronButton"
 				type="button"
+				// Scheduled tasks are still demo data; keep the entry hidden on every host for now.
+				hidden
+				aria-current={midView === "cron" ? "page" : undefined}
 				title={t("cronTasks")}
 				onClick={() => openMidView("cron")}
 			>
@@ -59,17 +63,20 @@ export function SidebarActions() {
 				className="sidebar-action"
 				id="marketButton"
 				type="button"
+				// The plugin market is hidden on every host for now; plugins stay manageable in Settings.
+				hidden
+				aria-current={midView === "market" ? "page" : undefined}
 				title={t("pluginMarket")}
 				onClick={() => openMidView("market")}
 			>
-				<Icon name="puzzle" />
+				<Icon name="pluginMarket" />
 				<span>{t("pluginMarket")}</span>
 			</button>
 			<button
 				className="sidebar-search"
 				id="searchPlaceholder"
 				type="button"
-				title="一期占位，批 2 点亮全局搜索"
+				title={t("search")}
 				onClick={openSearch}
 			>
 				<Icon name="search" />
@@ -146,7 +153,7 @@ export function ConversationList() {
 							aria-busy={view.pickingFolder ? "true" : undefined}
 							onClick={() => void chooseWorkspaceFolder()}
 						>
-							<Icon name="folderPlus" size="sm" />
+							<Icon name="folderPlus" size="md" />
 						</IconButton>
 					</Tooltip>
 					<Tooltip content={view.showArchived ? t("archiveClose") : t("archivedTooltip")}>
@@ -160,7 +167,7 @@ export function ConversationList() {
 							onClick={toggleArchived}
 						>
 							{/* While the archive is shown, the same button closes it. */}
-							<Icon name={view.showArchived ? "close" : "archive"} size="sm" />
+							<Icon name={view.showArchived ? "close" : "archive"} size="md" />
 						</IconButton>
 					</Tooltip>
 				</div>

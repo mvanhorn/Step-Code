@@ -35,6 +35,11 @@ export interface SystemPromptProduct {
 	introduction?: string;
 	/** Whether to include pi's documentation discovery section. Defaults to true. */
 	includeDocumentation?: boolean;
+	/**
+	 * How the host's UI starts plan, goal, and ultraloop work, forwarded to the
+	 * appendix so one shared contract can describe either interaction.
+	 */
+	interaction?: "session" | "one-shot";
 	/** Product-specific guidance appended after loaded project context. */
 	promptAppendix?: string | ((activeToolNames: readonly string[], context: SystemPromptProductContext) => string);
 }
@@ -46,6 +51,20 @@ export interface SystemPromptProductContext {
 	platform: string;
 	/** Local calendar date at prompt construction time (YYYY-MM-DD). */
 	date: string;
+	/** Interaction model declared by the product, if any. */
+	interaction?: "session" | "one-shot";
+}
+
+/**
+ * The local calendar date as `YYYY-MM-DD`.
+ *
+ * `toISOString()` alone yields the UTC date, so east of Greenwich every morning
+ * before the offset the model was told it was still yesterday. Shift by the
+ * zone's offset first, then read the UTC fields of the shifted instant.
+ */
+export function localCalendarDate(now: Date = new Date()): string {
+	const shifted = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
+	return shifted.toISOString().slice(0, 10);
 }
 
 function escapeRegExp(value: string): string {
@@ -80,7 +99,8 @@ export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
 	const productContext: SystemPromptProductContext = {
 		cwd: promptCwd,
 		platform: process.platform,
-		date: new Date().toISOString().slice(0, 10),
+		date: localCalendarDate(),
+		...(product?.interaction ? { interaction: product.interaction } : {}),
 	};
 	const productAppendixValue =
 		typeof product?.promptAppendix === "function"

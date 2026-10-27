@@ -198,6 +198,8 @@ interface PromptOptions {
 
 It fires before `prompt()` resolves. `prompt()` still resolves only after the full accepted run finishes, including retries. Failures after acceptance are reported through the normal event and message stream, not through `preflightResult(false)`.
 
+A slash command that hands work to the agent (for example `/plan <task>`) is accepted as soon as its handler returns, so `preflightResult(true)` fires immediately, while the turn it started is still running. `prompt()` still resolves only after that turn settles, so a caller may dispose the session once it returns.
+
 The `prompt()` method handles prompt templates, extension commands, and message sending:
 
 ```typescript
@@ -529,7 +531,7 @@ Specify which built-in tools to enable:
 
 The `edit` tool returns `details.diff` for Step's TUI display and `details.patch` as a standard unified patch for SDK consumers.
 
-The `write` tool returns `WriteToolDetails`: `details.patch` is a unified patch from the replaced text to the written text (both LF, without BOM), recorded inside the file mutation queue, so it reflects earlier calls of the same batch. `created` marks a file that did not exist; `previous` holds the overwritten file's line ending and BOM. Files over 1 MB or binary files get no patch, and `untracked` (`too_large`, `binary`, `unreadable`) says why.
+The `write` tool returns `WriteToolDetails`: `details.patch` is a unified patch from the replaced text to the written text (both LF, without BOM), recorded inside the file mutation queue, so it reflects earlier calls of the same batch. `created` marks a file that did not exist; `previous` holds the overwritten file's line ending and BOM. Files over 1 MB or binary files get no patch, and `untracked` (`too_large`, `binary`, `unreadable`) says why. Step's `write_file` records the same fields through the exported `writeChangeDetails`.
 
 ```typescript
 import { createAgentSession } from "@step-harness/coding-agent";

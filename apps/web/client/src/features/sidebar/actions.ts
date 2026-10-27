@@ -6,6 +6,7 @@
 import type { TagColor } from "../../i18n";
 import { api } from "../../lib/api";
 import { type ConversationView, getState, setState, setToggled, setUi } from "../../state/store";
+import { withoutSessionTag } from "../../state/tag-groups";
 import type { SessionSearchResult } from "../../state/types";
 
 /* ── Global search (legacy 1199-1211) ────────────────────────────────────── */
@@ -52,7 +53,7 @@ export function toggleWorkspaceMenu(cwd: string): void {
 		closeWorkspaceMenu(true);
 		return;
 	}
-	setUi({ workspaceMenu: { cwd }, sessionMenu: null, tagPicker: null });
+	setUi({ workspaceMenu: { cwd }, sessionMenu: null, tagPicker: null, streamMenu: false });
 }
 
 export function closeWorkspaceMenu(restoreFocus = false): void {
@@ -68,7 +69,7 @@ export function closeWorkspaceMenu(restoreFocus = false): void {
 /** Open or close `#sessionMenu` for a session (legacy `openSessionMenu`, 1291-1329). */
 export function toggleSessionMenu(sessionId: string): void {
 	const open = getState().ui.sessionMenu?.sessionId === sessionId;
-	setUi({ sessionMenu: open ? null : { sessionId }, workspaceMenu: null, tagPicker: null });
+	setUi({ sessionMenu: open ? null : { sessionId }, workspaceMenu: null, tagPicker: null, streamMenu: false });
 }
 
 /** Legacy `closeSessionMenu` (1287-1289). */
@@ -79,7 +80,7 @@ export function closeSessionMenu(): void {
 /** Open or close `#tagPicker` for a session (legacy `openTagPicker`, 1022-1060). */
 export function toggleTagPicker(sessionId: string): void {
 	const open = getState().ui.tagPicker?.sessionId === sessionId;
-	setUi({ tagPicker: open ? null : { sessionId }, workspaceMenu: null, sessionMenu: null });
+	setUi({ tagPicker: open ? null : { sessionId }, workspaceMenu: null, sessionMenu: null, streamMenu: false });
 }
 
 export function closeTagPicker(): void {
@@ -121,18 +122,39 @@ export function toggleSidebar(): void {
 	setUi((ui) => ({ sidebarHidden: !ui.sidebarHidden }));
 }
 
-/** Tag a session with `color`, or untag it with null. Tags are client-only, as in the legacy code. */
+/**
+ * Tag a session with `color`, or untag it with null. Tags are client-only, as in
+ * the legacy code.
+ *
+ * Untagging the last session of a group also removes that group: a group that
+ * no session carries is invisible in the grouped view, so leaving its record
+ * behind only made the picker offer a group that no longer exists.
+ */
 export function setSessionTag(sessionId: string, color: TagColor | null): void {
 	setState((state) => {
+		if (!color) return withoutSessionTag(state, sessionId);
 		const tags = new Map(state.tags);
-		if (color) tags.set(sessionId, color);
-		else tags.delete(sessionId);
+		tags.set(sessionId, color);
 		return { tags };
 	});
 }
 
-/** Create a group for an unused colour and tag `sessionId` with it (legacy `showTagNameInput` accept, 1066-1071). */
+/**
+ * Create a group for an unused colour and tag `sessionId` with it (legacy
+ * `showTagNameInput` accept, 1066-1071). One commit, so a group and the tag
+ * that keeps it alive never appear apart.
+ */
 export function createGroupAndTag(sessionId: string, color: TagColor, name: string): void {
-	setState((state) => ({ groups: [...state.groups, { key: color, name }] }));
-	setSessionTag(sessionId, color);
+	setState((state) => {
+		const tags = new Map(state.tags);
+		tags.set(sessionId, color);
+		return { groups: [...state.groups, { key: color, name }], tags };
+	});
+}
+
+/** Rename the group a tag colour stands for; rows and the filter chip follow the colour, not the name. */
+export function renameGroup(key: TagColor, name: string): void {
+	setState((state) => ({
+		groups: state.groups.map((group) => (group.key === key ? { ...group, name } : group)),
+	}));
 }

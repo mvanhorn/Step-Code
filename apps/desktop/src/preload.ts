@@ -33,6 +33,9 @@ const bridge: StepcodeDesktopBridge = {
 	revealPath(path) {
 		return ipcRenderer.invoke(DESKTOP_IPC.revealPath, String(path)) as Promise<void>;
 	},
+	defaultBrowser() {
+		return ipcRenderer.invoke(DESKTOP_IPC.defaultBrowser) as ReturnType<StepcodeDesktopBridge["defaultBrowser"]>;
+	},
 };
 
 contextBridge.exposeInMainWorld("stepcodeDesktop", bridge);

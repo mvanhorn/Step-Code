@@ -3,24 +3,27 @@
  * `buildCodeView`; app.js 1771-1873).
  */
 
-import { type CSSProperties, type ReactNode, useLayoutEffect, useMemo, useRef } from "react";
+import { type CSSProperties, type ReactNode, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../../i18n";
-import { workspaceApi } from "../../lib/api";
+import { localFileApi, workspaceApi } from "../../lib/api";
 import { basename, cx, formatBytes } from "../../lib/format";
 import { renderMarkdown } from "../../lib/markdown";
 import { copyText } from "../../state/session";
-import { type PreviewTab, useAppStore } from "../../state/store";
-import { MarkdownView } from "../../ui";
+import { type FilePreviewTab, type PreviewTab, type SideAnswerTab, useAppStore } from "../../state/store";
+import { Icon, MarkdownView, Spinner } from "../../ui";
 import { openFileReference } from "./actions";
 import { codeViewHtml, isMarkdownPath, PREVIEW_LINE_LIMIT } from "./highlight";
+import { sideAnswerHtml } from "./side-answer-html";
 
 /** The tab the preview shows, or undefined when there are no tabs. */
 export function useActiveTab(): PreviewTab | undefined {
 	return useAppStore((state) => state.preview.tabs[state.preview.active]);
 }
 
-/** Full on-disk path of a tab, in the workspace's own separator style. */
-function fullPath(tab: PreviewTab): string {
+/** Full on-disk path of a file tab, in the workspace's own separator style. */
+function fullPath(tab: FilePreviewTab): string {
+	// Outside-workspace tabs carry their own absolute path already.
+	if (tab.scope === "local") return tab.path;
 	// Server paths are relative with "/"; show them in the workspace's own style.
 	const separator = tab.cwd.includes("\\") && !tab.cwd.includes("/") ? "\\" : "/";
 	return `${tab.cwd.replace(/[\\/]+$/, "")}${separator}${tab.path.split("/").join(separator)}`;
@@ -29,6 +32,7 @@ function fullPath(tab: PreviewTab): string {
 export function PreviewPath() {
 	const tab = useActiveTab();
 	if (!tab) return <div className="preview-path" id="previewPath" />;
+	if (tab.kind === "btw") return <SideAnswerPath question={tab.question} model={tab.model} />;
 	const full = fullPath(tab);
 	const name = basename(tab.path);
 	const directory = full.slice(0, -name.length);
@@ -43,8 +47,34 @@ export function PreviewPath() {
 	);
 }
 
+/**
+ * The toolbar line of a side answer. The question itself is the body's heading,
+ * so this only names the surface and the model that answered.
+ */
+function SideAnswerPath({ question, model }: { readonly question: string; readonly model?: string }) {
+	const t = useT();
+	return (
+		<div className="preview-path" id="previewPath" title={question}>
+			<strong>{t("rightBtw")}</strong>
+			{model ? <small>{model}</small> : null}
+		</div>
+	);
+}
+
 function PreviewMessage({ children }: { readonly children: ReactNode }) {
 	return <div className="preview-message">{children}</div>;
+}
+
+/**
+ * The bytes of a previewed image. A load that fails anyway — the file grew past
+ * the host's image limit after the tab read it, or it was removed — replaces
+ * the broken-image icon with a message; the icon alone carries no reason.
+ */
+function PreviewImage({ path, src }: { readonly path: string; readonly src: string }) {
+	const t = useT();
+	const [failed, setFailed] = useState(false);
+	if (failed) return <PreviewMessage>{t("imageLoadFailed")}</PreviewMessage>;
+	return <img className="preview-image" alt={basename(path)} src={src} onError={() => setFailed(true)} />;
 }
 
 function CodeView({ content, path }: { readonly content: string; readonly path: string }) {
@@ -63,18 +93,53 @@ function CodeView({ content, path }: { readonly content: string; readonly path: 
 	);
 }
 
+function SideAnswer({ tab }: { readonly tab: SideAnswerTab }) {
+	const t = useT();
+	const html = useMemo(
+		() => sideAnswerHtml(tab.text, { code: t("code"), copy: t("copy"), table: t("markdownTable") }),
+		[tab.text, t],
+	);
+	if (tab.pending) {
+		return (
+			<div className="side-answer" data-pending="true">
+				<p className="side-answer-question">{tab.question}</p>
+				<output className="side-answer-waiting" aria-live="polite">
+					<Spinner />
+					<span>{t("btwWaiting")}</span>
+				</output>
+			</div>
+		);
+	}
+	return (
+		<div className="side-answer" data-unavailable={tab.unavailable || undefined}>
+			<p className="side-answer-question">{tab.question}</p>
+			<MarkdownView
+				className="side-answer-body message-body"
+				html={html}
+				onCopyCode={(code) => copyText(code, null)}
+				copiedLabel={t("copied")}
+			/>
+			<p className="side-answer-note">{t("btwNotSaved")}</p>
+		</div>
+	);
+}
+
 function PreviewContent({ tab }: { readonly tab: PreviewTab }) {
 	const t = useT();
+	if (tab.kind === "btw") return <SideAnswer tab={tab} />;
 	const file = tab.file;
 	if (tab.loading) return <PreviewMessage>{t("loadingFile")}</PreviewMessage>;
 	if (tab.error) return <PreviewMessage>{tab.error}</PreviewMessage>;
 	if (!file) return null;
 	if (file.kind === "image")
 		return (
-			<img
-				className="preview-image"
-				alt={basename(file.path)}
-				src={workspaceApi(tab.cwd, "/raw", { path: tab.path })}
+			<PreviewImage
+				path={file.path}
+				src={
+					tab.scope === "local"
+						? localFileApi("/raw", tab.path)
+						: workspaceApi(tab.cwd, "/raw", { path: tab.path })
+				}
 			/>
 		);
 	if (file.kind !== "text")
@@ -92,7 +157,8 @@ function PreviewContent({ tab }: { readonly tab: PreviewTab }) {
 					{ code: t("code"), copy: t("copy"), table: t("markdownTable") },
 					{ localFiles: true },
 				)}
-				onCopyCode={(code) => void copyText(code)}
+				onCopyCode={(code) => copyText(code, null)}
+				copiedLabel={t("copied")}
 				onFileReference={(path) => void openFileReference(tab.cwd, path, tab.path)}
 			/>
 		);
@@ -114,7 +180,14 @@ export function PreviewBody({ hidden = false }: { readonly hidden?: boolean }) {
 
 	return (
 		<div className="preview-body" id="previewBody" ref={bodyRef} hidden={hidden}>
-			{tab ? <PreviewContent tab={tab} /> : <PreviewMessage>{t("rightNoFiles")}</PreviewMessage>}
+			{tab ? (
+				<PreviewContent tab={tab} />
+			) : (
+				<div className="preview-message changes-empty">
+					<Icon name="fileText" />
+					{t("rightNoFiles")}
+				</div>
+			)}
 		</div>
 	);
 }

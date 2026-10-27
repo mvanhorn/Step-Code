@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { WorkspaceRegistry } from "../src/workspaces.ts";
+import { canonicalWorkspacePath, WorkspaceRegistry } from "../src/workspaces.ts";
+import { WebSessionStore } from "../src/runtime.ts";
 
 test("workspaces persist across registry instances and can be removed", async () => {
 	const base = await realpath(await mkdtemp(join(tmpdir(), "stepcode-web-workspaces-")));
@@ -122,6 +123,161 @@ test("failed persistence leaves removal and restoration retryable", async () => 
 		await registry.add(base);
 		assert.equal(await new WorkspaceRegistry(file).has(base), true);
 	} finally {
+		await rm(base, { recursive: true, force: true });
+	}
+});
+
+/**
+ * A folder reaches this registry under more than one name: a symlink, macOS's
+ * `/var` and `/private/var`, a launcher's trailing slash. Two spellings are one
+ * workspace, so removing it under either name has to hide it — otherwise it
+ * stays in the sidebar and in the composer's list, and using it is refused by
+ * the host as "not a known workspace".
+ */
+test("removing a workspace by another spelling of its folder hides it", async () => {
+	const base = await realpath(await mkdtemp(join(tmpdir(), "stepcode-web-spelling-")));
+	try {
+		const file = join(base, "web-workspaces.json");
+		const folder = join(base, "project");
+		await mkdir(folder);
+		const registry = new WorkspaceRegistry(file);
+		const added = await registry.add(folder);
+
+		// The second name a session or a launcher would carry for the same folder.
+		const link = join(base, "project-link");
+		await symlink(folder, link);
+		const alternate = await realpath(link);
+		assert.equal(alternate, added.path);
+
+		await registry.remove(link);
+
+		// After a reload, as the page does.
+		const reopened = new WorkspaceRegistry(file);
+		const listed = await reopened.list();
+		assert.deepEqual(
+			listed.filter((workspace) => !workspace.hidden),
+			[],
+			"the workspace is still listed after being removed under another spelling",
+		);
+		assert.equal(await reopened.has(folder), false, "the folder is still a known workspace");
+		assert.equal(await reopened.has(link), false);
+
+		// Removing again is a no-op, and re-registering restores it.
+		assert.equal(await reopened.remove(link), true);
+		await reopened.add(folder);
+		assert.deepEqual(
+			(await new WorkspaceRegistry(file).list()).filter((workspace) => !workspace.hidden).map((w) => w.path),
+			[added.path],
+		);
+		assert.equal(await reopened.has(link), true);
+	} finally {
+		await rm(base, { recursive: true, force: true });
+	}
+});
+
+test("a registry file left with one spelling visible and another hidden is repaired on read", async () => {
+	// Exactly what the previous version wrote when a workspace was removed under
+	// an alternate spelling: the registered entry stayed visible forever.
+	const base = await realpath(await mkdtemp(join(tmpdir(), "stepcode-web-repair-")));
+	try {
+		const file = join(base, "web-workspaces.json");
+		const folder = join(base, "project");
+		await mkdir(folder);
+		// The two entries are different strings for one folder; `path.join` would
+		// normalize them back together, so the file is written verbatim.
+		await writeFile(
+			file,
+			JSON.stringify({ workspaces: [folder], removedWorkspaces: [`${folder}/.`] }, null, 2),
+		);
+		const listed = await new WorkspaceRegistry(file).list();
+		assert.deepEqual(
+			listed.filter((workspace) => !workspace.hidden).map((workspace) => workspace.path),
+			[],
+			"the stale visible entry survived the read",
+		);
+	} finally {
+		await rm(base, { recursive: true, force: true });
+	}
+});
+
+test("a folder recorded under two spellings is listed once", async () => {
+	const base = await realpath(await mkdtemp(join(tmpdir(), "stepcode-web-duplicate-")));
+	try {
+		const file = join(base, "web-workspaces.json");
+		const folder = join(base, "project");
+		await mkdir(folder);
+		const link = join(base, "project-link");
+		await symlink(folder, link);
+		// A file written by an older build could hold both names.
+		await writeFile(file, JSON.stringify({ workspaces: [folder, link], removedWorkspaces: [] }, null, 2));
+		const listed = await new WorkspaceRegistry(file).list();
+		assert.equal(listed.filter((workspace) => !workspace.hidden).length, 1);
+	} finally {
+		await rm(base, { recursive: true, force: true });
+	}
+});
+
+test("a launch folder reached through a symlink is reported under its real path", async () => {
+	const base = await realpath(await mkdtemp(join(tmpdir(), "stepcode-web-canonical-")));
+	try {
+		const real = join(base, "project");
+		const link = join(base, "shortcut");
+		await mkdir(real);
+		await symlink(real, link);
+		// `bootstrap.cwd` names the page's launch folder. The registry stores and
+		// removes resolved paths, so a symlinked launch spelling listed the removed
+		// folder in the composer's picker again, on this page and after a reload.
+		assert.equal(await canonicalWorkspacePath(link), real);
+		assert.equal(await canonicalWorkspacePath(join(real, "..", "project")), real);
+		// A folder that is gone keeps the only spelling left, so its recorded
+		// removal still matches.
+		const missing = join(base, "gone");
+		assert.equal(await canonicalWorkspacePath(missing), missing);
+	} finally {
+		await rm(base, { recursive: true, force: true });
+	}
+});
+
+test("a session recorded through a symlink is listed under the registry's spelling", async () => {
+	// The client matches a removed folder against the spelling its session rows
+	// carry, so the listing has to report the real path: a session recorded
+	// through a symlink kept that spelling, and its project group survived the
+	// removal of the folder it actually named. This locks the host-side
+	// resolution the client's string compare depends on.
+	const base = await realpath(await mkdtemp(join(tmpdir(), "stepcode-web-session-cwd-")));
+	const previousAgentDir = process.env.STEP_CODING_AGENT_DIR;
+	process.env.STEP_CODING_AGENT_DIR = join(base, "agent");
+	try {
+		const real = join(base, "project");
+		const link = join(base, "shortcut");
+		await mkdir(real);
+		await symlink(real, link);
+		// The directory name is only a container; the listing reads the header's cwd.
+		const directory = join(base, "agent", "sessions", "symlinked");
+		await mkdir(directory, { recursive: true });
+		const timestamp = new Date().toISOString();
+		await writeFile(
+			join(directory, "session.jsonl"),
+			[
+				{ type: "session", version: 3, id: "s1", timestamp, cwd: link },
+				{
+					type: "message",
+					id: "m1",
+					parentId: null,
+					timestamp,
+					message: { role: "user", content: "hello", timestamp: Date.now() },
+				},
+			]
+				.map((line) => JSON.stringify(line))
+				.join("\n") + "\n",
+		);
+		const listed = await new WebSessionStore().list();
+		assert.equal(listed.length, 1);
+		assert.equal(listed[0].cwd, real, "the row carries the real path, the spelling the registry stores");
+		assert.equal(listed[0].cwdAvailable, true);
+	} finally {
+		if (previousAgentDir === undefined) delete process.env.STEP_CODING_AGENT_DIR;
+		else process.env.STEP_CODING_AGENT_DIR = previousAgentDir;
 		await rm(base, { recursive: true, force: true });
 	}
 });

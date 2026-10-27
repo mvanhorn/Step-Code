@@ -6,7 +6,7 @@ import { displayPath, parsedPatch } from "../../lib/turn-changes";
 import { copyText } from "../../state/session";
 import { useAppStore } from "../../state/store";
 import type { FileChange, ToolArgs, ToolTimelineItem } from "../../state/types";
-import { DiffStat, Icon, type IconName, Tooltip } from "../../ui";
+import { DiffStat, Icon, type IconName, Tooltip, useCopiedFlag } from "../../ui";
 import { openFile } from "../files/actions";
 import { fileLanguage, highlightLines } from "../files/index";
 import { openChildAgent, openWorkflowAgents } from "./actions";
@@ -67,6 +67,13 @@ export const ToolRow = memo(function ToolRow({
 }) {
 	const t = useT();
 	const cwd = useAppStore((state) => state.current?.cwd ?? "");
+	// A call still pending in a session that is no longer working never got its result (the turn
+	// was stopped or the host restarted): it stops claiming to run.
+	const idle = useAppStore((state) => {
+		const status = state.current?.status;
+		return status !== undefined && status !== "running" && status !== "waiting";
+	});
+	const stale = !readOnly && idle && item.state === "pending";
 	const [open, setOpen] = useState(false);
 	const [visited, setVisited] = useState(false);
 	const detailsId = useId();
@@ -77,7 +84,7 @@ export const ToolRow = memo(function ToolRow({
 	// Only a file opens in the preview; a search or list path is usually a folder.
 	const openable = !item.imported && FILE_KINDS.has(toolKind(item)) ? call.openable : null;
 	const copyValue = toolKind(item) === "bash" ? (item.args?.command ?? "") : output;
-	const card = toolKind(item) === "edit" || toolKind(item) === "write";
+	const card = !item.imported && (toolKind(item) === "edit" || toolKind(item) === "write");
 	if (!readOnly && item.toolName === "subagent" && item.subagentTasks?.length && item.state !== "failed") {
 		return <SubagentLane item={item} />;
 	}
@@ -85,7 +92,7 @@ export const ToolRow = memo(function ToolRow({
 		<div className={cx("tool-call", open && "open")} data-kind={toolKind(item)} data-tool-state={item.state}>
 			{/* Not a button: the subject is a button of its own, and a button cannot hold one. The
 			    toggle stretches under the whole row, so a click anywhere but the subject expands it. */}
-			<div className={cx("tool-row", item.state, open && "open")}>
+			<div className={cx("tool-row", stale ? "stale" : item.state, open && "open")}>
 				<button
 					type="button"
 					className="tool-toggle"
@@ -108,11 +115,12 @@ export const ToolRow = memo(function ToolRow({
 					</span>
 					<Icon className="tool-twisty" name="disclosure" size="xs" />
 				</span>
-				<span className="tool-detail" hidden={!open}>
+				<span className="tool-detail">
 					<span className="tool-dot" aria-hidden="true">
 						·
 					</span>
-					{item.state === "failed" ? <span className="tool-failed">{t("toolFailed")}</span> : null}
+					{/* No "failed" tag: every failed verb already says so ("运行命令失败"), beside a red glyph. */}
+					{stale ? <span className="tool-failed">{t("toolInterrupted")}</span> : null}
 					<RowSubject item={item} path={shown} openable={openable} />
 					{item.change?.patch ? <DiffStatRow item={item} /> : null}
 				</span>
@@ -125,16 +133,19 @@ export const ToolRow = memo(function ToolRow({
 				<div className="tool-disclosure-body">
 					{visited ? (
 						<div className="tool-cx">
-							<details className="tool-cx-input">
-								<summary>
-									<Icon name="chevronRight" size="2xs" />
-									{t("toolInput")}
-									<code>{item.toolName}</code>
-								</summary>
-								<pre className="tool-cx-pre wrap">
-									{item.inputDetail || item.inputSummary || t("toolNoInput")}
-								</pre>
-							</details>
+							{/* A command's input is the command itself, already printed in full on the card head. */}
+							{toolKind(item) === "bash" ? null : (
+								<details className="tool-cx-input">
+									<summary>
+										<Icon name="chevronRight" size="2xs" />
+										{t("toolInput")}
+										<code>{item.toolName}</code>
+									</summary>
+									<pre className="tool-cx-pre wrap">
+										{item.inputDetail || item.inputSummary || t("toolNoInput")}
+									</pre>
+								</details>
+							)}
 							{card ? (
 								<ChangeCard item={item} path={shown} openable={openable} />
 							) : (
@@ -272,7 +283,13 @@ function CardHead({
 				</Tooltip>
 			) : null}
 			<Tooltip content={copyLabel}>
-				<button type="button" className="tool-cx-action" aria-label={copyLabel} onClick={onCopy}>
+				<button
+					type="button"
+					className="tool-cx-action"
+					aria-label={copyLabel}
+					data-copied={copied || undefined}
+					onClick={onCopy}
+				>
 					<Icon name={copied ? "check" : "copy"} size="xs" />
 				</button>
 			</Tooltip>
@@ -293,12 +310,10 @@ function ToolCard({
 	readonly copyValue: string;
 }) {
 	const t = useT();
-	const [copied, setCopied] = useState(false);
+	const [copied, flashCopied] = useCopiedFlag();
 	const [wrap, setWrap] = useState(false);
 	const copy = async () => {
-		await copyText(copyValue);
-		setCopied(true);
-		setTimeout(() => setCopied(false), 1200);
+		if (await copyText(copyValue, null)) flashCopied();
 	};
 	const command = toolKind(item) === "bash";
 	const head = command ? item.args?.command || item.inputSummary : path || item.inputSummary;
@@ -391,13 +406,11 @@ function ChangeCard({
 	readonly openable: string | null;
 }) {
 	const t = useT();
-	const [copied, setCopied] = useState(false);
+	const [copied, flashCopied] = useCopiedFlag();
 	const patch = item.change?.patch;
 	const diff = useMemo(() => (patch ? diffRows(patch, path) : null), [patch, path]);
 	const copy = async () => {
-		await copyText(patch ?? item.inputDetail ?? "");
-		setCopied(true);
-		setTimeout(() => setCopied(false), 1200);
+		if (await copyText(patch ?? item.inputDetail ?? "", null)) flashCopied();
 	};
 	return (
 		<>

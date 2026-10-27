@@ -45,7 +45,7 @@ apps/web/
     runtime.ts           session runtime: create/open/prompt/abort, snapshots, event fan-out
     approval.ts          ApprovalBroker: pending tool approvals per session
     workspaces.ts        workspace registry (newest first)
-    files.ts             workspace file tree / read / search
+    files.ts             workspace file tree / read / search / @path completion
     auth.ts, login.ts    cookie secret, launch-token exchange, credential status, desktop sign-in
     browser.ts           isolated Chromium ownership, leased controller, bounded frames and input
     browser-routes.ts, browser-policy.ts  authenticated browser HTTP/SSE adapter and input/URL policy
@@ -55,6 +55,8 @@ apps/web/
     terminal-cleanup.ts  owned process discovery: POSIX session/group/tty, Windows identity-validated descendants
     terminal-native.ts   node-pty native build probe and macOS spawn-helper exec-bit repair
     terminal-routes.ts, terminal-policy.ts  authenticated HTTP/SSE and shell/environment/input policy
+    site-preview.ts      token-scoped loopback static origin for rendered workspace pages
+    open-folder.ts       show a known workspace folder in Finder / File Explorer (no shell)
     directory-picker.ts  server-side folder chooser
     settings.ts          settings back end: MCP servers, plugins/marketplaces, skills
     model-providers.ts   model settings back end: models.json declarations, auth.json keys, model discovery
@@ -92,6 +94,14 @@ apps/web/
 - **Desktop-only behaviour goes through the bridge.** Use `getDesktopBridge()` / `isDesktopHost()` from
   `platform/host.ts`, and always keep a browser fallback (e.g. folder picking: bridge, then the host's picker, then the
   in-page browser). Desktop-only CSS goes under `[data-host="desktop"]` in `styles/global.css`.
+- The shared composer owns workspace `@path` completion in `features/composer`.
+  Host `/api/v1/workspace/completions` ranks bounded metadata-only candidates;
+  keep known-workspace auth, containment and request cancellation. Enter/row
+  picks insert reference text; Tab/chevron drills into a directory. The DOM
+  projection treats upload chips as non-text, preserving them and surrounding
+  prose on completion. IME, moved selections and session/workspace replacement
+  invalidate picks; stale/pending candidates must not send or overwrite input.
+  Escape belongs to the shell chain and closes the list without aborting a turn.
 - `platform/desktop-bridge.ts` is a cross-package contract with `apps/desktop/src/preload.ts`. Change it only together
   with the desktop side (see `apps/desktop/AGENTS.md`).
 
@@ -148,7 +158,7 @@ keep only the classes passed in. Read the component's doc comment before using i
 | `IconButton` | Square icon-only buttons (`icon`, `iconSize`) | Always has `.icon-button`; pass `aria-label`; wrap in `Tooltip` for a hint |
 | `Icon` | Sprite icons: `<Icon name size>`; `LEGACY_ICONS` holds preset name+size pairs | Sizes `2xs xs sm md lg menu`. New icons: add a `<symbol id="i-<name>">` to `IconSprite` and the name to `ICON_NAMES` |
 | `IconSprite` | The `<symbol>` sheet every `Icon` references | Rendered once in `App.tsx`; do not render again |
-| `Tooltip` | Hover / keyboard-focus hints: `<Tooltip content={text or element}>{trigger}</Tooltip>` | Placement top, centered, shifts only at viewport edges. One child that forwards `style`, `ref` and `aria-describedby`; the hint is its next sibling (no wrapper). Empty `content` = no hint. Can itself be a `Popover` trigger |
+| `Tooltip` | Hover / keyboard-focus hints: `<Tooltip content={text or element}>{trigger}</Tooltip>` | Placement top, centered, shifts only at viewport edges. One child that forwards `style`, `ref` and `aria-describedby`; the hint is its next sibling (no wrapper). Empty `content` = no hint. Rendered in the top layer (manual popover), so a neighbouring panel never covers it. Can itself be a `Popover` trigger |
 | `Modal` | Dialogs: backdrop + `section[role=dialog][aria-modal]`, toggled by `open` | `id` / `overlayClassName` on the overlay, `className` / `dialogProps` on the dialog, `labelledBy`. Escape belongs to the shell's chain unless `closeOnEscape` |
 | `Popover` | A panel or menu opened from a trigger (dropdowns, pickers, overflow menus): `<Popover content={panel} open onClose>{trigger}</Popover>` | The child is the trigger (forwards `ref` and `style`; may be a `Tooltip`); other div props go to the panel. The panel renders only while open, portaled to `body`, `--popover-gap` (4px) from the trigger: `placement` `bottom-start` (default) / `bottom-end` / `top-start` / `top-end`, or `bottom` / `top` centred on the trigger (shifted at a viewport edge), flipped when there is no room. `dismissOn`, `closeOnEscape` (refocuses the trigger) |
 | `Menu`, `MenuItem`, `MenuDivider` | Rows inside a `Popover` | `MenuItem`: `icon`, `trailing`, `danger`; pass `role="menu"` / `"menuitem"` where it is a real menu |
@@ -161,8 +171,9 @@ keep only the classes passed in. Read the component's doc comment before using i
 | `ShimmerText` | Animated "working on it" label | Put it in a status region to announce it |
 | `Kbd` | Keyboard shortcut hints | |
 | `DiffStat` | `+12 -3` line counts (`additions`, `deletions`) | |
-| `MarkdownView` | Rendering `lib/markdown` output (`html`), with code-block copy buttons (`onCopyCode`) | Only HTML from `renderMarkdown`; never other HTML |
+| `MarkdownView` | Rendering `lib/markdown` output (`html`), with code-block copy buttons (`onCopyCode`; unless it resolves `false`, the button shows `copiedLabel` briefly) | Only HTML from `renderMarkdown`; never other HTML |
 | `ResizeHandle` | Draggable / keyboard splitter between panels | Holds no size: `getSize`, `onResize` (live), `onCommit` (persist), `onReset`; `orientation="horizontal"` for stacked panels |
+| `useCopiedFlag` | `[copied, flash]` for a copy button that confirms in place | Pair with `copyText(value, null)` to skip the toast |
 | `useDismiss` | Outside-press and Escape dismissal for a mounted overlay | Include the trigger in `insideRefs` |
 | `useMergedRef` | One ref callback feeding two refs (own + forwarded) | |
 
@@ -185,6 +196,10 @@ When to add or change one:
   child-agent links, revertable file changes or running-state indicators.
 - Adding or changing a route or payload: update `openapi.yaml` in the same change, update `client/src/state/types.ts`,
   and add a unit test.
+- Session snapshots and every SSE event carry `revision`, monotonic per bound session. `renderSnapshot` ignores a
+  snapshot older than the newest revision the page has applied, so a read answered late cannot repaint a stopped turn
+  as running (or restore its stop control); each stream connection starts a new order, and its opening snapshot is
+  authoritative. Never apply an HTTP snapshot without that gate.
 - Anything a reloaded page must show again belongs in the session snapshot (e.g. `pendingApprovals`), not only in
   an SSE event.
 - Thinking elapsed time is host-observed presentation metadata (`src/thinking-timing.ts`), persisted through
@@ -199,15 +214,25 @@ When to add or change one:
   separate. Preserve original
   timeline indices for turn footers, file deliveries and search reveal. Group
   completion counts tool results, never canonical Tasks or child-agent success.
+  Imported ordinary calls with unknown outcomes may join folded groups; a group
+  containing unconfirmed results uses a neutral recorded-call summary, never a
+  completion claim. Historical tool calls cannot make a group running.
+- A subagent record is context the main agent produced, so its inspector has no prompt surface:
+  the child's input is a collapsed "task message received" receipt, never a bubble or box, and the parent
+  composer is hidden while the record is open (closing it restores the composer). Do not add a composer,
+  inline editor or send control to the child view.
 - Subagent rows project structured per-task results and use the existing read-only child transcript API.
-  Planned arguments mean queued, not running; missing legacy statuses stay unknown. Background custom messages
+  Planned arguments mean queued, not running; missing legacy statuses stay unknown. A dispatch the kernel
+  rejected never started a child, so its planned rows stay as failed attempts carrying the tool result's own
+  error: a refused run must not read as "status not recorded" or vanish from the rail and Summary. Only steps
+  that never settled become failed; a completed chain step keeps its own result. Background custom messages
   expose only validated agentId/event/status fields through `src/subagent-notification.ts`. Do not parse
   notification prose, infer per-task success from the parent tool, or add child execution controls in the inspector.
 - `features/inspector` owns the shared right rail, Summary and Context views.
   Summary uses DFSC's independent content-height floating board with a close-only
-  header and fixed compact width; it always floats out of flow and never reserves
-  a grid column, so the conversation keeps its width whether it is open or not. Do not
-  wrap it in the full-height inspector chrome used by the other panels.
+  header and fixed compact width. It floats over the conversation and reserves no
+  grid space; where there is room the reading column slides aside without
+  narrowing. Do not wrap it in the full-height inspector chrome used by the other panels.
   Summary's DFSC colors are scoped to that surface. Keep grid disclosures,
   fixed-slot completion motion and reduced-motion support; never replay a
   live completion animation for initially loaded completed history.
@@ -228,11 +253,14 @@ When to add or change one:
   `features/terminal` renders xterm in `#terminalDock`, a resizable bottom dock
   under the conversation toggled from the rail (`data-terminal-toggle`) or
   Ctrl+`; it is independent of the exclusive inspector. Keys typed in the shell
-  stay there (Escape, Ctrl chords). Only opening an empty dock or explicit tab
-  creation starts a shell; ending the last tab hides the dock. Hiding/switching tabs
-  disconnects streams without killing processes; closing a tab awaits owned
-  process-tree cleanup. Refresh replays bounded sequenced output, never creates
-  replacement shells. Shell exit retains helper ownership until Host cleanup;
+  stay there (Escape, Ctrl chords). Cmd/Ctrl+V is left to the browser's native
+  paste event — the dock never reads the clipboard, so no clipboard-read
+  permission is needed — and an oversized paste is refused before xterm sends
+  it. Only opening an empty dock or explicit tab creation starts a shell;
+  ending the last tab hides the dock. Hiding/switching tabs disconnects streams
+  without killing processes; closing a tab awaits owned process-tree cleanup.
+  Refresh replays bounded sequenced output, never creates replacement shells.
+  Shell exit retains helper ownership until Host cleanup;
   Windows descendant discovery checks creation times, not just reusable PIDs.
   Startup cancellation waits for a shell identity or startup failure before
   terminating the helper. Retention gaps must be visible; do not claim full-screen
@@ -247,6 +275,14 @@ When to add or change one:
   `src/browser.ts` / `browser-routes.ts`, not a Desktop bridge or iframe.
   Hiding releases its stream/controller but keeps tabs. Refresh rotates a
   leased controller token; late cleanup must not release its replacement.
+  Coalesce pointer moves and wheel deltas per frame in event order: a fast
+  trackpad must keep its scroll distance instead of filling the input queue,
+  but never sum wheels at different places or in opposite directions. An
+  attached frame stream keeps control past the lease deadline, and requests,
+  competing pages and the expiry timer must use the same rule. A same-id
+  replacement sends `replaced` to the displaced stream, which must not
+  reconnect by itself. Only a lost stream reconnects with backoff; restore the
+  retry budget after a healthy connection, not when connect resolves.
   Keep frame/input queues bounded and block host/client ports for subresources
   and WebSockets too. The browser-owned authenticated loopback proxy checks
   connection destinations across redirects and tunnels; keep loopback bypass
@@ -259,12 +295,44 @@ When to add or change one:
   and supported structured successful write/edit outputs; inline basenames
   require an unambiguous observed output. References use the existing
   workspace file API and containment checks, never browser `file:` navigation.
-  Delivery buttons toggle only their own visible Files preview, retaining
-  tabs and trigger focus; other files or panels switch to the requested file.
+  Delivery cards (under the closing reply of a turn) toggle only their own
+  visible Files preview, retaining tabs and trigger focus; other files or
+  panels switch to the requested file. A card whose turn changed the file
+  opens that turn's diff (`collectTurnChanges`, not a second change model)
+  and renders the page as that turn left it (`fileAtTurnEnd` replays the
+  recorded writes and patches, else reverses later patches from disk; never
+  write while rebuilding); otherwise it keeps a source action. Every card
+  requests its own turn's version. Turn changes recognize the Step tool
+  profile Web sessions use (`edit_file` and `write_file` record the same
+  patches as `edit` / `write`; a `write_file` from older sessions has none and
+  stays untracked; `changed: false` is no change) as well as `edit` / `write`.
+  Browser-renderable pages open in the
+  embedded browser on click, with a system-browser action; both
+  browsers load them from `src/site-preview.ts`, a separate token-scoped
+  loopback origin, never the Host's. Keep that origin separate and the Host's
+  `Sec-Fetch-Site` same-site/cross-site refusal in `WebAuth.authorize`.
   Markdown opens rendered; preview links resolve relative to that document.
+  Preview file tabs belong to the session that opened them
+  (`features/files/session-scope.ts`): switching sessions stashes them in page
+  memory and restores only the entered session's tabs, a new draft starts
+  empty, and a draft's tabs carry into the session its first send creates.
+  Never leave another session's file on screen beside a conversation.
 - Workspace navigation metadata is separate from sessions: `web-workspaces.json` stores registered `workspaces`
   and explicit `removedWorkspaces`. Removed entries are returned with `hidden: true`; clients must not recreate
   their project groups from session cwd values. Re-adding restores the group; removal never deletes chats or files.
+  A removed folder also stops being a *target*: its chats stay readable, but `startDraft` reroutes any request for a
+  hidden cwd to `workspaceForNewConversation` (launch folder, else a workspace still on offer), so "New conversation"
+  from one of those chats — and a draft open in the folder being removed — never creates a session in it. The host
+  refuses folder-scoped requests for a folder it no longer knows (`Folder is not a known workspace`), which is what a
+  draft pinned to a removed folder used to hit.
+- Session tag groups are derived, not stored: a group exists exactly as long as a listed session carries its tag
+  (`state/tag-groups.ts`). Deleting a session or untagging its last member removes the group from the grouped view
+  and the row's picker together, and frees its colour; clearing the filter when its group disappears keeps the
+  sidebar from going blank. Never keep an empty group record for the picker to re-offer.
+- `GET /api/v1/bootstrap` reports the running build's identity: `version` always, and `buildTime` when the
+  installer staged a release envelope (`STEPCODE_BUILD_TIME`, set by `apps/desktop/src/release-envelope.ts`).
+  Settings › General shows it as "当前版本", so a window can be told apart from a stale install or a source
+  checkout. Keep it a report of what the host runs; never synthesize a build time in the client.
 - Environment variables: `STEPCODE_WEB_PORT` (default 3077), `STEPCODE_WEB_CWD` (default workspace),
   `STEPCODE_WEB_PUBLIC_DIR` (client directory), `STEPCODE_WEB_AUTH_SECRET`, `STEPCODE_WEB_OPEN` (below),
   `STEPCODE_WEB_CLIENT_PORT` (the launch URL points at this port instead of the host's; `web:watch` sets it to the
@@ -286,8 +354,11 @@ When to add or change one:
 - `/api/v1/settings/*` is the settings screen's own surface (MCP servers, plugins, marketplaces, skills). It reads
   and writes the user's global StepCode configuration through `@step-harness/coding-agent` — the same files
   `step mcp`, `/plugin` and the TUI resource selector use — and never project scope. Only user-scope state moves;
-  a change reaches a session when that session starts (MCP servers connect at `session_start`, skills load with its
-  resources), so the client says so instead of reloading sessions.
+  a change reaches a session when that session starts (MCP tools register at `session_start`, skills load with its
+  resources), so the client says so instead of reloading sessions. The host holds the global MCP servers from
+  startup (`createStepMcpHostWarmup`) and re-syncs them after MCP/plugin settings changes, sign-in and sign-out;
+  sessions share those pooled connections. `send` waits for the session's extension startup, so a first message
+  carries the MCP tools.
 - Account settings are separate from General and reuse `features/login/actions.ts`
   and the existing Host sign-in routes. Keep credential presence (`configured`)
   separate from validity, and both separate from the account session
@@ -303,8 +374,9 @@ When to add or change one:
   expires the page cookie. Keep the launch cookie through a Step sign-out so
   Desktop reloads into `#loginGate` without a new terminal link. A Step account
   is optional: the gate opens only when no model can run (no Step credential
-  and `customModels: false`), and "Use your own models" (`#loginOwnModels`)
-  always leads past it to Settings > Models. Never remove custom providers on a
+  and `customModels: false`); the gate itself has no "Use your own models"
+  link. Signed out, the sidebar account button opens Settings > Account
+  directly (no menu), not the gate. Never remove custom providers on a
   Step sign-out. No
   balance/allowance placeholders.
 - Do not depend on `process.cwd()` being the workspace; the desktop starts the server elsewhere (macOS privacy

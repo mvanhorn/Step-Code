@@ -10,9 +10,14 @@ import { buildFeedbackSessionBundle, describeFeedbackBundle } from "../src/step/
 import { formatFeedbackSubmittedMessage, parseFeedbackArgs, runFeedbackCommand } from "../src/step/feedback/command.ts";
 import { deliverFeedback, retryPendingFeedback } from "../src/step/feedback/delivery.ts";
 import { readFeedbackDiagnostics } from "../src/step/feedback/diagnostics.ts";
-import { resolveFeedbackEndpoint } from "../src/step/feedback/endpoints.ts";
+import {
+	isBuiltInFeedbackEndpoint,
+	readBuiltInFeedbackEndpoint,
+	resolveFeedbackEndpoint,
+} from "../src/step/feedback/endpoints.ts";
 import {
 	listPendingFeedback,
+	normalizePendingFeedbackBundle,
 	resolveFeedbackPendingPath,
 	writePendingFeedback,
 	writePendingFeedbackBundle,
@@ -226,17 +231,64 @@ describe("feedback validation and settings", () => {
 		});
 	});
 
-	test("requires explicit endpoints and accepts environment aliases", () => {
-		expect(resolveFeedbackEndpoint({})).toBeUndefined();
+	test("ships the collector route and still accepts explicit endpoints", () => {
+		// A source checkout never ran the release pipeline; feedback must still be
+		// deliverable, so the production route is the built-in default.
+		const base = "https://api.stepfun.com/stepcliobserserver/api/v1";
+		expect(resolveFeedbackEndpoint({})).toBe(`${base}/feedback`);
+		expect(resolveFeedbackEndpoint({}, true)).toBe(`${base}/feedback/bundle`);
+		// The channel only describes the artifact; it does not change the route.
+		expect(resolveFeedbackEndpoint({ STEPCODE_BUILD_CHANNEL: "dev" })).toBe(`${base}/feedback`);
+		expect(resolveFeedbackEndpoint({ STEP_HARNESS_BUILD_CHANNEL: "release" }, true)).toBe(`${base}/feedback/bundle`);
+		// Operators, tests and a dev collector keep overriding it.
 		expect(resolveFeedbackEndpoint({ STEP_HARNESS_FEEDBACK_ENDPOINT: " https://feedback.test " })).toBe(
 			"https://feedback.test",
 		);
-		expect(
-			resolveFeedbackEndpoint({ STEP_HARNESS_FEEDBACK_BUNDLE_ENDPOINT: "https://feedback.test/bundle" }, true),
-		).toBe("https://feedback.test/bundle");
-		expect(resolveFeedbackEndpoint({ STEP_HARNESS_FEEDBACK_ENDPOINT: " https://feedback.test " })).toBe(
-			"https://feedback.test",
+		expect(resolveFeedbackEndpoint({ STEPCODE_FEEDBACK_BUNDLE_ENDPOINT: "https://feedback.test/bundle" }, true)).toBe(
+			"https://feedback.test/bundle",
 		);
+	});
+
+	test("does not classify neighboring collector paths as built-in routes", () => {
+		const bodyEndpoint = readBuiltInFeedbackEndpoint();
+		const bundleEndpoint = readBuiltInFeedbackEndpoint(true);
+
+		expect(isBuiltInFeedbackEndpoint(`${bodyEndpoint}/other`)).toBe(false);
+		expect(isBuiltInFeedbackEndpoint(`${bodyEndpoint}-other`)).toBe(false);
+		expect(isBuiltInFeedbackEndpoint(bundleEndpoint)).toBe(false);
+		expect(isBuiltInFeedbackEndpoint(`${bundleEndpoint}/other`, true)).toBe(false);
+		expect(isBuiltInFeedbackEndpoint(`${bundleEndpoint}-other`, true)).toBe(false);
+		expect(isBuiltInFeedbackEndpoint(bodyEndpoint, true)).toBe(false);
+	});
+
+	test("matches one-pass encoded collector paths without broadening built-in routes", () => {
+		const bodyEndpoint = readBuiltInFeedbackEndpoint();
+		const bundleEndpoint = readBuiltInFeedbackEndpoint(true);
+
+		const encodedBodyEndpoint = bodyEndpoint.replace(/\/feedback$/u, "/%66eedback");
+		const encodedBundleEndpoint = bundleEndpoint.replace(/\/feedback\/bundle$/u, "/%66eedback/%62undle");
+		expect(isBuiltInFeedbackEndpoint(encodedBodyEndpoint)).toBe(true);
+		expect(isBuiltInFeedbackEndpoint(encodedBundleEndpoint, true)).toBe(true);
+
+		expect(isBuiltInFeedbackEndpoint(bodyEndpoint.replace(/\/feedback$/u, "/%2566eedback"))).toBe(false);
+		expect(isBuiltInFeedbackEndpoint(bodyEndpoint.replace(/\/feedback$/u, "/%66eedback-other"))).toBe(false);
+		const differentOrigin = new URL(encodedBodyEndpoint);
+		differentOrigin.hostname = "feedback.test";
+		expect(isBuiltInFeedbackEndpoint(differentOrigin.href)).toBe(false);
+	});
+
+	test("treats a trailing DNS root dot as the same collector authority", () => {
+		const dottedBody = new URL(readBuiltInFeedbackEndpoint());
+		const dottedBundle = new URL(readBuiltInFeedbackEndpoint(true));
+		dottedBody.hostname = `${dottedBody.hostname}.`;
+		dottedBundle.hostname = `${dottedBundle.hostname}.`;
+		expect(isBuiltInFeedbackEndpoint(dottedBody.href)).toBe(true);
+		expect(isBuiltInFeedbackEndpoint(dottedBundle.href, true)).toBe(true);
+
+		dottedBody.port = "444";
+		expect(isBuiltInFeedbackEndpoint(dottedBody.href)).toBe(false);
+		dottedBundle.protocol = "http:";
+		expect(isBuiltInFeedbackEndpoint(dottedBundle.href, true)).toBe(false);
 	});
 });
 
@@ -273,6 +325,58 @@ describe("feedback submission and delivery", () => {
 		expect(result).toEqual({ status: "delivered", feedbackId: submission().feedbackId });
 		expect(calls).toHaveLength(1);
 		expect(calls[0]?.init?.headers).toEqual({ "content-type": "application/json" });
+	});
+
+	test.each([
+		["exact path", ""],
+		["trailing slash", "/"],
+		["query", "?source=test"],
+		["fragment", "#test"],
+	] as const)("refuses a built-in body collector URL with %s during a test run", async (_variant, suffix) => {
+		// The default route is a production URL: a test that forgets to inject a
+		// local endpoint must fail loudly instead of filing a real report.
+		const root = await makeRoot();
+		const { fetchImpl, calls } = queuedFetch([response(204)]);
+		const previousNodeEnv = process.env.NODE_ENV;
+		process.env.NODE_ENV = "test";
+		try {
+			await expect(
+				deliverFeedback({
+					endpoint: `${readBuiltInFeedbackEndpoint()}${suffix}`,
+					submission: submission(),
+					storageRootDir: root,
+					fetchImpl,
+				}),
+			).rejects.toThrow("a test would have posted to the real collector");
+		} finally {
+			if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+			else process.env.NODE_ENV = previousNodeEnv;
+		}
+		expect(calls).toHaveLength(0);
+	});
+
+	test("refuses a built-in bundle collector URL after delivering the body during a test run", async () => {
+		const root = await makeRoot();
+		const endpoint = "https://feedback.test/feedback";
+		const { fetchImpl, calls } = queuedFetch([response(204), response(204)]);
+		const previousNodeEnv = process.env.NODE_ENV;
+		process.env.NODE_ENV = "test";
+		try {
+			await expect(
+				deliverFeedback({
+					endpoint,
+					submission: submission(),
+					storageRootDir: root,
+					bundle: { endpoint: readBuiltInFeedbackEndpoint(true), data: Buffer.from("archive") },
+					fetchImpl,
+				}),
+			).rejects.toThrow("a test would have posted to the real collector");
+		} finally {
+			if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+			else process.env.NODE_ENV = previousNodeEnv;
+		}
+		expect(calls).toHaveLength(1);
+		expect(calls[0]?.url).toBe(endpoint);
 	});
 
 	test.each([
@@ -1114,6 +1218,66 @@ describe("feedback diagnostics and bundles", () => {
 		// An explicit session file skips the window entirely.
 		const explicit = await buildFeedbackSessionBundle({ storageRootDir: root, sessionFile, now });
 		expect(explicit.status).toBe("ready");
+	});
+
+	test("a bundle with full tool output survives pending normalization", async () => {
+		// The archive carries `tool-output/*.txt`; a stored copy is re-validated
+		// before retry, so an archive it cannot re-read is unrecoverable.
+		const root = await makeRoot();
+		const sessionDir = join(root, "sessions", "project");
+		await mkdir(join(sessionDir, "tool-output"), { recursive: true });
+		const sessionFile = join(sessionDir, "20260831_session-1.jsonl");
+		const toolName = `tool-${"a".repeat(32)}.txt`;
+		await writeFile(
+			sessionFile,
+			`${JSON.stringify({
+				type: "message",
+				message: { role: "toolResult", content: [{ type: "text", text: `Full output: ${toolName}` }] },
+			})}\n`,
+		);
+		await writeFile(join(sessionDir, "tool-output", toolName), "very long tool output\n");
+
+		const result = await buildFeedbackSessionBundle({ storageRootDir: root, sessionFile });
+		expect(result.status).toBe("ready");
+		if (result.status !== "ready") return;
+		expect(result.bundle.files.map((file) => file.name)).toContain(`tool-output/${toolName}`);
+		await expect(normalizePendingFeedbackBundle(Buffer.from(result.bundle.data))).resolves.toBeDefined();
+	});
+
+	test("a guessed session never comes from another project", async () => {
+		// Attaching a conversation from a project the user is not filing from is a
+		// privacy incident, not a helpful guess.
+		const root = await makeRoot();
+		const sessions = join(root, "agent", "sessions");
+		const other = join(sessions, "--other-project--");
+		await mkdir(other, { recursive: true });
+		const otherFile = join(other, "20260831_other.jsonl");
+		await writeFile(otherFile, '{"type":"session","id":"other"}\n');
+		const cwd = join(root, "current-project");
+		await mkdir(cwd, { recursive: true });
+
+		const guessed = await buildFeedbackSessionBundle({ storageRootDir: sessions, sessionDir: sessions, cwd });
+		expect(guessed).toEqual({ status: "skipped", reason: "no-session" });
+		// The same file is still reachable when the user names it.
+		const explicit = await buildFeedbackSessionBundle({ storageRootDir: sessions, sessionFile: otherFile });
+		expect(explicit.status).toBe("ready");
+	});
+
+	test("a guessed session in this project still respects the recency window", async () => {
+		const root = await makeRoot();
+		const sessions = join(root, "agent", "sessions");
+		const cwd = join(root, "project");
+		const projectDir = join(sessions, `--${cwd.replace(/^\//, "").replace(/[/:]/g, "-")}--`);
+		await mkdir(projectDir, { recursive: true });
+		const sessionFile = join(projectDir, "20260101_session.jsonl");
+		await writeFile(sessionFile, '{"type":"session","id":"old"}\n');
+		const old = new Date("2026-01-01T00:00:00.000Z");
+		await utimes(sessionFile, old, old);
+
+		const now = new Date("2026-08-31T00:00:00.000Z");
+		await expect(
+			buildFeedbackSessionBundle({ storageRootDir: sessions, sessionDir: sessions, cwd, now }),
+		).resolves.toEqual({ status: "skipped", reason: "stale" });
 	});
 
 	test("redacts credentials in the session bundle", async () => {

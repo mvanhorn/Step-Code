@@ -14,9 +14,9 @@ paths:
           application/json:
             schema:
               type: object
+              additionalProperties: false
+              description: Scans configured default source directories only. Custom path overrides are rejected.
               properties:
-                codexRoot: { type: string, description: Codex home or sessions directory }
-                claudeRoot: { type: string, description: Claude projects directory }
                 includeArchived: { type: boolean, default: false }
       responses:
         "200":
@@ -25,8 +25,9 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [roots, candidates, errors]
+                required: [existingCount, roots, candidates, errors]
                 properties:
+                  existingCount: { type: integer, minimum: 0, description: "Matching sessions already in the current candidate list." }
                   roots:
                     type: object
                     description: Actual resolved source directories, including empty scanned directories.
@@ -238,12 +239,104 @@ paths:
               schema: { type: string }
         "400": { description: Invalid or future cursor }
         "404": { description: Unknown terminal }
+  /api/v1/voice:
+    get:
+      description: |
+        Voice dictation availability for the composer's microphone button:
+        which channel the resolved credential belongs to. The key itself never
+        appears in any response. Unavailable means no credential: an
+        environment key or the stored Step login.
+      responses:
+        "200":
+          description: Availability snapshot
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VoiceStatus" }
+        "401": { description: Authentication required }
+  /api/v1/voice/start:
+    post:
+      description: |
+        Open the one buffering session (a second start while one runs answers
+        409; one that outlived its duration limit is dropped first, so a client
+        that vanished cannot lock the endpoint). Chunks are buffered until the
+        stop, which transcribes the whole recording.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sampleRate:
+                  type: number
+                  description: >-
+                    The client's real `AudioContext.sampleRate`, used for the WAV header. A browser may refuse the
+                    requested rate, and a header that disagrees with the samples corrupts the transcript. Omitted or
+                    implausible values fall back to 24000.
+      responses:
+        "200":
+          description: Session started
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sessionId]
+                properties:
+                  sessionId: { type: string }
+        "401": { description: Authentication required }
+        "409": { description: A voice session is already running }
+  /api/v1/voice/audio:
+    post:
+      description: |
+        Buffer one base64 PCM16 chunk (100 ms slices, mono, at the rate the
+        session was started with). At most 512 KiB decoded per chunk and 10
+        minutes of audio per session.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [data]
+              properties:
+                data: { type: string, description: Base64 PCM16 audio }
+      responses:
+        "202": { description: Chunk buffered }
+        "400": { description: Malformed body }
+        "401": { description: Authentication required }
+        "404": { description: No active voice session }
+        "413": { description: Chunk or session exceeds the size limit }
+  /api/v1/voice/stop:
+    post:
+      description: |
+        Transcribe the buffered recording with the StepFun ASR service and end
+        the session. The complete text comes back in the reply; an empty
+        recording (or one the service recognised nothing in) answers with an
+        empty text.
+      responses:
+        "200":
+          description: Transcript
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [text]
+                properties:
+                  text: { type: string, description: The recognised text, possibly empty }
+        "401": { description: Authentication required }
+        "404": { description: No active voice session }
+        "502": { description: The ASR service could not be reached or failed }
+  /api/v1/voice/cancel:
+    post:
+      description: Discard the buffered recording without transcribing.
+      responses:
+        "200": { description: Session discarded }
+        "401": { description: Authentication required }
   /api/v1/browser:
     get:
       description: Host-wide browser tab snapshot. No engine is launched by reading it. An optional control header renews that page's lease.
       parameters:
-        - { name: x-stepcode-browser-control, in: header, schema: { type: string } }
-      responses:
+        - { name: x-stepcode-browser-control, in: header, schema: { type: string } }      responses:
         "200":
           description: Browser snapshot
           content:
@@ -283,15 +376,18 @@ paths:
   /api/v1/browser/events:
     get:
       description: |
-        Authenticated SSE with snapshot, frame and closed events. Each frame has
+        Authenticated SSE with snapshot, frame, closed and replaced events. Each frame has
         tabId, width, height (remote CSS viewport coordinates), surfaceWidth and
         surfaceHeight (the captured image in the same units; the page is its
         top-left width x height, the rest is unused window area) and base64 JPEG data.
         Chromium frames are ACKed locally; transport is capped at 15 fps with one
         pending latest frame. Network backpressure drops frames and retains only
-        the newest snapshot. Frame payloads are bounded to 2.8 million base64
+        the newest snapshot; closed and replaced are always written because the
+        stream ends right after them. Frame payloads are bounded to 2.8 million base64
         characters. The client renews its lease every five seconds through GET
-        /browser; the stream itself does not renew ownership.
+        /browser; while this stream stays attached its token keeps control past the
+        lease deadline. replaced means another page with the same client id took
+        control; that page must not reconnect by itself.
       parameters:
         - { $ref: "#/components/parameters/BrowserControl" }
       responses:
@@ -565,6 +661,18 @@ paths:
                       A custom (bring-your-own-key) model from models.json is usable
                       without a Step credential. Checked offline. When true, the
                       page does not open the sign-in gate.
+                  version:
+                    type: string
+                    description: |
+                      Product version of the running host build, e.g. `0.1.0`.
+                      Settings shows it so a window can be identified.
+                  buildTime:
+                    type: string
+                    format: date-time
+                    description: |
+                      When the installed build was produced, from the release
+                      envelope staged beside the server entry. Absent for a
+                      source checkout.
   /api/v1/account:
     get:
       description: |
@@ -753,6 +861,27 @@ paths:
         "200": { description: "path is the chosen folder, or null when cancelled" }
         "409": { description: The system picker is unavailable or already open }
         "500": { description: The picker helper failed }
+  /api/v1/file:
+    get:
+      description: >-
+        Read-only preview of one file named by an absolute path from message content, for references that point
+        outside every workspace. Same limits and shapes as /api/v1/workspace/file, but the response path is the
+        absolute file path. No directory listing, no writes; authenticated like every other route.
+      parameters:
+        - { name: path, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: "kind text|image|binary|too-large, path, size; content for text only" }
+        "400": { description: Path is not absolute, does not exist or is not a file }
+  /api/v1/file/raw:
+    get:
+      description: Image bytes for one absolute path, mirroring /api/v1/workspace/raw.
+      parameters:
+        - { name: path, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: Image bytes }
+        "400": { description: Path is not absolute, does not exist or is not a file }
+        "413": { description: Image exceeds the preview limit }
+        "415": { description: File is not an image }
   /api/v1/workspace/files:
     get:
       parameters:
@@ -761,6 +890,40 @@ paths:
       responses:
         "200": { description: "One directory level: entries (name, path, kind) and truncated" }
         "400": { description: Path is outside the workspace or cannot be read }
+        "403": { description: cwd is not a known workspace }
+  /api/v1/workspace/completions:
+    get:
+      description: >-
+        Workspace-relative @path candidates for the Web/Desktop composer. An empty query or a trailing slash lists
+        one directory level; a basename fragment searches below the specified directory. Exact names, prefixes,
+        substrings and in-order fuzzy matches are ranked before returning at most 20 entries. Walks are bounded
+        to 4000 directories and 20000 entries and cancelled when the client disconnects. VCS, dependency and build
+        directories are not walked recursively; outside and dangling symlinks are not candidates. No file content
+        is read or attached. Paths use forward slashes and quoted paths are passed without their @ or quotes.
+      parameters:
+        - { name: cwd, in: query, required: true, schema: { type: string } }
+        - { name: q, in: query, required: true, schema: { type: string, maxLength: 1024 } }
+      responses:
+        "200":
+          description: Ranked candidates; truncated also reports a walk budget or unreadable descendant
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [entries, truncated]
+                properties:
+                  entries:
+                    type: array
+                    maxItems: 20
+                    items:
+                      type: object
+                      required: [name, path, kind]
+                      properties:
+                        name: { type: string }
+                        path: { type: string, description: Workspace-relative path with forward slashes }
+                        kind: { type: string, enum: [file, directory] }
+                  truncated: { type: boolean }
+        "400": { description: Missing or invalid query, outside path or unreadable scoped directory }
         "403": { description: cwd is not a known workspace }
   /api/v1/workspace/file:
     get:
@@ -780,6 +943,30 @@ paths:
         "200": { description: Image bytes }
         "413": { description: Image exceeds the preview limit }
         "415": { description: File is not an image }
+  /api/v1/workspace/open:
+    post:
+      description: >-
+        Show a known workspace folder in the system file manager (Finder on macOS, File Explorer on Windows, the
+        default handler elsewhere). Answers once the launcher has started.
+      parameters:
+        - { name: cwd, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: "ok: true" }
+        "403": { description: cwd is not a known workspace }
+        "500": { description: The file manager could not be started }
+  /api/v1/workspace/site:
+    post:
+      description: >-
+        Mint the rendered-preview URL of one workspace file (HTML with its relative CSS, scripts and images). The
+        URL points at a separate loopback origin that serves only that workspace, under an unguessable per-workspace
+        token, GET/HEAD only, without directory listings; the embedded browser or the system browser loads it.
+      parameters:
+        - { name: cwd, in: query, required: true, schema: { type: string } }
+        - { name: path, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: "url: http://127.0.0.1:<preview port>/<token>/<workspace-relative path>" }
+        "400": { description: Path is outside the workspace or is not a file }
+        "403": { description: cwd is not a known workspace }
   /api/v1/workspace/search:
     get:
       parameters:
@@ -787,6 +974,43 @@ paths:
         - { name: q, in: query, required: true, schema: { type: string } }
       responses:
         "200": { description: "Name matches below the workspace root: entries and truncated" }
+  /api/v1/workspace/git:
+    get:
+      description: >-
+        Git state of a workspace plus its local branches, for the composer's branch pill. `state.repository` is
+        false when the folder is not inside a git work tree (or git is missing), and `branches` is empty then.
+        `state.dirtyFiles` counts modified, staged and untracked files; `state.branch` is absent on a detached HEAD.
+        Branches are local refs, most recently committed first.
+      parameters:
+        - { name: cwd, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: "state (repository, root, branch, detached, dirtyFiles) and branches (name, upstream)" }
+        "403": { description: cwd is not a known workspace }
+  /api/v1/workspace/git/switch:
+    post:
+      description: >-
+        Switch to an existing local branch, or with `create: true` create it at HEAD (or at `from`) and switch to it.
+        `git switch` runs without `--force`, so a switch that would overwrite uncommitted work is refused instead of
+        discarding it; the response then carries `paths`. A failure answers 400 with a `code` the client renders:
+        not-a-repository, git-unavailable, invalid-branch-name, branch-already-exists, target-branch-not-found,
+        tracked-changes-would-be-overwritten, untracked-changes-would-be-overwritten, conflicts-present,
+        operation-in-progress, branch-in-other-worktree, unknown.
+      parameters:
+        - { name: cwd, in: query, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [branch]
+              properties:
+                branch: { type: string, description: Branch to switch to, or to create when create=true }
+                create: { type: boolean, description: Create the branch before switching to it }
+                from: { type: string, description: Start point for create; default HEAD }
+      responses:
+        "200": { description: The new git state }
+        "400": { description: "Branch operation refused: error, code, and paths for an overwrite refusal" }
+        "403": { description: cwd is not a known workspace }
   /api/v1/models:
     get:
       description: >-
@@ -826,12 +1050,38 @@ paths:
       description: >-
         Every session a user started, newest first after the client sorts. Child-agent sessions (subagent lanes and
         workflow agents) are omitted. Rows carry `name`, `firstMessage` and counts but not the full message text;
-        content search is `GET /api/v1/search`.
+        content search is `GET /api/v1/search`. Sessions open in the host also carry their live `status` and
+        `unread` (see `GET /api/v1/session-status`).
       responses:
         "200": { description: Session list grouped by cwd by the client }
     post:
       responses:
         "201": { description: New StepCode v3 session }
+  /api/v1/session-status:
+    get:
+      description: >-
+        Live status of every session open in the host, cheap enough to poll while a session the page is not
+        following runs. `unread` is true when a run completed or failed while no page followed the session's event
+        stream; opening the stream clears it. A session missing from the list is not open: nothing runs and nothing
+        is unread.
+      responses:
+        "200":
+          description: Open sessions
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [sessions]
+                properties:
+                  sessions:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, status, unread]
+                      properties:
+                        id: { type: string }
+                        status: { type: string, enum: [idle, running, waiting, completed, failed] }
+                        unread: { type: boolean }
   /api/v1/search:
     get:
       description: >-
@@ -902,12 +1152,39 @@ paths:
             Session snapshot including pendingClarifications and pendingSelections (in-memory requests restored after
             page reload). `permissionPreset` is the tier the kernel enforces now, which can differ from the Step
             settings (a "this session" Full Access grant is not persisted).
+            `goal` is the running goal the client steers from the summary board (absent when the session has none), and
+            `planMode` reports whether plan mode is active; both are read from the session branch, not from UI state.
+            `revision` is the newest event revision the host had published when this snapshot was serialized; a client
+            that has already applied a newer stream event must ignore this answer.
           content:
             application/json:
               schema:
                 type: object
                 properties:
+                  revision:
+                    type: integer
+                    description: Newest published event revision at serialization time (see the SSE `agent`/`status` events)
                   permissionPreset: { type: string, enum: [ask, approve-for-me, full-access] }
+                  goal:
+                    type: object
+                    description: The session's goal (runtime.ts `projectGoal`); absent when there is none.
+                    properties:
+                      id: { type: string }
+                      objective: { type: string }
+                      status:
+                        type: string
+                        enum: [active, paused, blocked, usage_limited, budget_limited, complete]
+                      tokensUsed: { type: integer }
+                      timeUsedSeconds: { type: integer, description: "Active-only elapsed seconds; the client ticks from it between snapshots" }
+                      tokenBudget: { type: integer }
+                      rounds: { type: integer, description: "Completed agent runs; progress, not a stop condition" }
+                  planMode:
+                    type: object
+                    description: Plan mode state (runtime.ts `projectPlanMode`).
+                    properties:
+                      enabled: { type: boolean }
+                      planFilePath: { type: string }
+                      planSource: { type: string, enum: [user, agent, unknown] }
                   entries:
                     type: array
                     items:
@@ -926,14 +1203,37 @@ paths:
                               type: string
                               enum: [background_done, background_failed, background_interrupted, background_progress, background_restarted, background_needs_input]
                             status: { type: string, enum: [running, completed, failed, aborted] }
+                        goalRound:
+                          type: integer
+                          minimum: 1
+                          description: >-
+                            On a step-goal continuation custom_message only: the round (1-based) this
+                            continuation starts, from its validated details.iteration. The client draws
+                            the flow's round separators from it.
                         thinkingTimings:
                           $ref: "#/components/schemas/ThinkingTimings"
+                        promptCommand:
+                          type: string
+                          description: >-
+                            On a user message only: the prompt-command line (`/<template> args`) the user typed,
+                            when this message is its expansion. Paired by content from a host-recorded
+                            `stepcode-web.prompt-command` custom entry; never part of the model's context.
                   policies:
                     type: array
                     items: { $ref: "#/components/schemas/PolicyPreset" }
                   pendingSelections:
                     type: array
                     items: { $ref: "#/components/schemas/SelectionRequest" }
+                  pendingTextInputs:
+                    type: array
+                    description: Kernel text prompts (`ui.input`) waiting for an answer (in memory, restored after reload)
+                    items: { $ref: "#/components/schemas/TextInputRequest" }
+                  sideAnswers:
+                    type: array
+                    description: >-
+                      `/btw` answers of this session, oldest first (in memory for the life of the host process, never a
+                      session entry, never model context).
+                    items: { $ref: "#/components/schemas/SideAnswer" }
                   pendingClarifications:
                     type: array
                     items: { $ref: "#/components/schemas/ClarificationRequest" }
@@ -1017,10 +1317,20 @@ paths:
         "200":
           description: >-
             SSE snapshot and agent/status/approval/clarification_required/clarification_resolved/selection_required/
-            selection_resolved/queue events. clarification_required carries clarification and selection_required carries
-            selection; the resolved events carry id; queue carries a QueueState (queued, steering).
+            selection_resolved/text_input_required/text_input_resolved/notice/side-answer/queue events.
+            clarification_required carries clarification and selection_required carries selection; the resolved events
+            carry id. text_input_required carries `input` (id, sessionId, title, placeholder) and
+            text_input_resolved carries id. side-answer carries `answer` (id, question, text, model, unavailable,
+            createdAt) for the rail tab. `notice` carries level (info|warning|error), text and optional markdown:
+            it is command output from the kernel's `ui.notify`, shown in the transcript but never persisted and never
+            part of the model's context. `transient: true` marks an announcement of state the client already renders
+            (plan mode, the permission tier): shown briefly, never added to the conversation. A failure the host cannot attribute to a request is sent as `web_error` with
+            a message. queue carries a QueueState (queued, steering).
             Agent envelopes optionally carry thinkingTimings, keyed by original content-block index, with host-observed
             epoch-millisecond startedAt/endedAt fields. Live intervals may omit endedAt; saved intervals are complete.
+            A user message_start envelope may carry promptCommand: the prompt-command line its text expanded from.
+            Every event (and the session snapshot) carries `revision`, monotonic per bound session; a snapshot whose
+            revision is older than an event the page has already applied describes a state it has left.
   /api/v1/sessions/{id}/messages:
     post:
       parameters:
@@ -1169,6 +1479,36 @@ paths:
         - { $ref: "#/components/parameters/SessionId" }
       responses:
         "200": { description: Agent interrupted }
+  /api/v1/sessions/{id}/fork:
+    post:
+      description: >-
+        Branch the session at `entryId` (a recorded turn) or at its last user message, and rebind this host session to
+        the new branch. The kernel always creates a new session id and file; `sessionId` in the response is that new id,
+        which is immediately readable through `GET /sessions/{id}`. The new session is named after the parent's current
+        title plus `_fork`, so forking a fork appends again (`title_fork_fork`). Refused while a turn runs or while
+        another fork is in progress.
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                entryId: { type: string, description: Entry to branch at; omit to use the last user message }
+      responses:
+        "200":
+          description: Fork result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cancelled: { type: boolean }
+                  sessionId:
+                    type: string
+                    description: The session now bound — the new branch on success, the previous id otherwise
+        "400": { description: The entry cannot be forked, a turn is running, or a fork is already in progress }
   /api/v1/sessions/{id}/name:
     patch:
       parameters:
@@ -1190,12 +1530,16 @@ paths:
         "404": { description: Approval no longer pending }
   /api/v1/sessions/{id}/skills:
     get:
-      description: Skills the composer offers as `/skill:<name>` (empty when skill commands are disabled).
+      description: >-
+        What the composer's slash menu offers for this session: skills as `/skill:<name>` (empty when skill
+        commands are disabled) and prompt commands as `/<name>` — prompt templates, plugin `commands/*.md`
+        included, that the kernel expands on send. A template named like a registered extension command or a
+        Web surface (`mcp`, `btw`, `feedback`) never expands and is not listed.
       parameters:
         - { $ref: "#/components/parameters/SessionId" }
       responses:
         "200":
-          description: Skills by name
+          description: Skills and prompt commands, each by name
           content:
             application/json:
               schema:
@@ -1208,11 +1552,21 @@ paths:
                       properties:
                         name: { type: string }
                         description: { type: string }
+                  commands:
+                    type: array
+                    items:
+                      type: object
+                      required: [name, description]
+                      properties:
+                        name: { type: string }
+                        description: { type: string }
+                        argumentHint: { type: string, description: "The template's `argument-hint` frontmatter" }
   /api/v1/workspace/skills:
     get:
       description: >-
-        Skills for a folder without a session yet. Uses an open session in the same folder; otherwise resolves
-        the folder's skill resources as a session would, without extensions (plugin skills are then missing).
+        Skills and prompt commands for a folder without a session yet: what a new session there would load. The
+        folder's resources are resolved as a session would, without extensions; installed plugins' skills and
+        commands are added from plugin discovery, so a plugin installed a moment ago is listed at once.
       parameters:
         - { name: cwd, in: query, required: true, schema: { type: string } }
       responses:
@@ -1531,7 +1885,9 @@ paths:
       description: >-
         Ask one endpoint which models it advertises, for the form's "fetch available models" action. The
         body carries the draft the user is editing rather than a saved provider, so the address, protocol
-        and key are used as given and nothing is stored. The address is normalized as on save, then
+        and key are used as given and nothing is stored. A blank key falls back to the stored credential
+        for `providerId` (the credential file, then the declaration's own key), as on save and in the
+        connection test. The address is normalized as on save, then
         OpenAI-shaped protocols list at `{baseUrl}/models` with bearer auth; Anthropic Messages at
         `{baseUrl}/v1/models` with `x-api-key`. A reply over 4 MiB is refused.
       requestBody:
@@ -1542,6 +1898,7 @@ paths:
               type: object
               required: [baseUrl]
               properties:
+                providerId: { type: string, description: "Provider whose stored key is used when apiKey is blank" }
                 baseUrl: { type: string }
                 api: { type: string }
                 apiKey: { type: string, description: "Used for this request only" }
@@ -1558,6 +1915,30 @@ paths:
                     items: { $ref: "#/components/schemas/DiscoveredModel" }
         "400": { description: Unusable address or a protocol with no readable listing }
         "502": { description: "The endpoint refused, was unreachable, or did not answer with a model listing" }
+  /api/v1/settings/models/test:
+    post:
+      description: >-
+        Send a one-token ping to one model of the declaration currently in the form, saved or not. The body
+        carries the draft (provider id, address, protocol, optional key, model id); a blank key falls back to
+        the stored credential for the provider id. Answers over the provider stack a session would use.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [providerId, baseUrl, api, modelId]
+              properties:
+                providerId: { type: string }
+                baseUrl: { type: string }
+                api: { type: string }
+                apiKey: { type: string, description: "Used for this request only" }
+                modelId: { type: string }
+      responses:
+        "200": { description: The model answered the ping }
+        "400": { description: Missing fields or the model id is not usable }
+        "502": { description: "The provider rejected the request or reported an error" }
+        "504": { description: No answer within the test timeout }
   /api/v1/settings/models/{id}:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
@@ -1589,15 +1970,34 @@ paths:
       responses:
         "200": { description: Deleted }
         "404": { description: No such provider }
+  /api/v1/sessions/{id}/turns/{turnId}/site:
+    post:
+      description: >-
+        Mint the rendered-preview URL of a file as the turn left it: the file on disk with every later turn's patches
+        to it reversed (reverted turns skipped). The latest version is the plain site URL; an earlier one is served
+        from memory at the file's URL plus `?rev=<id>`, so relative assets still resolve. `exact` is false when a later
+        change cannot be reversed (no patch, recreated file, or edited outside the session); the URL then shows the
+        current file.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: turnId, in: path, required: true, schema: { type: string } }
+        - { name: path, in: query, required: true, schema: { type: string } }
+      responses:
+        "200": { description: "url, exact" }
+        "400": { description: Path is outside the workspace, is not a file, or the version is too large }
   /api/v1/sessions/{id}/turns/{turnId}/revert:
     post:
       description: >-
         Reverse-apply the edit/write patches (tool result `details.patch`) of the turn that starts at
-        user entry `turnId`. All or nothing over the patched files. Hunks may have moved (later edits elsewhere
+        user entry `turnId`. Every file is checked before anything is written; a refusal (409) writes nothing, but
+        a failure while writing is returned as an error and the files already written stay written. Paths that
+        name the same file (case, symlinks) count as one file. Hunks may have moved (later edits elsewhere
         in the file) and their edge context may have changed, but the lines the turn changed must be intact.
         Successful edit/write calls without a patch (large or binary files) are left as they are and listed in
-        `skipped`; changes made through `bash` are not tracked. A `stepcode-web.turn-revert` custom message then
-        tells the model which files were restored and lists the turn in the snapshot's `revertedTurns`.
+        `skipped`; changes made through `bash` are not tracked, so a file a command changed no longer matches and is
+        refused. A file the turn created is deleted only when reversing reaches that creating write with nothing
+        left and no unpatched change to the same path. A `stepcode-web.turn-revert` custom message then tells the
+        model which files were restored and lists the turn in the snapshot's `revertedTurns`.
       parameters:
         - { $ref: "#/components/parameters/SessionId" }
         - { name: turnId, in: path, required: true, schema: { type: string } }
@@ -1620,15 +2020,20 @@ paths:
                         path: { type: string }
                         reason: { type: string, enum: [too_large, binary, unreadable, unknown] }
         "409":
-          description: The revert was refused and nothing was written.
+          description: >-
+            The revert was refused before any file was written. `modified`: a file no longer matches the turn's
+            patches, and undoing the later turns first, newest first and each as a whole, was not found to help.
+            `conflict`: undoing the later, not yet reverted turns that depend on this turn's files first was
+            checked to let this turn undo.
           content:
             application/json:
               schema:
                 type: object
                 properties:
                   error: { type: string }
-                  code: { type: string, enum: [busy, reverted, empty, missing, conflict] }
-                  path: { type: string, description: The file that blocked it (missing, conflict) }
+                  code: { type: string, enum: [busy, reverted, empty, missing, conflict, modified] }
+                  path:
+                    { type: string, description: "The file that blocked it (missing, conflict, modified)" }
   /api/v1/sessions/{id}/policy:
     patch:
       description: >-
@@ -1674,6 +2079,38 @@ paths:
         "200": { description: Session snapshot after the answer was applied }
         "400": { description: Missing id or a non-string value }
         "404": { description: Selection no longer pending, or the value was not offered; the question stays open }
+  /api/v1/sessions/{id}/text-inputs/response:
+    post:
+      description: >-
+        Answer a kernel text prompt (`ui.input`), such as the `/feedback` comment field. Resolves after the command
+        that asked has applied the answer.
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id]
+              properties:
+                id: { type: string }
+                value:
+                  type: string
+                  description: >-
+                    The submitted text; an empty string is a real answer. Omit to dismiss the prompt (the kernel treats
+                    it as cancelled).
+      responses:
+        "200": { description: Session snapshot after the answer was applied }
+        "400": { description: Missing id or a non-string value }
+        "404": { description: Text input no longer pending }
+  /api/v1/sessions/{id}/side-answers/clear:
+    post:
+      description: Forget this session's `/btw` answers (the rail panel's Clear action).
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+      responses:
+        "200": { description: Answers cleared }
   /api/v1/sessions/{id}/clarifications/response:
     post:
       parameters:
@@ -1707,12 +2144,124 @@ paths:
         "200": { description: Response accepted; resumes the existing clarify_user call }
         "400": { description: Invalid or incomplete answers; request remains pending }
         "404": { description: Request no longer pending in this session }
+  /api/v1/sessions/{id}/goal:
+    patch:
+      description: |
+        One control from the summary board's goal section. Each action runs the
+        same `/goal` slash command the CLI issues (`start`, `pause`, `resume`,
+        `edit`, `clear`), so there is one implementation of goal control.
+        Answered 202 because a slash command is a kernel prompt; the resulting
+        goal arrives in the session snapshot's `goal`.
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action: { type: string, enum: [start, pause, resume, edit, clear] }
+                objective: { type: string, description: "Required for start and edit" }
+      responses:
+        "202": { description: Goal control accepted }
+        "400": { description: "Unknown action, or a missing objective for start/edit" }
+  /api/v1/sessions/{id}/mode:
+    patch:
+      description: |
+        Start or stop a composer mode. `plan` toggles plan mode; `ultraloop` is
+        rejected by hosts that offer per-turn opt-in only; `goal` starts or clears
+        the goal and needs `goal` text when enabling.
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mode, enabled]
+              properties:
+                mode: { type: string, enum: [goal, plan, ultraloop] }
+                enabled: { type: boolean }
+                goal: { type: string }
+      responses:
+        "202": { description: Mode command accepted }
+  /api/v1/sessions/{id}/feedback/evidence:
+    get:
+      description: >-
+        Prepare a feedback report for this conversation and describe what it would carry. The consent dialog reads this
+        before offering to send anything, and returns the `token` with the submission so the report contains exactly
+        the evidence that was shown. A prepared report is held briefly and consumed once.
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+      responses:
+        "200":
+          description: The prepared evidence, described for the user.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token, preview]
+                properties:
+                  token: { type: string, description: "Names the prepared evidence; sent back with the submission" }
+                  preview:
+                    type: object
+                    required: [surface, version, channel, summary, diagnostics]
+                    properties:
+                      surface: { type: string, enum: [web, desktop] }
+                      version: { type: string }
+                      channel: { type: string, enum: [dev, release] }
+                      sessionId: { type: string }
+                      summary: { type: boolean, description: "Content-free session summary is attached" }
+                      diagnostics: { type: boolean, description: "Host log excerpt is attached" }
+                      archive:
+                        type: array
+                        items:
+                          type: object
+                          required: [name, bytes]
+                          properties:
+                            name: { type: string }
+                            bytes: { type: integer }
+                            note: { type: string, description: "Bound or truncation the kernel applied" }
+                      archiveNote: { type: string, description: "Why the archive is absent, when it was skipped" }
+  /api/v1/sessions/{id}/feedback:
+    post:
+      description: >-
+        File feedback about this session. The kernel assembles the body and the session archive, redacts them, and
+        delivers both; the host never assembles its own payload. The built-in collector route is used unless
+        `STEPCODE_FEEDBACK_ENDPOINT` overrides it. A report the kernel rejects (unknown category, invalid body) answers
+        400 with the reason.
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sentiment, comment]
+              properties:
+                sentiment: { type: string, enum: [up, down] }
+                topic: { type: string, description: "Composer topic; folded into the comment and mapped to a kernel category" }
+                comment: { type: string }
+                token: { type: string, description: "The token of the evidence the dialog displayed" }
+      responses:
+        "200": { description: Submitted; `message` states the feedback id and any skipped archive }
+        "400": { description: "The kernel rejected the report, or delivery failed and the outcome is not a submission" }
   /api/v1/sessions/{id}/model:
     patch:
       parameters:
         - { $ref: "#/components/parameters/SessionId" }
       responses:
         "200": { description: Persisted model selection }
+  /api/v1/sessions/{id}/models/refresh:
+    post:
+      parameters:
+        - { $ref: "#/components/parameters/SessionId" }
+      responses:
+        "200": { description: Re-read models.json and return the session snapshot with the refreshed model catalog }
   /api/v1/sessions/{id}/files:
     get:
       parameters:
@@ -1732,7 +2281,7 @@ components:
       required: [id, source, sessionId, title, cwd, modified, archived, version]
       properties:
         id: { type: string }
-        source: { type: string, enum: [codex, claude-code] }
+        source: { type: string, enum: [codex, claude-code, workbuddy, qoder] }
         sessionId: { type: string }
         title:
           type: string
@@ -1775,7 +2324,7 @@ components:
             required: [candidateId, status]
             properties:
               candidateId: { type: string }
-              source: { type: string, enum: [codex, claude-code], description: Source client; legacy recovery uses validated provenance only }
+              source: { type: string, enum: [codex, claude-code, workbuddy, qoder], description: Source client; legacy recovery uses validated provenance only }
               sourcePath: { type: string, description: Absolute source JSONL path on the host when known }
               title: { type: string, description: Reviewed title or bounded native-header recovery for older results; absent when unknown }
               cwd:
@@ -1816,6 +2365,14 @@ components:
             properties:
               seq: { type: integer, minimum: 1 }
               data: { type: string, maxLength: 8192 }
+    VoiceStatus:
+      type: object
+      required: [available]
+      properties:
+        available: { type: boolean }
+        reason: { type: string, enum: [no-credential], description: Why dictation is unavailable }
+        channel: { type: string, enum: [step_plan, platform], description: Which StepFun service the credential belongs to }
+        keySource: { type: string, enum: [environment, auth.json], description: Where the credential comes from; never the key }
     EmbeddedBrowserSnapshot:
       type: object
       required: [revision, activeId, tabs]
@@ -1940,6 +2497,7 @@ components:
           type: array
           items: { type: string }
         disabled_tools: { type: array, items: { type: string } }
+        shared: { type: boolean, description: "false gives every session its own connection instead of the shared one" }
         oauth:
           type: object
           properties:
@@ -2058,6 +2616,28 @@ components:
         sessionId: { type: string }
         title: { type: string }
         options: { type: array, items: { type: string } }
+    SideAnswer:
+      type: object
+      required: [id, question, text, createdAt]
+      description: One `/btw` answer, shown in a rail tab.
+      properties:
+        id: { type: string }
+        question: { type: string }
+        text: { type: string, description: Markdown answer, or why there is none }
+        model: { type: string }
+        unavailable: { type: boolean, description: Cancelled, or no usable answer }
+        createdAt: { type: integer }
+    TextInputRequest:
+      type: object
+      required: [id, sessionId, title]
+      description: >-
+        A kernel `ui.input` prompt. The title and placeholder are the kernel's own wording; answer through
+        `text-inputs/response`.
+      properties:
+        id: { type: string }
+        sessionId: { type: string }
+        title: { type: string }
+        placeholder: { type: string }
     ClarificationRequest:
       type: object
       required: [id, sessionId, questions]

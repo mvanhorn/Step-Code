@@ -16,6 +16,7 @@ import {
 	countUserMessages,
 	createSessionIfNeeded,
 	forgetSelection,
+	refreshCurrent,
 	renderSnapshot,
 	showError,
 } from "../../state/session";
@@ -28,10 +29,18 @@ import type {
 	SelectionRequest,
 	SessionSnapshot,
 	SteeringMessage,
+	TextInputRequest,
 	TimelineItem,
 	UploadedFile,
 } from "../../state/types";
-import type { PromptFile } from "./prompt-editor";
+import { commandLeadIcon, MODES, modeFromCommand } from "./modes";
+import {
+	insertCommandLead,
+	insertModeLead,
+	MODE_LEAD_CLASS,
+	type PromptFile,
+	stripLeadingCommand,
+} from "./prompt-editor";
 
 export async function replyToClarification(
 	request: ClarificationRequest,
@@ -74,7 +83,9 @@ export async function selectPolicy(preset: string): Promise<void> {
 	}
 	setState({ draftPolicy: preset });
 	try {
-		renderSnapshot(await apiSend<SessionSnapshot>(`/api/v1/sessions/${current.id}/policy`, "PATCH", { preset }));
+		renderSnapshot(await apiSend<SessionSnapshot>(`/api/v1/sessions/${current.id}/policy`, "PATCH", { preset }), {
+			fromAction: true,
+		});
 	} catch (error) {
 		showError(errorMessage(error));
 	}
@@ -121,13 +132,47 @@ export async function answerSelection(request: SelectionRequest, value: string |
 			{ id: request.id, ...(value === undefined ? {} : { value }) },
 		);
 		forgetSelection(request.id);
-		renderSnapshot(snapshot);
+		renderSnapshot(snapshot, { fromAction: true });
 		return true;
 	} catch (error) {
 		showError(errorMessage(error));
 		return false;
 	} finally {
 		answeringSelections.delete(request.id);
+	}
+}
+
+/* ── Kernel text prompts (`ui.input`) ─────────────────────────────────────── */
+
+/** The text prompt to show, if any (a `/feedback` step and other input-taking commands). */
+export function pendingTextInput(state: AppState): TextInputRequest | undefined {
+	return state.current?.pendingTextInputs?.[0];
+}
+
+const answeringTextInputs = new Set<string>();
+
+/**
+ * Answer a pending kernel text prompt. `undefined` dismisses it, which the
+ * kernel reads as "cancelled"; an empty string is a submitted empty answer.
+ * The host replies once the command has applied it.
+ */
+export async function answerTextInput(request: TextInputRequest, value: string | undefined): Promise<boolean> {
+	// Escape (ShellEffects) and the dialog's buttons can both answer.
+	if (answeringTextInputs.has(request.id)) return false;
+	answeringTextInputs.add(request.id);
+	try {
+		const snapshot = await apiSend<SessionSnapshot>(
+			`/api/v1/sessions/${request.sessionId}/text-inputs/response`,
+			"POST",
+			{ id: request.id, ...(value === undefined ? {} : { value }) },
+		);
+		renderSnapshot(snapshot, { fromAction: true });
+		return true;
+	} catch (error) {
+		showError(errorMessage(error));
+		return false;
+	} finally {
+		answeringTextInputs.delete(request.id);
 	}
 }
 
@@ -146,6 +191,7 @@ export async function selectModel(value: string): Promise<boolean> {
 	try {
 		renderSnapshot(
 			await apiSend<SessionSnapshot>(`/api/v1/sessions/${current.id}/model`, "PATCH", { provider, modelId }),
+			{ fromAction: true },
 		);
 		return true;
 	} catch (error) {
@@ -162,7 +208,9 @@ export async function selectEffort(level: string): Promise<boolean> {
 		return true;
 	}
 	try {
-		renderSnapshot(await apiSend<SessionSnapshot>(`/api/v1/sessions/${current.id}/thinking`, "PATCH", { level }));
+		renderSnapshot(await apiSend<SessionSnapshot>(`/api/v1/sessions/${current.id}/thinking`, "PATCH", { level }), {
+			fromAction: true,
+		});
 		return true;
 	} catch (error) {
 		showError(errorMessage(error));
@@ -172,22 +220,103 @@ export async function selectEffort(level: string): Promise<boolean> {
 
 /* ── Session modes ────────────────────────────────────────────────────────── */
 
-/** The command line a mode maps to, matching what the host's `setMode` runs. */
-function modeCommandLine(id: ModeId, enabled: boolean): string {
-	if (id === "plan") return "/plan";
-	if (id === "ultraloop") return enabled ? "/ultraloop on" : "/ultraloop off";
-	return enabled ? "/goal " : "/goal clear";
+/**
+ * Each mode applies to the next message only.
+ *
+ * A mode used to be a session switch: picking one typed `/ultraloop on`,
+ * `/goal clear` or a bare `/plan` into the prompt and kept it on until picked
+ * again. That made "turn this off" a second command the user had to send, and
+ * left the input showing keywords they never typed. A mode is now staged as a
+ * lead chip at the prompt's line start — part of the text line, deleted with a
+ * backspace — and rides one message, dropping once that message is sent.
+ *
+ * The prefix is what the kernel reads for that one turn (the chip itself adds
+ * no prompt text; the send prepends the prefix):
+ * - `/plan ` — plan this task;
+ * - `/goal ` — start a goal with the message body;
+ * - the `ultracode` keyword — the kernel's own per-turn workflow opt-in
+ *   (`ultraloop` is its alias; the kernel matches both).
+ */
+const MODE_PREFIX: Readonly<Record<ModeId, string>> = {
+	goal: "/goal ",
+	plan: "/plan ",
+	ultraloop: "ultracode: ",
+};
+
+/** The leading text `id` contributes to the message it is staged on. */
+export function modePrefix(id: ModeId): string {
+	return MODE_PREFIX[id];
 }
 
 /**
- * Single-select: `id` becomes the only mode on, or turns off when already on.
- * Returns the command line to stage in the composer — the mode activates when
- * that line is sent, so what runs is always visible in the input.
+ * Single-select: picking `id` makes it the only staged mode, picking it again
+ * removes it. Nothing is written into the prompt here; the composer renders the
+ * staged mode as the prompt's lead chip (see `insertModeLead`).
  */
-export function chooseMode(id: ModeId): string {
+export function chooseMode(id: ModeId): boolean {
 	const enabled = !getState().modes[id];
 	setState({ modes: { goal: false, plan: false, ultraloop: false, [id]: enabled } });
-	return modeCommandLine(id, enabled);
+	return enabled;
+}
+
+/** Drop every staged mode; a sent message consumes them. */
+export function clearModes(): void {
+	setState({ modes: { goal: false, plan: false, ultraloop: false } });
+}
+
+/**
+ * The staged mode renders as the prompt's leading chip, so deleting that chip
+ * (a backspace over it) is how the user drops the mode — exactly like deleting
+ * the command text it stands for. The chip is the source of truth: the modes
+ * are mutually exclusive, so at most one stands, and the staged state mirrors
+ * whichever mode's chip survives the edit (if any). Call after every prompt
+ * edit.
+ */
+export function syncStagedModeLead(editor: HTMLElement): void {
+	const chip = editor.querySelector<HTMLElement>(`.${MODE_LEAD_CLASS}`);
+	const staged = (Object.keys(getState().modes) as ModeId[]).find((id) => getState().modes[id]) ?? null;
+	const leading = (chip?.dataset.mode as ModeId | undefined) ?? null;
+	if (staged === leading) return;
+	if (leading) chooseMode(leading);
+	else clearModes();
+}
+
+/**
+ * Stage `command` (with its slash or keyword form, no trailing space) as the
+ * prompt's lead. The three mode commands stage their mode — the same chip and
+ * theme as picking them from the ＋ menu — so typing `/goal` and picking Goal
+ * look identical. Typing another mode's command replaces the staged one (the
+ * modes are mutually exclusive); any other command appends — commands stack,
+ * one input may carry several.
+ */
+export function stageCommandLead(editor: HTMLElement, command: string): void {
+	const name = command.replace(/^\//u, "");
+	const mode = modeFromCommand(name.replace(/:$/u, ""));
+	const meta = mode ? MODES.find((entry) => entry.id === mode) : undefined;
+	if (mode && meta) {
+		chooseMode(mode);
+		// Insert the chip synchronously (see the input sync note): another mode's
+		// chip yields its place — one mode rides a message.
+		insertModeLead(editor, {
+			id: mode,
+			icon: meta.icon,
+			label: t(meta.labelKey),
+			command: modePrefix(mode).trim(),
+		});
+		return;
+	}
+	insertCommandLead(editor, { command, icon: commandLeadIcon(name) });
+}
+
+/**
+ * After every prompt edit: a completed leading command (name plus its space)
+ * leaves the text and becomes its lead chip, so every command line shows the
+ * same icon and theme from the moment it is recognizable.
+ */
+export function applyLeadingCommand(editor: HTMLElement): void {
+	const name = stripLeadingCommand(editor);
+	if (name === null) return;
+	stageCommandLead(editor, name === "ultracode" ? "ultracode:" : `/${name}`);
 }
 
 /* ── Other-session context ────────────────────────────────────────────────── */
@@ -301,9 +430,9 @@ export function removeAttachment(index: number): void {
 
 /* ── Sending (legacy `#composer` submit, 3523-3549) ──────────────────────── */
 
-/** A turn is in progress (running or waiting on the user), so a new message has to wait for it. */
+/** A turn is in progress (running, waiting on the user, or compacting), so a new message has to wait for it. */
 export function turnActive(state: AppState): boolean {
-	return state.current?.status === "running" || state.current?.status === "waiting";
+	return state.compacting || state.current?.status === "running" || state.current?.status === "waiting";
 }
 
 /**
@@ -323,14 +452,17 @@ export async function sendMessage(text: string, files: readonly PromptFile[] = [
 	// A queued or steered message waits for the turn, so only a new turn gets
 	// the immediate message and thinking indicator.
 	const images = attachments.filter((attachment) => attachment.kind === "image");
-	const pendingTurn = active
-		? null
-		: {
-				text,
-				files,
-				images: images.map((image) => `data:${image.mimeType};base64,${image.data}`),
-				userCount: countUserMessages(timelineItems),
-			};
+	// A slash command never becomes a user message — the host echoes it as a
+	// command row instead — so the optimistic bubble would only flash.
+	const pendingTurn =
+		active || text.startsWith("/")
+			? null
+			: {
+					text,
+					files,
+					images: images.map((image) => `data:${image.mimeType};base64,${image.data}`),
+					userCount: countUserMessages(timelineItems),
+				};
 	setState({ attachments: [], pendingTurn });
 	// A steered message is shown in the conversation now, though the kernel reads it only after the current tool call.
 	const steering = active && steer && state.current ? (state.current.steeringMessages ?? []) : null;
@@ -340,7 +472,7 @@ export async function sendMessage(text: string, files: readonly PromptFile[] = [
 			{ text, images: images.map(({ mimeType, data }) => ({ mimeType, data })) },
 		]);
 	try {
-		const session = await createSessionIfNeeded();
+		const session = await createSessionIfNeeded(text);
 		const endpoint = !active ? "messages" : steer ? "steer" : "queue";
 		// `files`: upload ids of the prompt's file chips; the host adds their content.
 		const body = JSON.stringify({ text, attachments, files: files.map((file) => file.id) });
@@ -349,6 +481,10 @@ export async function sendMessage(text: string, files: readonly PromptFile[] = [
 			body,
 		});
 		if ("queued" in result) applyQueueState(session.id, result);
+		// A slash command journals no user message: the host echoes it as a
+		// command row through the snapshot, so pull the snapshot once the
+		// command has run (commands that drive no turn push no other event).
+		if (text.startsWith("/")) void refreshCurrent();
 		return true;
 	} catch (error) {
 		setState({ attachments, pendingTurn: null });

@@ -95,18 +95,21 @@ function checkWebClientSurface() {
   ]
   if (missing.length) {
     throw new Error(
-      `apps/web/client/src is missing the Kimi-style first-release structure: ${missing.join(", ")}`,
+      `apps/web/client/src is missing the first-release structure: ${missing.join(", ")}`,
     )
   }
   const globalCssPath = join(sourceRoot, "styles/global.css")
   const globalCss = readFileSync(globalCssPath, "utf8")
   if (
-    !globalCss.includes("--sidebar: #f7f7f8") ||
+    !globalCss.includes("--sidebar: var(--workbench)") ||
+    !globalCss.includes("--sidebar-glass: rgb(240 246 253 / 72%)") ||
+    !globalCss.includes("--workbench: #edf4fc") ||
+    !globalCss.includes('html[data-theme="violet"]') ||
     !globalCss.includes("--ink: #171718") ||
     !globalCss.includes("--composer-width: 760px")
   ) {
     throw new Error(
-      "apps/web/client/src/styles/global.css is missing the Kimi-style first-release tokens",
+      "apps/web/client/src/styles/global.css is missing the first-release tokens",
     )
   }
   // A single stray brace silently drops every rule after it, which is how the
@@ -146,13 +149,12 @@ function checkWebClientSurface() {
   if (hasClass("topbar") || styles.includes(".topbar {")) {
     throw new Error("apps/web/client still contains the removed main-area header")
   }
-  // Attachments shipped, so the guard that kept them out of the first release
-  // no longer applies. The rest are still unbuilt.
+  // Attachments and voice dictation shipped, so the guards that kept them out
+  // of the first release no longer apply. The rest are still unbuilt.
   for (const forbidden of [
     "hudToggle",
     'className="hud"',
     'class="hud"',
-    "voiceButton",
     "cronPlaceholder",
   ]) {
     if (index.includes(forbidden) || source.includes(forbidden)) {

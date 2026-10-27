@@ -13,13 +13,15 @@ import { api, apiSend, errorMessage, setUnauthorizedHandler } from "../lib/api";
 import { splitAttachedFiles } from "../lib/attached-files";
 import { writeClipboard } from "../lib/clipboard";
 import { basename, clipDetail, compact, toolArgs, toolInputDetail, toolInputSummary } from "../lib/format";
+import { stripImportedUserControls } from "../lib/imported-content";
 import { contentText, skillInvocation } from "../lib/markdown";
 import { FULL_ACCESS_PRESET, isFullAccessRisk } from "../lib/permissions";
 import { isDesktopHost } from "../platform/host";
 import { assistantBlocks } from "./assistant-content";
 import { observePerformance } from "./performance";
-import { type AppState, getState, mapWith, setState, setUi } from "./store";
+import { type AppState, getState, mapWith, setState, setUi, type ToastState } from "./store";
 import { backgroundSubagentStatuses, subagentTasks } from "./subagent-tasks";
+import { pruneTagGroups, withoutSessionTag } from "./tag-groups";
 import { readThinkingTimings } from "./thinking-timing";
 import type {
 	AccountReport,
@@ -32,13 +34,17 @@ import type {
 	DraftModels,
 	FileChange,
 	LoginReport,
+	NoticeItem,
 	QueueState,
 	SelectionRequest,
 	SessionEntry,
+	SessionLiveStatus,
 	SessionRetry,
 	SessionSnapshot,
 	SessionStatus,
 	SessionSummary,
+	SideAnswer,
+	TextInputRequest,
 	ThinkingTimings,
 	TimelineItem,
 	ToolArgs,
@@ -51,11 +57,127 @@ import type {
 let toastTimer: ReturnType<typeof setTimeout> | undefined;
 let toastSeq = 0;
 
+/** Notices are page-local command output; keep the newest so a chatty command cannot grow the list forever. */
+const NOTICE_LIMIT = 20;
+/** Side answers kept per session, matching the host's own bound. */
+const SIDE_ANSWER_LIMIT = 30;
+/**
+ * Answers whose tab the reader closed. The host keeps them (they are its history),
+ * so without this a snapshot refresh would resurrect the tab they dismissed.
+ */
+const dismissedSideAnswers = new Set<string>();
+
+/** Stop restoring one answer's tab after the reader closed it. */
+export function forgetSideAnswer(id: string): void {
+	dismissedSideAnswers.add(id);
+}
+
+/** The answers a snapshot should restore: everything the reader has not closed. */
+export function restorableSideAnswers(answers: readonly SideAnswer[]): readonly SideAnswer[] {
+	return answers.filter((answer) => !dismissedSideAnswers.has(answer.id));
+}
+let noticeSeq = 0;
+
+/**
+ * Append a command notice to the transcript. Notices are this page's view of
+ * `ui.notify`: they are never persisted and never enter the model's context.
+ */
+/**
+ * Goal lifecycle state the right rail's goal panel already shows: a notice
+ * would only repeat it as a bubble. Warnings that need a decision still show.
+ */
+const GOAL_STATUS_NOTICE =
+	/^(Goal set: |Goal (paused|resumed|cleared|updated)\.|Goal commands: |Goal: .*\(iteration |Stopped a queued goal turn |Goal .+ is (paused|blocked|usage_limited))/u;
+
+/** Whether a notice only restates goal state the goal panel already renders. */
+export function goalStatusNotice(text: string): boolean {
+	return GOAL_STATUS_NOTICE.test(text.trim());
+}
+
+export function pushNotice(level: NoticeItem["level"], text: string, options?: { readonly markdown?: boolean }): void {
+	if (goalStatusNotice(text)) return;
+	const current = getState().current;
+	noticeSeq += 1;
+	const item: NoticeItem = {
+		id: `notice-${noticeSeq}`,
+		sessionId: current?.id ?? "",
+		level,
+		text,
+		...(options?.markdown ? { markdown: true } : {}),
+	};
+	setState((state) => ({ notices: [...state.notices, item].slice(-NOTICE_LIMIT) }));
+}
+
+/**
+ * What opens side answers in the rail. `state/session.ts` must not import a
+ * feature (features import it), so the tab actions install themselves here.
+ */
+let openSideAnswerTab: (answer: SideAnswer) => void = () => {};
+let syncSideAnswerTabs: (answers: readonly SideAnswer[]) => void = () => {};
+let dropSideAnswerTabs: () => void = () => {};
+
+/** Called once by `features/files/actions.ts`; keeps the reducer free of feature imports. */
+export function installSideAnswerTabs(actions: {
+	open: (answer: SideAnswer) => void;
+	sync: (answers: readonly SideAnswer[]) => void;
+	drop: () => void;
+}): void {
+	openSideAnswerTab = actions.open;
+	syncSideAnswerTabs = actions.sync;
+	dropSideAnswerTabs = actions.drop;
+}
+
+/**
+ * What scopes file preview tabs to their session (`features/files/session-scope.ts`).
+ * Installed by the files feature for the same reason as the side-answer actions.
+ */
+let switchPreviewSession: (previousId: string | undefined, nextId: string | undefined) => void = () => {};
+let forgetPreviewSession: (sessionId: string) => void = () => {};
+
+/** Called once by `features/files/session-scope.ts`. */
+export function installPreviewSessionScope(actions: {
+	switch: (previousId: string | undefined, nextId: string | undefined) => void;
+	forget: (sessionId: string) => void;
+}): void {
+	switchPreviewSession = actions.switch;
+	forgetPreviewSession = actions.forget;
+}
+
+/**
+ * File one `/btw` answer: keep it on the session (so the rail can list it) and
+ * open it as its own tab, the way asking the question is what the user wanted.
+ * The conversation, its entries and the model's context are untouched.
+ */
+export function applySideAnswer(answer: SideAnswer): void {
+	setState((state) => ({
+		current: state.current
+			? {
+					...state.current,
+					sideAnswers: [
+						...(state.current.sideAnswers ?? []).filter((item) => item.id !== answer.id),
+						answer,
+					].slice(-SIDE_ANSWER_LIMIT),
+				}
+			: state.current,
+	}));
+	openSideAnswerTab(answer);
+}
+
+/** Remove one notice the reader dismissed. */
+export function dismissNotice(id: string): void {
+	setState((state) => ({ notices: state.notices.filter((notice) => notice.id !== id) }));
+}
+
 /** Show the top-centre toast for 4.2s (legacy `showError`, 3184-3193). `danger=false` is the neutral tone. */
 export function showError(message: string, danger = true): void {
+	showToast(message, danger ? "danger" : "neutral");
+}
+
+/** A short, self-dismissing announcement. State the UI already draws says nothing else. */
+export function showToast(message: string, tone: ToastState["tone"] = "neutral"): void {
 	toastSeq += 1;
 	const seq = toastSeq;
-	setState({ toast: { message, tone: danger ? "danger" : "neutral", seq } });
+	setState({ toast: { message, tone, seq } });
 	if (toastTimer !== undefined) clearTimeout(toastTimer);
 	toastTimer = setTimeout(() => {
 		if (getState().toast?.seq === seq) setState({ toast: null });
@@ -74,13 +196,18 @@ export function showAuthBanner(): void {
 
 setUnauthorizedHandler(showAuthBanner);
 
-/** Copy to the clipboard and report the outcome in the toast (legacy `copyText`, 2098-2105). */
-export async function copyText(value: string, successText: string = t("copied")): Promise<void> {
+/**
+ * Copy to the clipboard and report the outcome in the toast (legacy `copyText`, 2098-2105).
+ * `successText: null` skips the success toast for a button that confirms in place.
+ */
+export async function copyText(value: string, successText: string | null = t("copied")): Promise<boolean> {
 	try {
 		await writeClipboard(value);
-		showError(successText, false);
+		if (successText !== null) showError(successText, false);
+		return true;
 	} catch {
 		showError(t("browserCopyDenied"));
+		return false;
 	}
 }
 
@@ -103,6 +230,12 @@ export function taskStatus(state: AppState, session: SessionSummary): SessionSta
 	return state.statusById.get(session.id) ?? ((session.messageCount ?? 0) > 0 ? "completed" : "idle");
 }
 
+/** A folder the user removed from workspace navigation; its chats stay readable. */
+export function isHiddenWorkspace(state: AppState, path: string | undefined): boolean {
+	if (!path) return false;
+	return state.workspaces.some((workspace) => workspace.hidden === true && workspace.path === path);
+}
+
 /** Every folder the UI knows as a workspace, sorted by name (legacy `knownWorkspaces`, 1082-1095). */
 export function knownWorkspaces(state: AppState): string[] {
 	const values = new Set<string>();
@@ -113,15 +246,34 @@ export function knownWorkspaces(state: AppState): string[] {
 	for (const session of state.sessions) {
 		if (session.cwd && session.cwdAvailable !== false) values.add(session.cwd);
 	}
-	const hidden = new Set(state.workspaces.filter((workspace) => workspace.hidden).map((workspace) => workspace.path));
 	return [...values]
-		.filter((path) => !hidden.has(path))
+		.filter((path) => !isHiddenWorkspace(state, path))
 		.sort((left, right) => basename(left).localeCompare(basename(right), "zh-CN"));
 }
 
 /** The cwd new work should target: current session, else draft, else launch folder. */
 export function activeCwd(state: AppState = getState()): string {
 	return state.current?.cwd || state.draftCwd || state.bootstrapCwd;
+}
+
+/**
+ * Where a new conversation may start when the folder it would have used has
+ * been removed from workspace navigation.
+ *
+ * Removing a workspace keeps its chats, so one of them can still be open and
+ * "New conversation" would otherwise inherit that folder through `activeCwd()`.
+ * The picker cannot even list a removed folder, so the composer then named a
+ * workspace the user had deleted and sent a message into it — and any
+ * folder-scoped request (the file tree, git, `@` completion) came back with
+ * "Folder is not a known workspace". Prefer the launch folder, then any
+ * workspace still on offer; the launch folder is the last resort because the
+ * host always works somewhere.
+ */
+export function workspaceForNewConversation(state: AppState = getState()): string {
+	const wanted = activeCwd(state);
+	if (!isHiddenWorkspace(state, wanted)) return wanted;
+	if (state.bootstrapCwd && !isHiddenWorkspace(state, state.bootstrapCwd)) return state.bootstrapCwd;
+	return knownWorkspaces(state)[0] ?? state.bootstrapCwd;
 }
 
 /** `${provider}\u0000${id}` key of a model (legacy `modelKey`). */
@@ -143,16 +295,23 @@ export function mergeSessionSummary(
 	return next;
 }
 
+/** File-changing tools: the built-in names and the Step tool profile's, which Web sessions use. */
+const FILE_CHANGE_TOOLS: ReadonlySet<string> = new Set(["edit", "write", "edit_file", "write_file"]);
+
 /**
- * The file change of a finished edit/write call: both tools record a unified
- * patch in their result details; `write` says why when it recorded none.
+ * The file change of a finished edit/write call. `edit`, `write` and Step's
+ * `edit_file` record a unified patch in their result details; `write` says why
+ * when it recorded none. Step's `write_file` records no patch (an untracked
+ * change), and `changed: false` when the file already held the content.
  */
 function fileChange(name: string, args: unknown, result: AgentMessage | undefined): FileChange | undefined {
-	if ((name !== "edit" && name !== "write") || !result || result.isError) return undefined;
+	if (!FILE_CHANGE_TOOLS.has(name) || !result || result.isError) return undefined;
 	const details = (result.details ?? {}) as {
 		patch?: unknown;
 		untracked?: unknown;
+		changed?: unknown;
 	};
+	if (details.changed === false) return undefined;
 	const input = (args ?? {}) as { path?: unknown; file_path?: unknown };
 	const path = typeof input.path === "string" ? input.path : input.file_path;
 	if (typeof path !== "string" || !path.trim()) return undefined;
@@ -186,6 +345,51 @@ export function childAgents(name: string, details: unknown): Pick<ToolTimelineIt
 	return children.length ? { children } : {};
 }
 
+/**
+ * The proposal an `exit_plan_mode` call submitted.
+ *
+ * `details` is the only structured copy: the plan file may change afterwards,
+ * and `planHash` is what binds a decision to the text the user reviewed. A
+ * result without those fields is a guard result ("not in plan mode", unreadable
+ * file), which stays a plain tool row.
+ */
+export function planReview(details: unknown): Pick<ToolTimelineItem, "planReview"> {
+	if (!details || typeof details !== "object") return {};
+	const value = details as {
+		planFilePath?: unknown;
+		planContents?: unknown;
+		planHash?: unknown;
+		outcome?: unknown;
+	};
+	if (
+		typeof value.planFilePath !== "string" ||
+		typeof value.planContents !== "string" ||
+		typeof value.planHash !== "string"
+	) {
+		return {};
+	}
+	const outcome = value.outcome;
+	if (
+		outcome !== "approved" &&
+		outcome !== "feedback" &&
+		outcome !== "dismissed" &&
+		outcome !== "external_approval_required"
+	) {
+		return {};
+	}
+	return {
+		planReview: {
+			planFilePath: value.planFilePath,
+			planContents: value.planContents,
+			planHash: value.planHash,
+			outcome,
+			// Only a handoff to the user is actionable; the other outcomes were
+			// already resolved inside a host that could ask.
+			pending: outcome === "external_approval_required",
+		},
+	};
+}
+
 /** `{ args }` for a tool item when the call has arguments a row names, else nothing. */
 function withArgs(input: unknown): { args?: ToolArgs } {
 	const args = toolArgs(input);
@@ -204,6 +408,37 @@ function imageSources(content: unknown): string[] {
 }
 
 /**
+ * How many conversational messages a compaction replaced: everything since the
+ * previous compaction, before the first entry this one keeps. Earlier summaries
+ * are not counted again. The branch still holds the summarized entries, so this
+ * counts the transcript rows the summary stands in for, not the session file.
+ */
+function compactedMessageCount(
+	entries: readonly SessionEntry[],
+	compactionIndex: number,
+	firstKeptEntryId: unknown,
+): number {
+	// An earlier compaction already accounts for everything before it.
+	let start = 0;
+	for (let index = compactionIndex - 1; index >= 0; index -= 1) {
+		if (entries[index]?.type === "compaction") {
+			start = index + 1;
+			break;
+		}
+	}
+	const keptIndex =
+		typeof firstKeptEntryId === "string" ? entries.findIndex((entry) => entry.id === firstKeptEntryId) : -1;
+	const end = keptIndex >= 0 && keptIndex < compactionIndex ? keptIndex : compactionIndex;
+	let count = 0;
+	for (const entry of entries.slice(start, end)) {
+		if (entry.type === "message" && (entry.message?.role === "user" || entry.message?.role === "assistant")) {
+			count += 1;
+		}
+	}
+	return count;
+}
+
+/**
  * Project session entries into timeline rows (legacy `timelineFromEntries`, 2055-2096).
  *
  * A failed request the kernel retried is followed directly by the next
@@ -213,6 +448,15 @@ function imageSources(content: unknown): string[] {
  */
 export function timelineFromEntries(entries: readonly SessionEntry[] = [], retry?: SessionRetry): TimelineItem[] {
 	const items: TimelineItem[] = [];
+	/*
+	 * A command that expands into its own user message (`/plan <task>`) journals
+	 * the task twice — once as the host's echo, once as the message the kernel
+	 * sends. The echo carries the badge, so the identical message that follows
+	 * it is dropped from the timeline (it stays journaled for the model).
+	 */
+	let echoArgs: string | null = null;
+	// Separators seen so far, for labelling a round whose projected number is missing.
+	let goalRounds = 0;
 	const toolResults = new Map<string, NonNullable<SessionEntry["message"]>>();
 	for (const entry of entries) {
 		if (entry.type === "message" && entry.message?.role === "toolResult" && entry.message.toolCallId) {
@@ -220,11 +464,60 @@ export function timelineFromEntries(entries: readonly SessionEntry[] = [], retry
 		}
 	}
 	const messages = entries.filter((entry) => entry.type === "message" && entry.message);
-	for (const [index, entry] of messages.entries()) {
+	const messagePosition = new Map(messages.map((entry, index) => [entry.id, index]));
+	for (const [entryIndex, entry] of entries.entries()) {
+		if (entry.type === "compaction") {
+			items.push({
+				itemId: `compaction-${entry.id}`,
+				kind: "compaction",
+				summary: typeof entry.summary === "string" ? entry.summary : "",
+				...(typeof entry.tokensBefore === "number" ? { tokensBefore: entry.tokensBefore } : {}),
+				removedMessages: compactedMessageCount(entries, entryIndex, entry.firstKeptEntryId),
+				...(typeof entry.timestamp === "string" ? { timestamp: entry.timestamp } : {}),
+			});
+			continue;
+		}
+		// The host's echo of a kernel slash command: the transcript's only record of the typed line.
+		if (entry.type === "custom" && entry.customType === "stepcode-web.command-echo") {
+			const command = typeof entry.command === "string" ? entry.command : "";
+			if (command) {
+				items.push({
+					itemId: `command-${entry.id}`,
+					kind: "command",
+					entryId: entry.id,
+					command,
+					...(typeof entry.timestamp === "string" ? { timestamp: entry.timestamp } : {}),
+				});
+				echoArgs = /^\/[A-Za-z0-9][\w.:-]*\s*([\s\S]*)$/u.exec(command)?.[1]?.trim() || null;
+			}
+			continue;
+		}
+		// The goal's continuation message starts the next round; the flow marks
+		// it with a separator so a run reads as rounds, not one long stream.
+		if (entry.type === "custom_message" && entry.customType === "step-goal") {
+			goalRounds += 1;
+			const projected = entry.goalRound;
+			items.push({
+				itemId: `goal-round-${entry.id}`,
+				kind: "goal-round",
+				round: typeof projected === "number" && projected > 0 ? projected : goalRounds + 1,
+				...(typeof entry.timestamp === "string" ? { timestamp: entry.timestamp } : {}),
+			});
+			continue;
+		}
+		if (entry.type !== "message") continue;
 		const message = entry.message;
 		if (!message || message.role === "toolResult") continue;
-		const text = contentText(message.content);
+		if (message.role === "user" && echoArgs !== null) {
+			const duplicate = contentText(message.content).trim() === echoArgs;
+			echoArgs = null;
+			if (duplicate) continue;
+		}
+		const index = messagePosition.get(entry.id) ?? 0;
+		const rawText = contentText(message.content);
+		const text = entry.imported && message.role === "user" ? stripImportedUserControls(rawText).text : rawText;
 		const images = message.role === "user" ? imageSources(message.content) : [];
+		if (entry.imported && message.role === "user" && !text && !images.length) continue;
 		// A failed request leaves an assistant message with no content; without a row the error was invisible.
 		const error =
 			message.role === "assistant" && message.stopReason === "error"
@@ -239,13 +532,19 @@ export function timelineFromEntries(entries: readonly SessionEntry[] = [], retry
 			continue;
 		}
 		if (message.role !== "assistant" && (text || message.role === "user")) {
+			// A prompt command's expansion is shown as the line the user typed.
+			const promptCommand =
+				message.role === "user" && typeof entry.promptCommand === "string" && entry.promptCommand
+					? entry.promptCommand
+					: undefined;
 			// Every user message opens a turn (the host's turn boundary), even one without text.
 			items.push({
 				itemId: `message-${entry.id}`,
 				entryId: entry.id,
 				kind: "message",
 				role: message.role,
-				content: text,
+				content: promptCommand ?? text,
+				...(promptCommand ? { promptCommand: true } : {}),
 				...(images.length ? { images } : {}),
 				...(error ? { error } : {}),
 				usage: entry.usage,
@@ -305,12 +604,20 @@ export function timelineFromEntries(entries: readonly SessionEntry[] = [], retry
 					...withArgs(block.arguments),
 					...(change ? { change } : {}),
 					...links,
+					// The proposal comes from the persisted result, not the live event, so
+					// a snapshot refresh (which follows every finished message) keeps the
+					// review card. Imported calls are history, never native review requests.
+					...(!imported && block.name === "exit_plan_mode" ? planReview(result?.details) : {}),
 					...(!imported && block.name === "subagent"
 						? {
 								subagentTasks: subagentTasks(
 									block.arguments,
 									result?.details,
 									result?.isError ? "failed" : result ? "completed" : "pending",
+									[],
+									// A rejected dispatch reports no per-task result: its error is the
+									// only account of why the run did not happen.
+									result?.isError ? clipDetail(contentText(result.content)) : undefined,
 								),
 							}
 						: {}),
@@ -336,7 +643,7 @@ export function timelineFromEntries(entries: readonly SessionEntry[] = [], retry
 		else items.push({ itemId: "retry-live", kind: "retry", errors: [retry.errorMessage], live: retry });
 	}
 	const background = backgroundSubagentStatuses(entries);
-	return items.map((item) =>
+	const rows = items.map((item) =>
 		item.kind === "tool" && item.subagentTasks
 			? {
 					...item,
@@ -356,6 +663,29 @@ export function timelineFromEntries(entries: readonly SessionEntry[] = [], retry
 				}
 			: item,
 	);
+	return settlePlanReviews(rows);
+}
+
+/**
+ * A plan review is actionable only while nothing has superseded it.
+ *
+ * Each decision the card sends is an ordinary user message, so a user message
+ * after the proposal is the decision. A newer `exit_plan_mode` proposal
+ * supersedes an older one. The card itself stays in the transcript as the
+ * record of that round; it just stops offering buttons.
+ */
+function settlePlanReviews(items: TimelineItem[]): TimelineItem[] {
+	let latest = -1;
+	items.forEach((item, index) => {
+		if (item.kind === "tool" && item.planReview) latest = index;
+	});
+	if (latest < 0) return items;
+	const decided = items.some((item, index) => index > latest && item.kind === "message" && item.role === "user");
+	return items.map((item, index) => {
+		if (item.kind !== "tool" || !item.planReview) return item;
+		const pending = item.planReview.pending && index === latest && !decided;
+		return pending === item.planReview.pending ? item : { ...item, planReview: { ...item.planReview, pending } };
+	});
 }
 
 /**
@@ -369,6 +699,13 @@ const liveClarifications = new Map<string, ClarificationRequest>();
 const resolvedClarifications = new Set<string>();
 /** Kernel selections already answered; ids are unique per host process. */
 const resolvedSelections = new Set<string>();
+
+/**
+ * Newest stream revision seen per session. Status and agent events are pushed,
+ * so they are newer than an HTTP snapshot that was serialized before them; the
+ * revision is what tells the two apart (see `renderSnapshot`).
+ */
+const streamRevisions = new Map<string, number>();
 
 /** Record an answered selection so a snapshot that raced the answer does not reopen it. */
 export function forgetSelection(id: string): void {
@@ -397,8 +734,35 @@ function approvalItems(snapshot: SessionSnapshot): TimelineItem[] {
 /**
  * Make `snapshot` the current session (legacy `renderSnapshot`, 2992-3011).
  * Everything the legacy function painted is derived from these fields.
+ * `adoptDraft` marks the session a draft just became: what the draft opened in
+ * the rail (files, a waiting side answer) is that session's, so it stays.
+ * `fromStream` marks the snapshot this page's own stream opened with: it is the
+ * connection's current state, not a read that may have been overtaken.
+ * `fromAction` marks the answer to a mutation this page asked for (a policy or
+ * model change, answering a dialog): its fields carry that action, so a stream
+ * event that overtook it makes the page re-read rather than discard it.
  */
-export function renderSnapshot(snapshot: SessionSnapshot): void {
+export function renderSnapshot(
+	snapshot: SessionSnapshot,
+	options: { readonly adoptDraft?: boolean; readonly fromStream?: boolean; readonly fromAction?: boolean } = {},
+): void {
+	const newest = streamRevisions.get(snapshot.id);
+	// A stop is a stream event: a snapshot read issued while the turn still ran
+	// describes a state the page has already left. Painting it back restored the
+	// running status and the stop control after the stop.
+	const overtaken =
+		!options.fromStream && snapshot.revision !== undefined && newest !== undefined && snapshot.revision < newest;
+	// An answer to this page's own action still carries the change the user asked
+	// for, so it is applied even when a stream event overtook it; only the fields
+	// the stream owns (transcript, run status, its clock) are held back.
+	if (overtaken && !options.fromAction) return;
+	const holdStream = overtaken;
+	if (snapshot.revision !== undefined) {
+		streamRevisions.set(
+			snapshot.id,
+			options.fromStream ? snapshot.revision : Math.max(snapshot.revision, newest ?? 0),
+		);
+	}
 	const pending = new Map((snapshot.pendingClarifications ?? []).map((request) => [request.id, request]));
 	for (const request of liveClarifications.values()) {
 		if (request.sessionId === snapshot.id) pending.set(request.id, request);
@@ -410,13 +774,32 @@ export function renderSnapshot(snapshot: SessionSnapshot): void {
 		// A response that left before an answer must not reopen the dialog.
 		pendingSelections: (snapshot.pendingSelections ?? []).filter((request) => !resolvedSelections.has(request.id)),
 	};
+	const previousSessionId = getState().current?.id;
 	setState((state) => {
-		const timelineItems = [...timelineFromEntries(snapshot.entries, snapshot.retry), ...approvalItems(snapshot)];
-		const pendingTurn =
-			state.pendingTurn && countUserMessages(timelineItems) > state.pendingTurn.userCount ? null : state.pendingTurn;
+		const live = state.current?.id === snapshot.id ? state.current : undefined;
+		const timelineItems = holdStream
+			? state.timelineItems
+			: [...timelineFromEntries(snapshot.entries, snapshot.retry), ...approvalItems(snapshot)];
+		const pendingTurn = holdStream
+			? state.pendingTurn
+			: state.pendingTurn && countUserMessages(timelineItems) > state.pendingTurn.userCount
+				? null
+				: state.pendingTurn;
+		// The stream reported a newer run than this answer describes.
+		const current =
+			holdStream && live
+				? {
+						...snapshot,
+						status: live.status,
+						unread: live.unread,
+						compacting: live.compacting,
+						queuedMessages: live.queuedMessages,
+						steeringMessages: live.steeringMessages,
+					}
+				: snapshot;
 		return {
-			current: snapshot,
-			performanceRun: state.current?.id === snapshot.id ? state.performanceRun : null,
+			current,
+			performanceRun: !holdStream && state.current?.id !== snapshot.id ? null : state.performanceRun,
 			policiesCache: snapshot.policies ?? state.policiesCache,
 			draftCwd: snapshot.cwd,
 			draftPolicy: snapshot.permissionPreset || "approve-for-me",
@@ -428,13 +811,25 @@ export function renderSnapshot(snapshot: SessionSnapshot): void {
 			// as the global default). An explicit pick is persisted by the server.
 			draftModel: "",
 			draftThinking: "",
-			statusById: mapWith(state.statusById, snapshot.id, snapshot.status),
-			unreadById: mapWith(state.unreadById, snapshot.id, false),
-			sessions: mergeSessionSummary(state.sessions, snapshot),
+			statusById: holdStream ? state.statusById : mapWith(state.statusById, snapshot.id, snapshot.status),
+			unreadById: holdStream ? state.unreadById : mapWith(state.unreadById, snapshot.id, false),
+			sessions: mergeSessionSummary(state.sessions, current),
 			timelineItems,
 			pendingTurn,
+			// The snapshot is authoritative when the page (re)loads; live
+			// `compaction_start` / `compaction_end` events refine it afterwards.
+			compacting: holdStream ? state.compacting : snapshot.compacting === true,
 		};
 	});
+	// File tabs and side answers belong to one session, so the previous session's
+	// are put away before this session's are restored; another session's file
+	// must never sit beside this conversation as if it were its output. A
+	// reloaded page then shows the side-answer history again.
+	if (previousSessionId !== snapshot.id && !options.adoptDraft) {
+		switchPreviewSession(previousSessionId, snapshot.id);
+		dropSideAnswerTabs();
+	}
+	syncSideAnswerTabs(restorableSideAnswers(snapshot.sideAnswers ?? []));
 }
 
 /** User messages in a timeline; `pendingTurn` compares this before and after a send. */
@@ -459,10 +854,11 @@ let stream: EventSource | null = null;
 export function closeStream(): void {
 	stream?.close();
 	stream = null;
-	setState({ performanceRun: null });
+	setState({ performanceRun: null, compacting: false });
 	liveApprovals.clear();
 	liveClarifications.clear();
 	resolvedClarifications.clear();
+	streamRevisions.clear();
 }
 
 interface AgentStreamEvent {
@@ -475,6 +871,15 @@ interface AgentStreamEvent {
 	readonly result?: { readonly content?: unknown; readonly details?: unknown };
 	readonly isError?: boolean;
 	readonly assistantMessageEvent?: { readonly type?: string; readonly contentIndex?: number };
+	/** `compaction_start` / `compaction_end` carry the reason and, on failure, the message. */
+	readonly reason?: string;
+	readonly errorMessage?: string;
+}
+
+/** Remember the newest revision this page has applied for `id`. */
+function noteRevision(id: string, revision: number | undefined): void {
+	if (revision === undefined || !Number.isSafeInteger(revision)) return;
+	streamRevisions.set(id, Math.max(revision, streamRevisions.get(id) ?? 0));
 }
 
 function updateTimeline(update: (items: readonly TimelineItem[]) => readonly TimelineItem[]): void {
@@ -600,7 +1005,11 @@ function flushLiveMessage(): void {
 		);
 }
 
-function handleAgentEvent(agentEvent: AgentStreamEvent, thinkingTimings?: ThinkingTimings): void {
+function handleAgentEvent(
+	agentEvent: AgentStreamEvent,
+	thinkingTimings?: ThinkingTimings,
+	promptCommand?: string,
+): void {
 	if (
 		agentEvent.type === "agent_start" ||
 		agentEvent.type === "message_start" ||
@@ -610,6 +1019,20 @@ function handleAgentEvent(agentEvent: AgentStreamEvent, thinkingTimings?: Thinki
 		setState((state) => ({
 			performanceRun: observePerformance(state.performanceRun, agentEvent, performance.now()),
 		}));
+	}
+	if (agentEvent.type === "compaction_start") {
+		// A manual compaction is answered by the compaction row, not by a turn, so
+		// the bubble drawn for `/compact` goes away. A threshold/overflow
+		// compaction happens inside a real turn (before `agent_start` is even
+		// announced), and that bubble must survive it.
+		const manual = agentEvent.reason === "manual";
+		setState({ compacting: true, ...(manual ? { pendingTurn: null } : {}) });
+	}
+	if (agentEvent.type === "compaction_end") {
+		setState({ compacting: false });
+		// A refusal or a failed summarization is command output: say why, where
+		// the command was typed. The row itself appears from the session entry.
+		if (agentEvent.errorMessage) pushNotice("warning", agentEvent.errorMessage);
 	}
 	if (agentEvent.type === "message_update") {
 		const event = agentEvent.assistantMessageEvent;
@@ -641,8 +1064,9 @@ function handleAgentEvent(agentEvent: AgentStreamEvent, thinkingTimings?: Thinki
 	}
 	if (agentEvent.type === "message_start" && agentEvent.message?.role === "user") {
 		// The prompt entered the loop: show it in place now; the refresh after
-		// its message_end replaces this row with the recorded entry.
-		const content = contentText(agentEvent.message.content);
+		// its message_end replaces this row with the recorded entry. A prompt
+		// command shows as the line the user typed, not the template it became.
+		const content = promptCommand ?? contentText(agentEvent.message.content);
 		const images = imageSources(agentEvent.message.content);
 		setState((state) => ({
 			pendingTurn: null,
@@ -651,6 +1075,7 @@ function handleAgentEvent(agentEvent: AgentStreamEvent, thinkingTimings?: Thinki
 				kind: "message",
 				role: "user",
 				content,
+				...(promptCommand ? { promptCommand: true } : {}),
 				...(images.length ? { images } : {}),
 			}),
 		}));
@@ -701,6 +1126,7 @@ function handleAgentEvent(agentEvent: AgentStreamEvent, thinkingTimings?: Thinki
 			outputSummary: compact(output),
 			outputDetail: clipDetail(output),
 			...childAgents(item.toolName, agentEvent.result?.details),
+			...(item.toolName === "exit_plan_mode" ? planReview(agentEvent.result?.details) : {}),
 			...(item.toolName === "subagent"
 				? {
 						subagentTasks: subagentTasks(
@@ -708,6 +1134,7 @@ function handleAgentEvent(agentEvent: AgentStreamEvent, thinkingTimings?: Thinki
 							agentEvent.result?.details,
 							agentEvent.isError ? "failed" : "completed",
 							item.subagentTasks,
+							agentEvent.isError ? clipDetail(output) : undefined,
 						),
 					}
 				: {}),
@@ -718,6 +1145,9 @@ function handleAgentEvent(agentEvent: AgentStreamEvent, thinkingTimings?: Thinki
 		agentEvent.type === "entry_appended" ||
 		agentEvent.type === "session_info_changed" ||
 		agentEvent.type === "agent_settled" ||
+		// The compaction entry is written without `entry_appended`; the end event
+		// is what makes the new row and the lowered context usage visible.
+		agentEvent.type === "compaction_end" ||
 		// The snapshot carries the retry (attempt, backoff) and folds the failures it retries.
 		agentEvent.type === "auto_retry_start" ||
 		agentEvent.type === "auto_retry_end"
@@ -731,24 +1161,35 @@ function handleAgentEvent(agentEvent: AgentStreamEvent, thinkingTimings?: Thinki
 export function connectStream(id: string): void {
 	stream?.close();
 	setState({ performanceRun: null });
+	// A new stream is a new order: its own snapshot is the current state, and the
+	// revisions this page saw before it belong to a connection that is gone.
+	streamRevisions.delete(id);
 	const source = new EventSource(`/api/v1/sessions/${id}/events`);
 	stream = source;
 	source.addEventListener("snapshot", (event) => {
-		if (stream === source) renderSnapshot(JSON.parse((event as MessageEvent).data));
+		if (stream === source) renderSnapshot(JSON.parse((event as MessageEvent).data), { fromStream: true });
 	});
 	source.addEventListener("agent", (event) => {
 		if (stream !== source) return;
 		const payload = JSON.parse((event as MessageEvent).data) as {
 			event: AgentStreamEvent;
 			thinkingTimings?: unknown;
+			promptCommand?: unknown;
+			revision?: number;
 		};
-		handleAgentEvent(payload.event, readThinkingTimings(payload.thinkingTimings));
+		noteRevision(id, payload.revision);
+		const promptCommand =
+			typeof payload.promptCommand === "string" && payload.promptCommand ? payload.promptCommand : undefined;
+		handleAgentEvent(payload.event, readThinkingTimings(payload.thinkingTimings), promptCommand);
 	});
 	source.addEventListener("status", (event) => {
+		if (stream !== source) return;
 		const payload = JSON.parse((event as MessageEvent).data) as {
 			status: SessionStatus;
 			unread: boolean;
+			revision?: number;
 		};
+		noteRevision(id, payload.revision);
 		if (payload.status !== "waiting") liveApprovals.clear();
 		setState((state) => ({
 			// Only a running turn can still record the pending message.
@@ -765,6 +1206,7 @@ export function connectStream(id: string): void {
 		if (stream === source) applyQueueState(id, JSON.parse((event as MessageEvent).data) as QueueState);
 	});
 	source.addEventListener("approval_required", (event) => {
+		if (stream !== source) return;
 		const approval = JSON.parse((event as MessageEvent).data).approval as ApprovalRequest;
 		liveApprovals.set(approval.id, approval);
 		updateTimeline((items) =>
@@ -839,6 +1281,72 @@ export function connectStream(id: string): void {
 					: state.current,
 		}));
 	});
+	source.addEventListener("text_input_required", (event) => {
+		const request = JSON.parse((event as MessageEvent).data).input as TextInputRequest;
+		if (stream !== source || request.sessionId !== id) return;
+		setState((state) => ({
+			current:
+				state.current?.id === id
+					? {
+							...state.current,
+							pendingTextInputs: [
+								...(state.current.pendingTextInputs ?? []).filter((item) => item.id !== request.id),
+								request,
+							],
+						}
+					: state.current,
+		}));
+	});
+	source.addEventListener("text_input_resolved", (event) => {
+		if (stream !== source) return;
+		const requestId = JSON.parse((event as MessageEvent).data).id as string;
+		setState((state) => ({
+			current:
+				state.current?.id === id
+					? {
+							...state.current,
+							pendingTextInputs: (state.current.pendingTextInputs ?? []).filter((item) => item.id !== requestId),
+						}
+					: state.current,
+		}));
+	});
+	// Command output (`ui.notify`). It is a notice row, not a message: it never
+	// enters the session file, so it lives for this page load only.
+	source.addEventListener("notice", (event) => {
+		if (stream !== source) return;
+		const notice = JSON.parse((event as MessageEvent).data) as {
+			level?: string;
+			text?: string;
+			markdown?: boolean;
+			transient?: boolean;
+		};
+		if (typeof notice.text !== "string" || !notice.text) return;
+		const level =
+			notice.level === "warning" || notice.level === "error" || notice.level === "info" ? notice.level : "info";
+		if (notice.transient) {
+			// An announcement about state the UI already renders (plan mode, the
+			// permission tier): show it, then let it go. It must not become a row in
+			// a conversation the user did not send anything to.
+			showToast(notice.text, level === "error" ? "danger" : "neutral");
+			return;
+		}
+		pushNotice(level, notice.text, notice.markdown ? { markdown: true } : undefined);
+		// A command answered in place (`/btw`, `/status`, a refusal) starts no turn,
+		// so the optimistic bubble that `sendMessage` drew would otherwise sit
+		// under a "thinking" indicator forever. Only a command can be answered
+		// this way: a prompt's notices (session start, permission) belong to a
+		// turn whose bubble must stay until its message is recorded.
+		setState((state) => ({
+			pendingTurn: /^\s*\/[A-Za-z0-9]/u.test(state.pendingTurn?.text ?? "") ? null : state.pendingTurn,
+		}));
+	});
+	// A `/btw` answer: its own tab in the rail, never a transcript row.
+	source.addEventListener("side-answer", (event) => {
+		if (stream !== source) return;
+		const answer = JSON.parse((event as MessageEvent).data).answer as SideAnswer;
+		if (!answer || typeof answer.id !== "string") return;
+		applySideAnswer(answer);
+	});
 	source.addEventListener("web_error", (event) => {
 		setState({ pendingTurn: null });
 		showError(JSON.parse((event as MessageEvent).data).message || "运行错误");
@@ -853,10 +1361,174 @@ export function connectStream(id: string): void {
 
 /* ── Session list and current session ────────────────────────────────────── */
 
+/**
+ * Sessions this page created that the host does not list yet. The host lists
+ * session files, and a session's file is written only with its first assistant
+ * reply; until then a list refresh would drop the new conversation's row.
+ */
+const unlistedSessions = new Set<string>();
+
+/** Stop keeping `id` in the list before the host lists it (it was deleted). */
+export function forgetUnlistedSession(id: string): void {
+	unlistedSessions.delete(id);
+}
+
+/**
+ * A session the host deleted is forgotten completely: its optimistic row and
+ * the group tag it carried. The tag is a record about that session, so leaving
+ * it behind kept a group in the picker that no session could ever name again.
+ */
+export function forgetDeletedSession(id: string): void {
+	forgetUnlistedSession(id);
+	setState((state) => withoutSessionTag(state, id));
+}
+
 /** Reload the session list (legacy `refreshSessions`, 3111-3115). */
 export async function refreshSessions(): Promise<void> {
 	const data = await api<{ sessions: SessionSummary[] }>("/api/v1/sessions");
-	setState({ sessions: data.sessions });
+	setState((state) => {
+		const listed = new Set(data.sessions.map((session) => session.id));
+		for (const id of listed) unlistedSessions.delete(id);
+		const kept = state.sessions.filter((session) => unlistedSessions.has(session.id));
+		const live = data.sessions.flatMap((session): SessionLiveStatus[] =>
+			session.status ? [{ id: session.id, status: session.status, unread: session.unread === true }] : [],
+		);
+		// A session the host no longer lists is gone for good; its group tag has to
+		// go with it, or the group stays in the picker with no session anywhere. The
+		// open session counts as listed even if this answer omitted it.
+		const present = new Set([...kept, ...data.sessions].map((session) => session.id));
+		if (state.current) present.add(state.current.id);
+		return {
+			sessions: [...kept, ...data.sessions],
+			...pruneTagGroups(state, present),
+			...foldLiveStatuses(state, live, listed),
+		};
+	});
+}
+
+/** Keep the open session's snapshot in step with a row action done from a menu. */
+function patchCurrentSession(id: string, fields: Partial<SessionSummary>): void {
+	setState((state) => (state.current?.id === id ? { current: { ...state.current, ...fields } } : {}));
+}
+
+export type SessionAction = "rename" | "archive" | "delete";
+
+/** Close `#renameSessionDialog`; ignored while its request runs, so the result still lands. */
+export function closeRenameSession(): void {
+	if (getState().ui.renameSession?.pending) return;
+	setUi({ renameSession: null });
+}
+
+/**
+ * Submit `#renameSessionDialog`. The dialog closes once the host accepted the name; a failure keeps it
+ * open with the typed name so the user can retry, and reports the error in the toast. A late success
+ * only closes the dialog it belongs to, and a failed list refresh does not turn into a failed rename.
+ */
+export async function renameSession(name: string): Promise<void> {
+	const target = getState().ui.renameSession;
+	const trimmed = name.trim();
+	if (!target || target.pending || !trimmed) return;
+	setUi({ renameSession: { ...target, pending: true } });
+	try {
+		// The host trims the name to its own limit; the returned snapshot is what it stored.
+		const saved = await apiSend<SessionSummary>(`/api/v1/sessions/${target.sessionId}/name`, "PATCH", {
+			name: trimmed,
+		});
+		patchCurrentSession(target.sessionId, { name: saved.name?.trim() || trimmed });
+	} catch (error) {
+		setUi((ui) =>
+			ui.renameSession?.sessionId === target.sessionId ? { renameSession: { ...target, pending: false } } : {},
+		);
+		showError(errorMessage(error));
+		return;
+	}
+	setUi((ui) => (ui.renameSession?.sessionId === target.sessionId ? { renameSession: null } : {}));
+	// The rename already succeeded; a failed list refresh must not report it as a failure.
+	await refreshSessions().catch(() => {});
+}
+
+/**
+ * Rename / archive / delete one session (legacy `openSessionMenu` click
+ * handler, 1297-1328). Called from the sidebar's row menu and the
+ * conversation header's menu. Rename only opens `#renameSessionDialog`
+ * (`renameSession` saves); archive and delete patch the open session's
+ * snapshot so the header does not wait for the next SSE snapshot.
+ */
+export async function runSessionAction(action: SessionAction, session: SessionSummary): Promise<void> {
+	try {
+		if (action === "rename") {
+			// The dialog submits through renameSession; nothing changed yet, so there is nothing to refresh.
+			setUi({ renameSession: { sessionId: session.id, name: sessionTitle(session), pending: false } });
+			return;
+		}
+		if (action === "archive") {
+			const archived = !session.archived;
+			await apiSend(`/api/v1/sessions/${session.id}/archive`, "PATCH", { archived });
+			patchCurrentSession(session.id, { archived });
+		}
+		if (action === "delete" && window.confirm(t("confirmDelete", { name: sessionTitle(session) }))) {
+			await apiSend(`/api/v1/sessions/${session.id}`, "DELETE");
+			forgetDeletedSession(session.id);
+			const state = getState();
+			if (state.current?.id === session.id) startDraft(state.bootstrapCwd);
+			// After leaving it: leaving a session stashes its tabs.
+			forgetPreviewSession(session.id);
+		}
+		await refreshSessions();
+	} catch (error) {
+		showError(errorMessage(error));
+	}
+}
+
+/**
+ * Re-read the host's status of the sessions this page does not follow. Their
+ * rows otherwise keep whatever status they had when the page left them, so a
+ * run that ended in the background would still read "running".
+ */
+export async function refreshSessionStatuses(): Promise<void> {
+	const data = await api<{ sessions: SessionLiveStatus[] }>("/api/v1/session-status");
+	setState((state) => {
+		const known = new Set([...state.statusById.keys(), ...state.unreadById.keys()]);
+		for (const entry of data.sessions) known.add(entry.id);
+		return foldLiveStatuses(state, data.sessions, known);
+	});
+}
+
+/**
+ * Status and unread flags with the host's `live` answer applied to every
+ * session in `known` (the sessions that answer covers). One of them missing
+ * from `live` is not open in the host: nothing runs there and nothing is
+ * unread, so its row falls back to its saved state. The session this page
+ * follows is left alone; its own stream is the fresher source.
+ */
+export function foldLiveStatuses(
+	state: Pick<AppState, "current" | "statusById" | "unreadById">,
+	live: readonly SessionLiveStatus[],
+	known: Iterable<string>,
+): Pick<AppState, "statusById" | "unreadById"> {
+	const byId = new Map(live.map((entry) => [entry.id, entry]));
+	const statusById = new Map(state.statusById);
+	const unreadById = new Map(state.unreadById);
+	for (const id of known) {
+		if (id === state.current?.id) continue;
+		const entry = byId.get(id);
+		if (entry) {
+			statusById.set(id, entry.status);
+			unreadById.set(id, entry.unread);
+		} else {
+			statusById.delete(id);
+			unreadById.delete(id);
+		}
+	}
+	return { statusById, unreadById };
+}
+
+/** A session this page does not follow is still running or waiting, as far as the page knows. */
+export function backgroundSessionBusy(state: Pick<AppState, "current" | "statusById">): boolean {
+	for (const [id, status] of state.statusById) {
+		if (id !== state.current?.id && (status === "running" || status === "waiting")) return true;
+	}
+	return false;
 }
 
 /** Reload the current session's snapshot (legacy `refreshCurrent`, 3117-3120). */
@@ -873,17 +1545,23 @@ export async function refreshWorkspaces(): Promise<void> {
 	setState({ workspaces: data.workspaces });
 }
 
-/** Open a session and follow its stream (legacy `openSession`, 3122-3130). */
-export async function openSession(id: string): Promise<void> {
+/** Open a session and follow its stream; optional discovery links can suppress technical error toasts. */
+export async function openSession(id: string, options: { reportErrors?: boolean } = {}): Promise<void> {
 	choseSession = true;
-	setUi({ midView: null, childView: null });
+	// The draft this page left behind is gone: it was never a session, so its
+	// placeholder row must not survive under the workspace it named.
+	setUi({ midView: null, childView: null, openingSession: id, draftRow: null });
 	setState({ pendingTurn: null });
 	try {
 		const snapshot = await api<SessionSnapshot>(`/api/v1/sessions/${id}`);
+		// A later pick owns the pane; this answer arriving late must not repaint it.
+		if (getState().ui.openingSession !== id) return;
 		renderSnapshot(snapshot);
 		connectStream(id);
 	} catch (error) {
-		showError(errorMessage(error));
+		if (getState().ui.openingSession === id && options.reportErrors !== false) showError(errorMessage(error));
+	} finally {
+		if (getState().ui.openingSession === id) setUi({ openingSession: null });
 	}
 }
 
@@ -895,11 +1573,22 @@ export function requestPromptFocus(): void {
 /**
  * Leave the current session and start an unsaved draft in `cwd` (legacy
  * `startDraft`, 3132-3151). The session is created on the first send.
+ * `listed` marks a conversation the user asked for, so the sidebar shows a
+ * placeholder row for it right away instead of only after the first send.
  */
-export function startDraft(cwd: string = getState().bootstrapCwd): void {
+export function startDraft(cwd: string = getState().bootstrapCwd, options: { readonly listed?: boolean } = {}): void {
 	choseSession = true;
 	closeStream();
+	// A new conversation shows none of the session it leaves in the rail.
+	const leaving = getState().current?.id;
+	if (leaving) {
+		switchPreviewSession(leaving, undefined);
+		dropSideAnswerTabs();
+	}
 	const draftCwd = cwd || getState().bootstrapCwd;
+	// A folder removed from workspace navigation keeps its chats but is no
+	// target for new work; see `workspaceForNewConversation`.
+	const startIn = isHiddenWorkspace(getState(), draftCwd) ? workspaceForNewConversation() : draftCwd;
 	setState((state) => {
 		const current = state.current;
 		return {
@@ -914,13 +1603,14 @@ export function startDraft(cwd: string = getState().bootstrapCwd): void {
 			current: null,
 			timelineItems: [],
 			pendingTurn: null,
-			draftCwd,
+			draftCwd: startIn,
 		};
 	});
-	// A new conversation replaces whatever covers the pane (cron / plugin market, a child agent).
-	setUi({ midView: null, childView: null });
+	// A new conversation replaces whatever covers the pane (cron / plugin market, a child agent),
+	// and a session still loading from an earlier pick.
+	setUi({ midView: null, childView: null, openingSession: null, draftRow: options.listed ? startIn : null });
 	requestPromptFocus();
-	void loadDraftModels(draftCwd);
+	void loadDraftModels(startIn);
 }
 
 /**
@@ -947,11 +1637,31 @@ async function loadDraftModels(cwd: string): Promise<void> {
 }
 
 /**
+ * Re-read the host's model catalog after a settings visit: a model provider
+ * added or removed there must reach the picker without a new conversation.
+ * The open session re-reads `models.json` in place; a draft simply asks again.
+ */
+export async function refreshModelCatalog(): Promise<void> {
+	const state = getState();
+	if (state.current) {
+		try {
+			renderSnapshot(await apiSend<SessionSnapshot>(`/api/v1/sessions/${state.current.id}/models/refresh`, "POST"), {
+				fromAction: true,
+			});
+		} catch (error) {
+			showError(errorMessage(error));
+		}
+		return;
+	}
+	await loadDraftModels(state.draftCwd || state.bootstrapCwd);
+}
+
+/**
  * The current session, creating it from the draft (cwd, policy, model,
  * thinking level) when there is none yet (legacy `createSessionIfNeeded`,
- * 3153-3182).
+ * 3153-3182). `firstMessage` titles the new sidebar row until the host lists it.
  */
-export async function createSessionIfNeeded(): Promise<SessionSnapshot> {
+export async function createSessionIfNeeded(firstMessage?: string): Promise<SessionSnapshot> {
 	const state = getState();
 	if (state.current) return state.current;
 	let snapshot = await apiSend<SessionSnapshot>("/api/v1/sessions", "POST", {
@@ -993,9 +1703,24 @@ export async function createSessionIfNeeded(): Promise<SessionSnapshot> {
 			level: state.draftThinking,
 		});
 	}
-	renderSnapshot(snapshot);
+	// Show the row now, titled by the message being sent; the host lists the
+	// session only after its first reply is saved (see `unlistedSessions`).
+	unlistedSessions.add(snapshot.id);
+	const now = new Date().toISOString();
+	setState((current) => ({
+		sessions: mergeSessionSummary(current.sessions, {
+			id: snapshot.id,
+			cwd: snapshot.cwd,
+			created: now,
+			modified: now,
+			...(firstMessage ? { firstMessage } : {}),
+		}),
+	}));
+	// The real row replaces the draft placeholder.
+	setUi({ draftRow: null });
+	renderSnapshot(snapshot, { adoptDraft: true });
 	connectStream(snapshot.id);
-	await refreshSessions();
+	void refreshSessions().catch(() => {});
 	return snapshot;
 }
 
@@ -1123,6 +1848,14 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<void> {
 			directoryPicker: boot.directoryPicker === "native" ? "native" : "browse",
 			login: boot.login ?? null,
 			draftCwd: boot.cwd,
+			// Only what the host actually reported: an absent field stays absent
+			// rather than being invented from the page's own bundle.
+			build: {
+				...(typeof boot.version === "string" && boot.version ? { version: boot.version } : {}),
+				...(typeof boot.buildTime === "string" && !Number.isNaN(Date.parse(boot.buildTime))
+					? { madeAt: boot.buildTime }
+					: {}),
+			},
 		});
 		if (boot.login?.configured) void refreshAccount();
 		// An explicit Step sign-out in plain Web sets this so the page asks for a
@@ -1166,5 +1899,8 @@ export async function bootstrap(options: BootstrapOptions = {}): Promise<void> {
 		}
 	} catch (error) {
 		showError(errorMessage(error));
+	} finally {
+		// The pane stops loading here even when a step failed: from now on an empty stream is an empty conversation.
+		setState({ booted: true });
 	}
 }

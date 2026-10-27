@@ -16,6 +16,7 @@ import { homedir } from "node:os";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FileEntry, SessionFilePersistedEvent } from "../session-manager.ts";
+import { stripImportedUserControls } from "./content.ts";
 import { parseForeignSession, record } from "./parsers.ts";
 import type {
 	ImportCandidate,
@@ -27,7 +28,7 @@ import type {
 	ImportSource,
 	ParsedImport,
 } from "./types.ts";
-import { isImportProvenance } from "./types.ts";
+import { isImportProvenance, isImportSource } from "./types.ts";
 
 const MAX_SOURCE_BYTES = 128 * 1024 * 1024;
 const HEADER_BYTES = 1024 * 1024;
@@ -37,12 +38,15 @@ function readableTitle(value: unknown): string {
 }
 
 function userTitle(content: unknown): string {
-	if (typeof content === "string") return readableTitle(content);
+	if (typeof content === "string") return readableTitle(stripImportedUserControls(content).text);
 	if (!Array.isArray(content)) return "";
 	return readableTitle(
 		content
 			.filter((block) => ["text", "input_text"].includes(String(record(block).type)))
-			.map((block) => record(block).text)
+			.map((block) => {
+				const value = record(block).text;
+				return typeof value === "string" ? stripImportedUserControls(value).text : "";
+			})
 			.filter((text) => typeof text === "string")
 			.join(" "),
 	);
@@ -140,12 +144,15 @@ interface ReviewedSnapshot {
 
 export interface ImportScanOptions {
 	customRoot?: string;
+	workbuddyRoot?: string;
+	qoderRoot?: string;
 	codexRoot?: string;
 	claudeRoot?: string;
 	includeArchived?: boolean;
 }
 
 export interface ImportScanResult {
+	existingCount: number;
 	roots: Partial<Record<ImportSource, string>>;
 	candidates: ImportCandidate[];
 	errors: { source: ImportSource; message: string }[];
@@ -185,8 +192,13 @@ export class SessionImportService {
 
 	async scan(options: ImportScanOptions = {}): Promise<ImportScanResult> {
 		if (this.closed) throw new SessionImportError("Importer is closed", 503);
-		const result: ImportScanResult = { roots: {}, candidates: [], errors: [] };
+		const result: ImportScanResult = { existingCount: 0, roots: {}, candidates: [], errors: [] };
 		const roots: [ImportSource, string][] = [
+			[
+				"workbuddy",
+				options.customRoot?.trim() || options.workbuddyRoot?.trim() || join(homedir(), ".workbuddy", "projects"),
+			],
+			["qoder", options.customRoot?.trim() || options.qoderRoot?.trim() || join(homedir(), ".qoder", "projects")],
 			[
 				"codex",
 				options.customRoot?.trim() ||
@@ -201,8 +213,9 @@ export class SessionImportService {
 					join(process.env.CLAUDE_CONFIG_DIR?.trim() || join(homedir(), ".claude"), "projects"),
 			],
 		];
-		// Replace capabilities only after the scan finishes. In-flight previews keep their own file reference.
-		const candidates = new Map<string, CandidateFile>();
+		// Custom scans append capabilities; automatic scans replace them after discovery settles.
+		const candidates = new Map<string, CandidateFile>(options.customRoot ? this.candidates : []);
+		const knownPaths = new Set([...candidates.values()].map((file) => `${file.candidate.source}\0${file.path}`));
 		for (const [source, input] of roots) {
 			try {
 				const root = await realpath(input);
@@ -265,6 +278,12 @@ export class SessionImportService {
 							file.name.endsWith(".jsonl") &&
 							(!!options.customRoot || source !== "codex" || file.name.startsWith("rollout-"))
 						) {
+							const key = `${source}\0${path}`;
+							if (knownPaths.has(key)) {
+								result.existingCount++;
+								result.roots[source] = root;
+								continue;
+							}
 							if (candidates.size >= MAX_CANDIDATES)
 								throw new Error("Session limit exceeded; select a narrower source directory");
 							try {
@@ -276,6 +295,7 @@ export class SessionImportService {
 									this.explicitTitles.add(candidate);
 								}
 								candidates.set(candidate.id, { candidate, path, root });
+								knownPaths.add(key);
 								result.candidates.push(candidate);
 								result.roots[source] = root;
 							} catch (error) {
@@ -290,7 +310,7 @@ export class SessionImportService {
 				await walk(root, 0);
 			} catch (error) {
 				// An absent optional client is normal; permission and parse errors must remain visible.
-				if (record(error).code !== "ENOENT")
+				if (options.customRoot || record(error).code !== "ENOENT")
 					result.errors.push({ source, message: error instanceof Error ? error.message : String(error) });
 			}
 		}
@@ -312,6 +332,8 @@ export class SessionImportService {
 			if (!info.isFile() || info.size > MAX_SOURCE_BYTES)
 				throw new Error("Source is not a regular file or exceeds 128 MiB");
 			let metadata: Record<string, unknown> | undefined;
+			let detected: ImportSource | undefined;
+			let projectCwd = "";
 			let title = "";
 			let firstUser = "";
 			let pending: Buffer[] = [];
@@ -327,6 +349,9 @@ export class SessionImportService {
 					return;
 				}
 				const r = record(value);
+				if (r.type === "workspace-directories" || r.type === "runtime-config") detected = "qoder";
+				if (r.type === "session-meta" || r.type === "ai-title") detected = "workbuddy";
+				if (typeof r.cwd === "string" && !projectCwd) projectCwd = r.cwd;
 				if (source === "codex") {
 					const p = record(r.payload);
 					if (r.type === "session_meta") {
@@ -335,10 +360,13 @@ export class SessionImportService {
 					}
 					if (!firstUser && r.type === "response_item" && p.type === "message" && p.role === "user")
 						firstUser = userTitle(p.content);
-					if (!firstUser && r.type === "event_msg" && p.type === "user_message")
-						firstUser = readableTitle(p.message);
+					if (!firstUser && r.type === "event_msg" && p.type === "user_message") firstUser = userTitle(p.message);
+				} else if (source === "workbuddy") {
+					if (r.type === "session-meta" && typeof r.sessionId === "string") metadata ??= r;
+					if (r.type === "ai-title") title = readableTitle(r.aiTitle) || title;
+					if (r.type === "message" && r.role === "user" && !firstUser) firstUser = userTitle(r.content);
 				} else {
-					if (typeof r.sessionId === "string") metadata ??= r;
+					if ((r.type === "user" || r.type === "assistant") && typeof r.sessionId === "string") metadata ??= r;
 					if (r.isSidechain === true || (metadata && r.sessionId && r.sessionId !== metadata.sessionId)) return;
 					if (r.type === "custom-title" || r.type === "summary")
 						title = readableTitle(r.customTitle) || readableTitle(r.summary) || title;
@@ -370,6 +398,12 @@ export class SessionImportService {
 				if (start < chunk.length) pending.push(chunk.subarray(start));
 			}
 			if (position === info.size && pending.length) inspect(Buffer.concat(pending));
+			if (
+				(detected && detected !== source) ||
+				(source === "qoder" && detected !== "qoder") ||
+				(source === "workbuddy" && detected !== "workbuddy")
+			)
+				return undefined;
 			if (!metadata) {
 				if (allowOtherFormat) return undefined;
 				throw new Error("Session metadata is missing from the bounded header");
@@ -383,7 +417,7 @@ export class SessionImportService {
 				return undefined;
 			const sessionId = source === "codex" ? metadata.id : metadata.sessionId;
 			if (typeof sessionId !== "string" || !sessionId) throw new Error("Invalid source session ID");
-			const cwd = typeof metadata.cwd === "string" ? metadata.cwd : "";
+			const cwd = typeof metadata.cwd === "string" ? metadata.cwd : projectCwd;
 			const archived =
 				relative(root, path).split(sep).includes("archived_sessions") ||
 				root.split(sep).includes("archived_sessions") ||
@@ -579,7 +613,7 @@ export class SessionImportService {
 			if (
 				typeof result.candidateId !== "string" ||
 				!["imported", "skipped", "failed"].includes(String(result.status)) ||
-				(result.source !== undefined && result.source !== "codex" && result.source !== "claude-code") ||
+				(result.source !== undefined && !isImportSource(result.source)) ||
 				(result.sourcePath !== undefined && typeof result.sourcePath !== "string") ||
 				(result.sessionId !== undefined && typeof result.sessionId !== "string") ||
 				(result.path !== undefined && typeof result.path !== "string") ||
@@ -744,7 +778,7 @@ export class SessionImportService {
 		const cwd = await realpath(selection.cwd);
 		if (!(await stat(cwd)).isDirectory()) throw new SessionImportError("Project directory does not exist");
 		const hash = createHash("sha256")
-			.update(`${preview.source}\0${preview.sessionId}\0${preview.fingerprint}`)
+			.update(`session-import-v2\0${preview.source}\0${preview.sessionId}\0${preview.fingerprint}`)
 			.digest("hex");
 		const id = `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
 		const dir = join(this.sessionRoot, "imported");
@@ -764,6 +798,7 @@ export class SessionImportService {
 				timestamp,
 				customType: "stepcode.session-import",
 				data: {
+					converterVersion: 2,
 					source: preview.source,
 					sourceSessionId: preview.sessionId,
 					fingerprint: preview.fingerprint,

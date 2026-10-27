@@ -52,7 +52,9 @@ export function groupProcessRows(
 			rows: pending,
 			running: pending.some(
 				({ item, index }) =>
-					active && index > lastUser && (item.kind === "thinking" ? item.running : item.state === "pending"),
+					active &&
+					index > lastUser &&
+					(item.kind === "thinking" ? item.running : !item.imported && item.state === "pending"),
 			),
 		});
 		pending = [];
@@ -69,7 +71,9 @@ export function groupProcessRows(
 				!item.children?.length &&
 				!item.workflowRun &&
 				item.state !== "failed" &&
-				(item.state === "completed" || (active && index > lastUser && !awaiting.has(item.toolName))))
+				(item.state === "completed" ||
+					(item.imported && item.state === "unknown") ||
+					(active && index > lastUser && !awaiting.has(item.toolName))))
 		) {
 			pending.push({ ...row, item });
 		} else {
@@ -137,6 +141,9 @@ export function processGroupSummary(
 		};
 	}
 	if (!tools.length) return { label: t("processThinkingRecorded"), detail: "", icon: "brain" };
+	if (tools.some((tool) => tool.state !== "completed")) {
+		return { label: t("processRecordedTools", { count: tools.length }), detail: "", icon: "wrench" };
+	}
 	const counts = new Map<string, number>();
 	for (const tool of tools) {
 		const kind = toolKind(tool);

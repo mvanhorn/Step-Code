@@ -1,18 +1,20 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../../i18n";
-import { api, apiSend, errorMessage } from "../../lib/api";
-import { getDesktopBridge } from "../../platform/host";
+import { api, apiSend } from "../../lib/api";
 import { openSession, refreshSessions } from "../../state/session";
 import { useAppStore } from "../../state/store";
 import type { ImportCandidate, ImportJob, ImportPreview } from "../../state/types";
 import { Button, Icon, Popover, SearchInput } from "../../ui";
 import { closeSettings } from "./actions";
+import { displayableImportCandidates, pendingImportCandidates } from "./session-import-history";
 import "./session-import.css";
 
 const PATH = "/api/v1/session-imports";
 const SOURCES = [
-	{ id: "codex", name: "Codex" },
-	{ id: "claude-code", name: "Claude Code" },
+	{ id: "codex", name: "Codex", logo: "/session-import-logos/codex.svg" },
+	{ id: "claude-code", name: "Claude Code", logo: "/session-import-logos/claudecode.svg" },
+	{ id: "workbuddy", name: "WorkBuddy", logo: "/session-import-logos/workbuddy.svg" },
+	{ id: "qoder", name: "Qoder", logo: "/session-import-logos/qoder-dark.svg" },
 ] as const;
 
 function groupProjects<T>(rows: readonly T[], cwd: (row: T) => string) {
@@ -30,39 +32,32 @@ function projectName(path: string, fallback: string) {
 	return path.split(/[\\/]/u).filter(Boolean).at(-1) || fallback;
 }
 
+function remainingSelected(selected: ReadonlySet<string>, job: ImportJob) {
+	const completed = new Set(
+		job.results.filter((result) => result.status !== "failed").map((result) => result.candidateId),
+	);
+	return new Set([...selected].filter((id) => !completed.has(id)));
+}
+
 export function SessionImportPage() {
 	const t = useT();
 	const sessions = useAppStore((state) => state.sessions);
-	const [customPath, setCustomPath] = useState("");
-	const [roots, setRoots] = useState<Readonly<Record<string, string>>>({});
-	const [customOpen, setCustomOpen] = useState(false);
-	const [includeArchived, setIncludeArchived] = useState(false);
 	const [candidates, setCandidates] = useState<readonly ImportCandidate[]>([]);
 	const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
 	const [previews, setPreviews] = useState<ReadonlyMap<string, ImportPreview>>(new Map());
 	const [targets, setTargets] = useState<ReadonlyMap<string, string>>(new Map());
 	const [query, setQuery] = useState("");
 	const [scanned, setScanned] = useState(false);
+	const [scanGeneration, setScanGeneration] = useState(0);
 	const [busy, setBusy] = useState(false);
-	const [error, setError] = useState("");
-	const [scanErrors, setScanErrors] = useState<readonly { source: string; message: string }[]>([]);
 	const [focused, setFocused] = useState<string>();
 	const [job, setJob] = useState<ImportJob>();
 	const [jobs, setJobs] = useState<readonly ImportJob[]>([]);
 	const mounted = useRef(true);
+	const autoScanned = useRef(false);
 
 	useEffect(() => {
 		mounted.current = true;
-		void api<{ jobs: ImportJob[] }>(PATH)
-			.then(({ jobs }) => {
-				if (mounted.current) {
-					setJobs(jobs);
-					setJob(jobs.find((item) => item.status === "running"));
-				}
-			})
-			.catch((caught: unknown) => {
-				if (mounted.current) setError(errorMessage(caught));
-			});
 		return () => {
 			mounted.current = false;
 		};
@@ -79,12 +74,13 @@ export function SessionImportPage() {
 				setJob(next);
 				setJobs((current) => [next, ...current.filter((item) => item.id !== next.id)]);
 				if (next.status === "running") timer = setTimeout(() => void poll(), 500);
-				else await refreshSessions();
-			} catch (caught) {
-				if (!stopped) {
-					setError(errorMessage(caught));
-					timer = setTimeout(() => void poll(), 2000);
+				else {
+					setSelected((current) => remainingSelected(current, next));
+					await refreshSessions();
 				}
+			} catch {
+				// Read-only retries preserve the last known job state without displaying technical diagnostics.
+				if (!stopped) timer = setTimeout(() => void poll(), 2000);
 			}
 		};
 		void poll();
@@ -95,110 +91,138 @@ export function SessionImportPage() {
 	}, [job?.id, job?.status]);
 
 	const pending = busy || job?.status === "running";
-	const needle = query.trim().toLowerCase();
-	const visible = candidates.filter((c) =>
-		`${previews.get(c.id)?.title || c.title} ${c.cwd} ${c.source} ${c.sourcePath ?? ""}`
-			.toLowerCase()
-			.includes(needle),
+	const available = useMemo(
+		() => displayableImportCandidates(candidates, jobs, previews),
+		[candidates, jobs, previews],
 	);
-	const chosen = candidates.filter((c) => selected.has(c.id));
-	const ready = chosen.length > 0 && chosen.every((c) => previews.has(c.id) && targets.get(c.id)?.trim());
+	const visible = useMemo(
+		() => displayableImportCandidates(candidates, jobs, previews, query),
+		[candidates, jobs, previews, query],
+	);
+	const chosen = available.filter((c) => selected.has(c.id));
 
-	function selectionButton(rows: readonly ImportCandidate[], scope: string) {
+	function groupCheckbox(rows: readonly ImportCandidate[], scope: string) {
 		const all = rows.length > 0 && rows.every((row) => selected.has(row.id));
+		const some = rows.some((row) => selected.has(row.id));
+		const label = scope.includes(":")
+			? projectName(rows[0]?.cwd ?? "", t("importUnknownProject"))
+			: (SOURCES.find((source) => source.id === scope)?.name ?? t("importUnknownSource"));
 		return (
-			<Button
-				className="settings-btn subtle session-import-select-group"
+			<input
+				type="checkbox"
+				className="session-import-select-group"
 				data-import-select={scope}
+				aria-label={`${label} ${t("importSelectGroup")}`}
 				disabled={pending || !rows.length}
-				aria-pressed={all}
-				onClick={(event) => {
-					event.preventDefault();
-					event.stopPropagation();
+				checked={all}
+				ref={(input) => {
+					if (input) input.indeterminate = some && !all;
+				}}
+				onClick={(event) => event.stopPropagation()}
+				onChange={(event) => {
+					const checked = event.currentTarget.checked;
 					setSelected((current) => {
 						const next = new Set(current);
 						for (const row of rows) {
-							if (all) next.delete(row.id);
-							else next.add(row.id);
+							if (checked) next.add(row.id);
+							else next.delete(row.id);
 						}
 						return next;
 					});
 				}}
-			>
-				{t(all ? "importDeselectGroup" : "importSelectGroup")}
-			</Button>
+			/>
 		);
 	}
 
-	async function scan(custom = false) {
+	const preview = useCallback(async (ids: readonly string[], show = true) => {
 		setBusy(true);
-		setError("");
-		try {
-			const result = await apiSend<{
-				roots?: Record<string, string>;
-				candidates: ImportCandidate[];
-				errors: { source: string; message: string }[];
-			}>(`${PATH}/scan`, "POST", { ...(custom ? { customRoot: customPath.trim() } : {}), includeArchived });
-			if (!mounted.current) return;
-			setCandidates(result.candidates);
-			setRoots(result.roots ?? {});
-			setScanErrors(result.errors);
-			setSelected(new Set());
-			setPreviews(new Map());
-			setTargets(new Map(result.candidates.map((c) => [c.id, c.cwd])));
-			setFocused(undefined);
-			setScanned(true);
-			await preview(
-				result.candidates.map((candidate) => candidate.id),
-				false,
-			);
-		} catch (caught) {
-			if (mounted.current) setError(errorMessage(caught));
-		} finally {
-			if (mounted.current) setBusy(false);
-		}
-	}
-
-	async function preview(ids: readonly string[], show = true) {
-		setBusy(true);
-		setError("");
 		if (show && ids[0]) setFocused(ids[0]);
 		try {
 			for (const id of ids) {
+				if (!mounted.current) return;
 				try {
 					const value = await apiSend<ImportPreview>(`${PATH}/preview`, "POST", { candidateId: id });
 					if (!mounted.current) return;
 					setPreviews((current) => new Map(current).set(id, value));
-				} catch (caught) {
-					if (mounted.current) setError((current) => `${current ? `${current}\n` : ""}${errorMessage(caught)}`);
+				} catch {
+					// An unavailable preview must not leave a stale selectable row or open disclosure.
+					if (!mounted.current) return;
+					setPreviews((current) => {
+						const next = new Map(current);
+						next.delete(id);
+						return next;
+					});
+					setSelected((current) => {
+						const next = new Set(current);
+						next.delete(id);
+						return next;
+					});
+					setFocused((current) => (current === id ? undefined : current));
 				}
 			}
 		} finally {
 			if (mounted.current) setBusy(false);
 		}
-	}
+	}, []);
 
-	async function pickSource() {
-		try {
-			const bridge = getDesktopBridge();
-			const path = bridge
-				? await bridge.pickDirectory({ title: t("importChooseSource") })
-				: (await apiSend<{ path?: string }>("/api/v1/workspaces/pick", "POST", { title: t("importChooseSource") }))
-						.path;
-			if (!mounted.current || !path) return;
-			setCustomPath(path);
-		} catch (caught) {
-			if (mounted.current) setError(errorMessage(caught));
-		}
-	}
-
-	async function start() {
-		if (!ready) return;
+	const scan = useCallback(async () => {
 		setBusy(true);
-		setError("");
+		setScanned(false);
+		setPreviews(new Map());
+		setSelected(new Set());
+		setFocused(undefined);
+		try {
+			const history = await api<{ jobs: ImportJob[] }>(PATH);
+			if (!mounted.current) return;
+			setJobs(history.jobs);
+			setJob(
+				(current) =>
+					history.jobs.find((item) => item.status === "running") ??
+					(current && history.jobs.find((item) => item.id === current.id)),
+			);
+			const result = await apiSend<{ candidates: ImportCandidate[] }>(`${PATH}/scan`, "POST", {
+				includeArchived: false,
+			});
+			if (!mounted.current) return;
+			setCandidates(result.candidates);
+			setSelected(new Set());
+			setPreviews(new Map());
+			setTargets(new Map(result.candidates.map((candidate) => [candidate.id, candidate.cwd])));
+			setFocused(undefined);
+			setScanned(true);
+			setScanGeneration((current) => current + 1);
+			await preview(
+				pendingImportCandidates(result.candidates, history.jobs).map((candidate) => candidate.id),
+				false,
+			);
+		} catch {
+			// Preserve known history and metadata; failed optional discovery renders no source list.
+			if (mounted.current) {
+				setScanned(false);
+				setPreviews(new Map());
+			}
+		} finally {
+			if (mounted.current) setBusy(false);
+		}
+	}, [preview]);
+	useEffect(() => {
+		if (autoScanned.current) return;
+		autoScanned.current = true;
+		void scan();
+	}, [scan]);
+
+	async function start(source: ImportCandidate["source"]) {
+		const platformChosen = chosen.filter((candidate) => candidate.source === source);
+		if (
+			!platformChosen.length ||
+			platformChosen.length > 100 ||
+			!platformChosen.every((c) => previews.has(c.id) && targets.get(c.id)?.trim())
+		)
+			return;
+		setBusy(true);
 		try {
 			const next = await apiSend<ImportJob>(PATH, "POST", {
-				selections: chosen.map((c) => ({
+				selections: platformChosen.map((c) => ({
 					candidateId: c.id,
 					fingerprint: previews.get(c.id)?.fingerprint,
 					cwd: targets.get(c.id),
@@ -206,10 +230,11 @@ export function SessionImportPage() {
 			});
 			if (mounted.current) {
 				setJob(next);
+				if (next.status !== "running") setSelected((current) => remainingSelected(current, next));
 				setJobs((current) => [next, ...current.filter((item) => item.id !== next.id)]);
 			}
-		} catch (caught) {
-			if (mounted.current) setError(errorMessage(caught));
+		} catch {
+			// Submission is unconfirmed; keep selection and history, never auto-retry or invent success.
 		} finally {
 			if (mounted.current) setBusy(false);
 		}
@@ -219,8 +244,8 @@ export function SessionImportPage() {
 		if (!job) return;
 		try {
 			await apiSend(`${PATH}/${job.id}`, "DELETE");
-		} catch (caught) {
-			setError(errorMessage(caught));
+		} catch {
+			// Keep the last known running state; only a confirmed host response can report cancellation.
 		}
 	}
 
@@ -230,28 +255,12 @@ export function SessionImportPage() {
 				<header className="session-import-section-head">
 					<h1 id="importSourcesTitle">{t("importSourcesTitle")}</h1>
 					<div className="session-import-header-actions">
-						{chosen.length ? (
-							<span className="session-import-selected">{t("importSelected", { count: chosen.length })}</span>
-						) : null}
 						<Button id="importScan" className="settings-btn" onClick={() => void scan()} disabled={pending}>
-							<Icon name="search" size="sm" />
-							{busy ? t("importWorking") : t("importScan")}
-						</Button>
-						<Button
-							id="importConfirm"
-							className="settings-btn primary"
-							disabled={pending || !ready || chosen.length > 100}
-							onClick={() => void start()}
-						>
-							{t("importConfirm")}
+							<Icon name="refresh" size="sm" />
+							{busy ? t("importWorking") : t("importRescan")}
 						</Button>
 					</div>
 				</header>
-				{error ? (
-					<p className="settings-alert danger session-import-error" role="alert">
-						{error}
-					</p>
-				) : null}
 				<div className="session-import-toolbar">
 					<SearchInput
 						wrapperClassName="search-input"
@@ -260,57 +269,66 @@ export function SessionImportPage() {
 						value={query}
 						onInputCapture={(event) => setQuery(event.currentTarget.value)}
 					/>
-					<label className="session-import-check">
-						<input
-							id="importIncludeArchived"
-							type="checkbox"
-							checked={includeArchived}
-							onChange={(event) => setIncludeArchived(event.target.checked)}
-							disabled={pending}
-						/>
-						{t("importIncludeArchived")}
-					</label>
 				</div>
 				<div className="session-import-list">
 					{SOURCES.map((source) => {
 						const rows = visible.filter((candidate) => candidate.source === source.id);
-						const count = candidates.filter((candidate) => candidate.source === source.id).length;
-						const root = roots[source.id];
-						if (!scanned || (!root && !count && !scanErrors.some((item) => item.source === source.id)))
-							return null;
+						const platformChosen = chosen.filter((candidate) => candidate.source === source.id);
+						const ready =
+							platformChosen.length > 0 &&
+							platformChosen.every((c) => previews.has(c.id) && targets.get(c.id)?.trim());
+						if (!scanned || !rows.length) return null;
 						return (
-							<details className="session-import-group" data-import-app={source.id} key={source.id} open>
+							<details
+								className="session-import-group"
+								data-import-app={source.id}
+								key={`${source.id}:${scanGeneration}`}
+							>
 								<summary className="session-import-app-summary">
-									<Icon name="chevronRight" size="sm" />
-									<strong>{source.name}</strong>
-									{root ? <small className="session-import-root mono">{root}</small> : null}
-									<span>
+									{groupCheckbox(rows, source.id)}
+									{"logo" in source ? (
+										<img className="session-import-logo" src={source.logo} alt="" width={32} height={32} />
+									) : (
+										<span className="session-import-logo-placeholder" aria-hidden="true" />
+									)}
+									<span className="session-import-app-info">
+										<strong>{source.name}</strong>
+									</span>
+									<span className="session-import-app-count">
 										{t("importSelected", {
-											count: candidates.filter(
+											count: available.filter(
 												(candidate) => candidate.source === source.id && selected.has(candidate.id),
 											).length,
 										})}
 									</span>
-									{selectionButton(rows, source.id)}
+
+									<Button
+										className="settings-btn primary session-import-platform-confirm"
+										data-import-confirm={source.id}
+										aria-label={`${source.name} ${t("importConfirm")}`}
+										disabled={pending || !ready || platformChosen.length > 100}
+										onClick={(event) => {
+											event.preventDefault();
+											event.stopPropagation();
+											void start(source.id);
+										}}
+									>
+										{t("importConfirm")}
+									</Button>
+									<Icon className="session-import-app-chevron" name="chevronRight" size="sm" />
 								</summary>
 								<div className="session-import-app-body">
-									{!rows.length ? (
-										<p className="empty-list">
-											{t(
-												!scanned ? "importBeforeScan" : count && needle ? "importNoMatches" : "importEmpty",
-											)}
-										</p>
-									) : null}
 									{groupProjects(rows, (candidate) => candidate.cwd).map(([cwd, projectRows]) => (
-										<details className="session-import-project" data-import-project={cwd} key={cwd} open>
+										<details className="session-import-project" data-import-project={cwd} key={cwd}>
 											<summary className="session-import-project-summary">
+												{groupCheckbox(projectRows, `${source.id}:${cwd}`)}
 												<Icon name="chevronRight" size="xs" />
 												<Icon name="folder" size="sm" />
 												<strong>{projectName(cwd, t("importUnknownProject"))}</strong>
 
 												<span>
 													{t("importSelected", {
-														count: candidates.filter(
+														count: available.filter(
 															(candidate) =>
 																candidate.source === source.id &&
 																candidate.cwd === cwd &&
@@ -318,7 +336,6 @@ export function SessionImportPage() {
 														).length,
 													})}
 												</span>
-												{selectionButton(projectRows, `${source.id}:${cwd}`)}
 											</summary>
 											<div className="session-import-project-body">
 												{projectRows.map((candidate) => {
@@ -344,10 +361,7 @@ export function SessionImportPage() {
 																/>
 																<span>
 																	<strong>{p?.title || candidate.title}</strong>
-																	<small>
-																		{candidate.modified.slice(0, 10)}
-																		{candidate.archived ? ` · ${t("importArchived")}` : ""}
-																	</small>
+																	{candidate.archived ? <small>{t("importArchived")}</small> : null}
 																</span>
 															</label>
 															<Popover
@@ -387,12 +401,6 @@ export function SessionImportPage() {
 																			tools: p.toolCount,
 																		})}
 																	</span>
-																	{p.warnings.map((warning) => (
-																		<span key={warning.code}>
-																			{t(`importWarning.${warning.code}` as Parameters<typeof t>[0])}{" "}
-																			({warning.count})
-																		</span>
-																	))}
 																</div>
 															) : null}
 														</div>
@@ -401,62 +409,10 @@ export function SessionImportPage() {
 											</div>
 										</details>
 									))}
-									{scanErrors.filter((item) => item.source === source.id).length ? (
-										<details className="session-import-errors">
-											<summary>
-												{t("importScanErrors", {
-													count: scanErrors.filter((item) => item.source === source.id).length,
-												})}
-											</summary>
-											{scanErrors
-												.filter((item) => item.source === source.id)
-												.map((item) => (
-													<p key={`${item.source}:${item.message}`}>{item.message}</p>
-												))}
-										</details>
-									) : null}
 								</div>
 							</details>
 						);
 					})}
-				</div>
-				<div className="session-import-custom">
-					<Button
-						id="importCustomToggle"
-						className="session-import-custom-toggle"
-						aria-expanded={customOpen}
-						onClick={() => setCustomOpen(!customOpen)}
-					>
-						<Icon name="folder" size="sm" />
-						<span aria-hidden="true">＋</span>
-						{t("importCustomScan")}
-					</Button>
-					<div className="session-import-custom-form" hidden={!customOpen}>
-						<p className="settings-page-desc">{t("importCustomScanHint")}</p>
-						<label className="settings-field" htmlFor="importCustomPath">
-							<div className="session-import-source-picker">
-								<input
-									id="importCustomPath"
-									aria-label={t("importCustomScan")}
-									className="settings-input mono"
-									value={customPath}
-									onInputCapture={(event) => setCustomPath(event.currentTarget.value)}
-									disabled={pending}
-								/>
-								<Button className="settings-btn" disabled={pending} onClick={() => void pickSource()}>
-									{t("importChooseSource")}
-								</Button>
-							</div>
-						</label>
-						<Button
-							id="importCustomScan"
-							className="settings-btn"
-							disabled={pending || !customPath.trim()}
-							onClick={() => void scan(true)}
-						>
-							{t("importScan")}
-						</Button>
-					</div>
 				</div>
 			</section>
 			<section className="session-import-history" aria-labelledby="importHistoryTitle" aria-live="polite">
@@ -478,15 +434,21 @@ export function SessionImportPage() {
 						.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
 						.flatMap((item) => item.results.map((result, index) => ({ result, index, job: item })))
 						.filter(({ result }) => (result.source ?? "unknown") === source.id);
-					if (source.id === "unknown" && !rows.length) return null;
+					if (!rows.length) return null;
 					return (
-						<details className="session-import-group" data-import-history-app={source.id} key={source.id} open>
+						<details className="session-import-group" data-import-history-app={source.id} key={source.id}>
 							<summary className="session-import-app-summary">
-								<Icon name="chevronRight" size="sm" />
-								<strong>{source.name}</strong>
+								{"logo" in source ? (
+									<img className="session-import-logo" src={source.logo} alt="" width={32} height={32} />
+								) : (
+									<span className="session-import-logo-placeholder" aria-hidden="true" />
+								)}
+								<span className="session-import-app-info">
+									<strong>{source.name}</strong>
+								</span>
+								<Icon className="session-import-app-chevron" name="chevronRight" size="sm" />
 							</summary>
 							<div className="session-import-app-body">
-								{!rows.length ? <p className="empty-list">{t("importHistoryEmpty")}</p> : null}
 								{groupProjects(
 									rows,
 									({ result }) =>
@@ -494,7 +456,7 @@ export function SessionImportPage() {
 										candidates.find((candidate) => candidate.id === result.candidateId)?.cwd ||
 										"",
 								).map(([cwd, projectRows]) => (
-									<details className="session-import-project" data-import-history-project={cwd} key={cwd} open>
+									<details className="session-import-project" data-import-history-project={cwd} key={cwd}>
 										<summary className="session-import-project-summary">
 											<Icon name="chevronRight" size="xs" />
 											<Icon name="folder" size="sm" />
@@ -509,19 +471,15 @@ export function SessionImportPage() {
 												>
 													<div>
 														<strong>{result.title ?? t("importUnknownProject")}</strong>
-														<p>
-															{t(`importResult.${result.status}`)} ·{" "}
-															{new Date(item.createdAt).toLocaleString()}
-														</p>
-														{result.error ? <p>{result.error}</p> : null}
-														{result.warning ? <p>{result.warning}</p> : null}
+														<p>{t(`importResult.${result.status}`)}</p>
 													</div>
 													{result.sessionId ? (
 														<Button
 															className="settings-btn"
 															onClick={() => {
 																closeSettings();
-																if (result.sessionId) void openSession(result.sessionId);
+																if (result.sessionId)
+																	void openSession(result.sessionId, { reportErrors: false });
 															}}
 														>
 															{t("importOpen")}
