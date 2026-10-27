@@ -14,10 +14,11 @@ import {
 import { copyText } from "../../state/session";
 import { setUi, useAppStore } from "../../state/store";
 import type { MessageTimelineItem } from "../../state/types";
-import { Icon, LEGACY_ICONS, MarkdownView } from "../../ui";
+import { Icon, MarkdownView } from "../../ui";
 import { openFileReference } from "../files/actions";
 import { highlightFence } from "../files/index";
 import { forkAtEntry } from "./actions";
+import { CopyAction } from "./CopyAction";
 import { openFeedback, type Sentiment } from "./feedback";
 import { clockTime } from "./message-meta";
 import { useFadeIn, useSmoothText } from "./streaming";
@@ -135,7 +136,8 @@ export const MessageItem = memo(function MessageItem({
 					ref={bodyRef}
 					className="message-body"
 					html={invokedHtml}
-					onCopyCode={(code) => void copyText(code)}
+					onCopyCode={(code) => copyText(code, null)}
+					copiedLabel={t("copied")}
 					onFileReference={(path) => void openFileReference(cwd, path)}
 				/>
 			) : null}
@@ -143,15 +145,7 @@ export const MessageItem = memo(function MessageItem({
 			{quoted ? <QuotedContext quote={quoted.quote} /> : null}
 			{role === "user" && item.content ? (
 				<div className="prompt-actions">
-					<button
-						type="button"
-						className="message-action"
-						title={t("copy")}
-						aria-label={t("copy")}
-						onClick={() => void copyText(content)}
-					>
-						<Icon {...LEGACY_ICONS.copy} />
-					</button>
+					<CopyAction value={content} />
 					{rewritableBefore !== undefined && item.entryId ? (
 						<button
 							type="button"
@@ -316,15 +310,7 @@ export function MessageActions({
 	};
 	return (
 		<div className="message-actions turn-actions">
-			<button
-				className="message-action copy-message"
-				type="button"
-				title={t("copy")}
-				aria-label={t("copy")}
-				onClick={() => void copyText(content)}
-			>
-				<Icon {...LEGACY_ICONS.copy} />
-			</button>
+			<CopyAction value={content} className="message-action copy-message" />
 			<button
 				className="message-action vote-up"
 				type="button"

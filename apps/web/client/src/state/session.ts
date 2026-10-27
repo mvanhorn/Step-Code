@@ -195,13 +195,18 @@ export function showAuthBanner(): void {
 
 setUnauthorizedHandler(showAuthBanner);
 
-/** Copy to the clipboard and report the outcome in the toast (legacy `copyText`, 2098-2105). */
-export async function copyText(value: string, successText: string = t("copied")): Promise<void> {
+/**
+ * Copy to the clipboard and report the outcome in the toast (legacy `copyText`, 2098-2105).
+ * `successText: null` skips the success toast for a button that confirms in place.
+ */
+export async function copyText(value: string, successText: string | null = t("copied")): Promise<boolean> {
 	try {
 		await writeClipboard(value);
-		showError(successText, false);
+		if (successText !== null) showError(successText, false);
+		return true;
 	} catch {
 		showError(t("browserCopyDenied"));
+		return false;
 	}
 }
 

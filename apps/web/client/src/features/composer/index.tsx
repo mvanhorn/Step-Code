@@ -702,7 +702,8 @@ export function Composer({ workspaceControl, branchControl, variant = "full" }: 
 							role="region"
 							aria-label={t("markdownPreview")}
 							tabIndex={0}
-							onCopyCode={(code) => void copyText(code)}
+							onCopyCode={(code) => copyText(code, null)}
+							copiedLabel={t("copied")}
 							onKeyDown={onPreviewKeyDown}
 							onClick={onPreviewClick}
 						/>

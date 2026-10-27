@@ -171,8 +171,9 @@ keep only the classes passed in. Read the component's doc comment before using i
 | `ShimmerText` | Animated "working on it" label | Put it in a status region to announce it |
 | `Kbd` | Keyboard shortcut hints | |
 | `DiffStat` | `+12 -3` line counts (`additions`, `deletions`) | |
-| `MarkdownView` | Rendering `lib/markdown` output (`html`), with code-block copy buttons (`onCopyCode`) | Only HTML from `renderMarkdown`; never other HTML |
+| `MarkdownView` | Rendering `lib/markdown` output (`html`), with code-block copy buttons (`onCopyCode`; unless it resolves `false`, the button shows `copiedLabel` briefly) | Only HTML from `renderMarkdown`; never other HTML |
 | `ResizeHandle` | Draggable / keyboard splitter between panels | Holds no size: `getSize`, `onResize` (live), `onCommit` (persist), `onReset`; `orientation="horizontal"` for stacked panels |
+| `useCopiedFlag` | `[copied, flash]` for a copy button that confirms in place | Pair with `copyText(value, null)` to skip the toast |
 | `useDismiss` | Outside-press and Escape dismissal for a mounted overlay | Include the trigger in `insideRefs` |
 | `useMergedRef` | One ref callback feeding two refs (own + forwarded) | |
 
