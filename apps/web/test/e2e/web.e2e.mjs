@@ -2271,6 +2271,107 @@ test("workspaces with chats can be removed through the dialog, retained after re
   assert.deepEqual(restored, [workspace]);
 });
 
+test("a removed workspace leaves the composer picker and never receives a new conversation", { skip }, async () => {
+  // Removing a workspace keeps its conversations. One of them can still be open,
+  // and "New conversation" inherits the folder from it, so the app has to stop
+  // targeting the folder the user deleted: the picker cannot list it any more,
+  // and a chat started there was sent into a workspace that was gone.
+  const now = new Date().toISOString()
+  const usage = { input: 1, output: 2, cacheRead: 0, cacheWrite: 0, totalTokens: 3, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }
+  const extraSession = "e2e-extra-workspace-session"
+  const dir = join(base, "agent", "sessions", "--e2e-extra--")
+  await mkdir(dir, { recursive: true })
+  await writeFile(
+    join(dir, `${extraSession}.jsonl`),
+    [
+      { type: "session", version: 3, id: extraSession, timestamp: now, cwd: extra },
+      { type: "message", id: "x-u", parentId: null, timestamp: now, message: { role: "user", content: "removed workspace chat", timestamp: Date.now() } },
+      { type: "message", id: "x-a", parentId: "x-u", timestamp: now, message: { role: "assistant", content: [{ type: "text", text: "ok" }], api: "openai-completions", provider: "e2e", model: "e2e", usage, stopReason: "stop", timestamp: Date.now() } },
+    ]
+      .map((line) => JSON.stringify(line))
+      .join("\n") + "\n",
+  )
+  await browser.run(`
+    await fetch("/api/v1/workspaces", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ path: ${JSON.stringify(extra)} }) });
+  `)
+  await browser.goto(`${origin}/`)
+  const removed = await browser.run(`
+    const row = await until(() => $('.session-row[data-session-id="${extraSession}"]'), "the workspace's chat");
+    row.click();
+    await until(() => $(".session-row.active"), "opened chat");
+    const group = await until(() => $$("#projectGroups .project-group").find((node) => node.dataset.cwd === ${JSON.stringify(extra)}), "workspace group");
+    group.querySelector(".workspace-menu-button").click();
+    await until(() => $("#workspaceMenu"), "workspace menu");
+    $("#workspaceMenu .remove-workspace").click();
+    await until(() => !$("#removeWorkspaceModal").hidden, "removal dialog");
+    $("#removeWorkspaceConfirm").click();
+    await until(() => $("#removeWorkspaceModal").hidden, "removed");
+    return {
+      groups: projects(),
+      recent: $$("#recentTasks .session-row").map((row) => row.dataset.sessionId),
+      workspaces: (await (await fetch("/api/v1/workspaces")).json()).workspaces,
+    };
+  `)
+  assert.equal(removed.groups.includes(extra), false, "the sidebar drops the removed project")
+  assert.ok(removed.recent.includes(extraSession), "its conversation is kept, under Recent")
+  assert.equal(
+    removed.workspaces.find((workspace) => workspace.name === "second-project")?.hidden,
+    true,
+    "the removal is recorded, not only hidden in this page's memory",
+  )
+
+  // The removed chat is still open. A new conversation must not inherit its folder.
+  const next = await browser.run(`
+    $("#newSession").click();
+    await until(() => !$("#workspaceControl").hidden, "draft composer");
+    const pill = $("#workspaceButtonName").textContent;
+    $("#workspaceButton").click();
+    const rows = await until(() => $$("#workspaceRecentList [role=option]").length && $$("#workspaceRecentList [role=option]"), "picker");
+    const items = rows.map((row) => row.title);
+    document.body.click();
+    await until(() => !$("#workspacePopover"), "picker closes");
+    const editor = $("#prompt");
+    editor.textContent = "stream-fixture"; editor.focus();
+    editor.dispatchEvent(new Event("input", { bubbles: true }));
+    $("#sendButton").click();
+    const id = await until(() => $(".session-row.active")?.dataset.sessionId, "created session");
+    const snapshot = await until(async () => {
+      const value = await (await fetch("/api/v1/sessions/" + id)).json();
+      if (value.status === "failed") throw new Error(JSON.stringify(value));
+      return value.status === "completed" ? value : null;
+    }, "the new turn settles");
+    return {
+      pill,
+      items,
+      toast: $("#errorToast").hidden ? "" : $("#errorToast").textContent,
+      cwd: snapshot.cwd,
+      groups: projects(),
+    };
+  `)
+  assert.equal(next.pill, "project", "the draft moves to a workspace still on offer")
+  assert.deepEqual(next.items, [workspace], "the picker no longer offers the removed folder")
+  assert.equal(next.cwd, workspace, "the new session is not created in the removed folder")
+  assert.equal(next.toast, "", "no folder-scoped request was refused")
+  assert.equal(next.groups.includes(extra), false, "the removed project never comes back as an empty group")
+  assert.equal(next.groups.includes(workspace), true, "the new chat joins the workspace it was started in")
+
+  // And the removal survives a reload: no group, no picker entry, chat still readable.
+  await browser.goto(`${origin}/`)
+  const reloaded = await browser.run(`
+    await until(() => $("[data-session-id]"), "rows after reload");
+    $("#newSession").click();
+    await until(() => !$("#workspaceControl").hidden, "draft after reload");
+    $("#workspaceButton").click();
+    await until(() => $$("#workspaceRecentList [role=option]").length, "picker after reload");
+    const items = $$("#workspaceRecentList [role=option]").map((row) => row.title);
+    document.body.click();
+    return { items, groups: projects(), recent: $$("#recentTasks .session-row").map((row) => row.dataset.sessionId) };
+  `)
+  assert.equal(reloaded.items.includes(extra), false, "the picker stays clean after a reload")
+  assert.equal(reloaded.groups.includes(extra), false, "the removed project never comes back as a group")
+  assert.ok(reloaded.recent.includes(extraSession), "the removed folder's chat is still readable")
+})
+
 test("rewriting a message leaves one input box, not two", { skip }, async () => {
   // Rewriting happens in place, above the conversation. The bottom composer used
   // to stay mounted beside it, so the page showed two prompt fields at once.

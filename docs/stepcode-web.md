@@ -363,6 +363,20 @@ cannot recreate their project group. Hidden folders are excluded from recent
 folder choices; their conversations remain readable under Recent and searchable.  
 Adding the folder again clears its removal marker and restores its project group.
 
+A removed folder also stops being a target for new work. "New conversation"
+inherits the folder of the conversation on screen, so starting one from a removed
+folder's retained chat used to create a session there — in a workspace the picker
+could no longer even list, where folder-scoped requests (file tree, git, `@`
+completion) then answered "Folder is not a known workspace". `startDraft` reroutes
+a hidden cwd to the launch folder, else to a workspace still on offer, and a draft
+open in the folder being removed is moved the same way. Only the last resort —
+every workspace removed — keeps the launch folder, because the host still has to
+run somewhere. Existing sessions keep their folder and stay fully usable.
+`bootstrap.cwd` is the launch folder's resolved path, so it matches the cwd a
+session header records and the paths the registry stores; a launch spelling that
+differed (a symlink, a trailing slash) would otherwise keep the removed real
+folder in the picker.
+
 Every project header offers removal, with or without conversations. An in-app  
 dialog names the project and explains that files and existing chats are retained.  
 Cancel has initial focus; Cancel, close, backdrop and Escape dismiss without a  
