@@ -229,6 +229,12 @@ export function taskStatus(state: AppState, session: SessionSummary): SessionSta
 	return state.statusById.get(session.id) ?? ((session.messageCount ?? 0) > 0 ? "completed" : "idle");
 }
 
+/** A folder the user removed from workspace navigation; its chats stay readable. */
+export function isHiddenWorkspace(state: AppState, path: string | undefined): boolean {
+	if (!path) return false;
+	return state.workspaces.some((workspace) => workspace.hidden === true && workspace.path === path);
+}
+
 /** Every folder the UI knows as a workspace, sorted by name (legacy `knownWorkspaces`, 1082-1095). */
 export function knownWorkspaces(state: AppState): string[] {
 	const values = new Set<string>();
@@ -239,15 +245,34 @@ export function knownWorkspaces(state: AppState): string[] {
 	for (const session of state.sessions) {
 		if (session.cwd && session.cwdAvailable !== false) values.add(session.cwd);
 	}
-	const hidden = new Set(state.workspaces.filter((workspace) => workspace.hidden).map((workspace) => workspace.path));
 	return [...values]
-		.filter((path) => !hidden.has(path))
+		.filter((path) => !isHiddenWorkspace(state, path))
 		.sort((left, right) => basename(left).localeCompare(basename(right), "zh-CN"));
 }
 
 /** The cwd new work should target: current session, else draft, else launch folder. */
 export function activeCwd(state: AppState = getState()): string {
 	return state.current?.cwd || state.draftCwd || state.bootstrapCwd;
+}
+
+/**
+ * Where a new conversation may start when the folder it would have used has
+ * been removed from workspace navigation.
+ *
+ * Removing a workspace keeps its chats, so one of them can still be open and
+ * "New conversation" would otherwise inherit that folder through `activeCwd()`.
+ * The picker cannot even list a removed folder, so the composer then named a
+ * workspace the user had deleted and sent a message into it — and any
+ * folder-scoped request (the file tree, git, `@` completion) came back with
+ * "Folder is not a known workspace". Prefer the launch folder, then any
+ * workspace still on offer; the launch folder is the last resort because the
+ * host always works somewhere.
+ */
+export function workspaceForNewConversation(state: AppState = getState()): string {
+	const wanted = activeCwd(state);
+	if (!isHiddenWorkspace(state, wanted)) return wanted;
+	if (state.bootstrapCwd && !isHiddenWorkspace(state, state.bootstrapCwd)) return state.bootstrapCwd;
+	return knownWorkspaces(state)[0] ?? state.bootstrapCwd;
 }
 
 /** `${provider}\u0000${id}` key of a model (legacy `modelKey`). */
@@ -269,16 +294,23 @@ export function mergeSessionSummary(
 	return next;
 }
 
+/** File-changing tools: the built-in names and the Step tool profile's, which Web sessions use. */
+const FILE_CHANGE_TOOLS: ReadonlySet<string> = new Set(["edit", "write", "edit_file", "write_file"]);
+
 /**
- * The file change of a finished edit/write call: both tools record a unified
- * patch in their result details; `write` says why when it recorded none.
+ * The file change of a finished edit/write call. `edit`, `write` and Step's
+ * `edit_file` record a unified patch in their result details; `write` says why
+ * when it recorded none. Step's `write_file` records no patch (an untracked
+ * change), and `changed: false` when the file already held the content.
  */
 function fileChange(name: string, args: unknown, result: AgentMessage | undefined): FileChange | undefined {
-	if ((name !== "edit" && name !== "write") || !result || result.isError) return undefined;
+	if (!FILE_CHANGE_TOOLS.has(name) || !result || result.isError) return undefined;
 	const details = (result.details ?? {}) as {
 		patch?: unknown;
 		untracked?: unknown;
+		changed?: unknown;
 	};
+	if (details.changed === false) return undefined;
 	const input = (args ?? {}) as { path?: unknown; file_path?: unknown };
 	const path = typeof input.path === "string" ? input.path : input.file_path;
 	if (typeof path !== "string" || !path.trim()) return undefined;
@@ -1461,6 +1493,9 @@ export function startDraft(cwd: string = getState().bootstrapCwd, options: { rea
 		dropSideAnswerTabs();
 	}
 	const draftCwd = cwd || getState().bootstrapCwd;
+	// A folder removed from workspace navigation keeps its chats but is no
+	// target for new work; see `workspaceForNewConversation`.
+	const startIn = isHiddenWorkspace(getState(), draftCwd) ? workspaceForNewConversation() : draftCwd;
 	setState((state) => {
 		const current = state.current;
 		return {
@@ -1475,14 +1510,14 @@ export function startDraft(cwd: string = getState().bootstrapCwd, options: { rea
 			current: null,
 			timelineItems: [],
 			pendingTurn: null,
-			draftCwd,
+			draftCwd: startIn,
 		};
 	});
 	// A new conversation replaces whatever covers the pane (cron / plugin market, a child agent),
 	// and a session still loading from an earlier pick.
-	setUi({ midView: null, childView: null, openingSession: null, draftRow: options.listed ? draftCwd : null });
+	setUi({ midView: null, childView: null, openingSession: null, draftRow: options.listed ? startIn : null });
 	requestPromptFocus();
-	void loadDraftModels(draftCwd);
+	void loadDraftModels(startIn);
 }
 
 /**

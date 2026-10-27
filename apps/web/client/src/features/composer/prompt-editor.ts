@@ -32,23 +32,30 @@ function chipText(chip: HTMLElement): string {
 	return chip.dataset.name ?? "";
 }
 
-function serialize(parent: Node): string {
+/** A staged mode or command lead chip. */
+function isLeadChip(node: Node): boolean {
+	return (
+		node instanceof HTMLElement &&
+		(node.classList.contains(MODE_LEAD_CLASS) || node.classList.contains(COMMAND_LEAD_CLASS))
+	);
+}
+
+/** `withLeads: false` drops the lead chips' command text, leaving what the user typed beside them. */
+function serialize(parent: Node, withLeads = true): string {
 	let out = "";
 	for (const child of parent.childNodes) {
 		if (child instanceof Text) {
 			out += child.data.replace(/\u00a0/g, " ");
 		} else if (child instanceof HTMLElement) {
 			if (child.classList.contains(CHIP_CLASS)) out += chipText(child);
-			// A plain command chip is the inline rendering of the command text itself.
-			else if (child.classList.contains(COMMAND_LEAD_CLASS)) out += child.dataset.text ?? "";
-			// Every lead chip carries its exact command text, modes included.
-			else if (child.classList.contains(MODE_LEAD_CLASS)) out += child.dataset.text ?? "";
+			// Every lead chip (a plain command or a mode) is the inline rendering of its exact command text.
+			else if (isLeadChip(child)) out += withLeads ? (child.dataset.text ?? "") : "";
 			else if (child.tagName === "BR") out += "\n";
 			else if (child.tagName === "DIV" || child.tagName === "P") {
 				// A block starts a new line unless one just ended.
 				if (out && !out.endsWith("\n")) out += "\n";
-				out += serialize(child);
-			} else out += serialize(child);
+				out += serialize(child, withLeads);
+			} else out += serialize(child, withLeads);
 		}
 	}
 	return out;
@@ -57,6 +64,30 @@ function serialize(parent: Node): string {
 /** The prompt as message text: chips become their file names. */
 export function promptText(root: HTMLElement): string {
 	return serialize(root);
+}
+
+/**
+ * The prompt's text without its staged lead chips. Commands stack, so the slash
+ * menu reads this: a `/word` typed after `/skill:a` is the next command to pick.
+ */
+export function promptBodyText(root: HTMLElement): string {
+	return serialize(root, false);
+}
+
+/**
+ * Remove everything the user typed beside the staged lead chips, keeping the
+ * chips and the spaces that separate them: a slash pick replaces only the
+ * `/word` it completes, never the commands already staged.
+ */
+export function clearPromptBody(root: HTMLElement): void {
+	for (const child of [...root.childNodes]) {
+		if (isLeadChip(child)) continue;
+		if (child instanceof Text) {
+			const spaces = child.data.replace(/[^\s\u00a0]/g, "");
+			if (spaces) child.data = spaces;
+			else child.remove();
+		} else child.remove();
+	}
 }
 
 interface CompletionProjection {
@@ -476,18 +507,25 @@ export interface ModeLead {
 /**
  * The mode's lead sits at the very start of the line, before any text: a
  * backspace over it removes it like a word (the composer then unstages the
- * mode), and `modePrefix` still leads the outgoing message. Re-staging another
- * mode replaces the chip in place.
+ * mode), and `modePrefix` still leads the outgoing message. The three modes
+ * are mutually exclusive — one rides a message — so staging another mode
+ * replaces any mode chip already standing, in its place; only plain commands
+ * stack beside it.
  */
 export function insertModeLead(root: HTMLElement, lead: ModeLead): void {
 	const existing = root.querySelector<HTMLElement>(`.${MODE_LEAD_CLASS}[data-mode="${lead.id}"]`);
 	if (existing) return;
-	insertLeadChip(root, MODE_LEAD_CLASS, lead.id, lead.icon, lead.label, `${lead.command} `);
+	const chip = buildLeadChip(MODE_LEAD_CLASS, lead.id, lead.icon, lead.label, lead.command);
+	const other = root.querySelector<HTMLElement>(`.${MODE_LEAD_CLASS}`);
+	if (other) other.replaceWith(chip);
+	else appendLeadChip(root, chip);
+	focusAfterLead(root, chip);
+	refreshPlaceholderHint(root);
 }
 
 /**
  * Drop one mode's lead chip (toggling it off, a wiped prompt); without `id`,
- * every mode chip goes — commands stack, so they each own their lifecycle.
+ * every mode chip goes — at most one stands, but plain-command chips stay.
  */
 export function removeModeLead(root: HTMLElement, id?: string): void {
 	for (const chip of [...root.querySelectorAll<HTMLElement>(`.${MODE_LEAD_CLASS}`)]) {
@@ -499,19 +537,17 @@ export function removeModeLead(root: HTMLElement, id?: string): void {
 }
 
 /**
- * A lead chip, shared by modes and plain commands: the sent format's own look
- * (tool-glyph + label, no pill), its exact command text on `dataset.text`, and
- * it APPENDS after any leads already staged — one input can carry several
- * commands, in the order they were staged.
+ * A lead chip as an element: the sent format's own look (tool-glyph + label, no
+ * pill), its command text — no trailing space; the space node `appendLeadChip`
+ * sets after each chip separates the serialized stack — on `dataset.text`.
  */
-function insertLeadChip(
-	root: HTMLElement,
+function buildLeadChip(
 	className: string,
 	mode: string | undefined,
 	icon: string,
 	label: string,
 	text: string,
-): void {
+): HTMLElement {
 	const chip = document.createElement("span");
 	chip.className = className;
 	chip.contentEditable = "false";
@@ -531,17 +567,50 @@ function insertLeadChip(
 	labelText.className = `${className}-label`;
 	labelText.textContent = label;
 	chip.append(glyph, labelText);
-	// Append after the last lead chip already staged, keeping the stack in order.
+	return chip;
+}
+
+/**
+ * Append `chip` after the last lead already staged, keeping the stack in order.
+ * The previous chip's separating space also separates the two chips (a typed
+ * command leaves that space behind when it is stripped into its chip), so the
+ * new chip goes past it — or past whatever follows when that space is gone,
+ * after setting one — and carries its own space after.
+ */
+function appendLeadChip(root: HTMLElement, chip: HTMLElement): void {
 	const leads = root.querySelectorAll(`.${MODE_LEAD_CLASS}, .${COMMAND_LEAD_CLASS}`);
-	const anchor = leads.length ? (leads[leads.length - 1] as HTMLElement).nextSibling : (root.firstChild ?? null);
+	const last = leads.length ? (leads[leads.length - 1] as HTMLElement) : null;
+	let anchor = last ? last.nextSibling : (root.firstChild ?? null);
+	if (last && anchor?.textContent === " ") anchor = anchor.nextSibling ?? null;
+	if (last && anchor === last.nextSibling) root.insertBefore(document.createTextNode(" "), anchor);
 	root.insertBefore(chip, anchor);
 	root.insertBefore(document.createTextNode(" "), chip.nextSibling);
-	if (document.activeElement === root) {
-		const range = document.createRange();
-		range.setStart(chip.nextSibling ?? chip, chip.nextSibling ? 1 : 0);
-		range.collapse(true);
-		select(range);
-	}
+}
+
+/** Park the caret just after `chip`'s trailing space, where typing continues, when the editor holds focus. */
+function focusAfterLead(root: HTMLElement, chip: HTMLElement): void {
+	if (document.activeElement !== root) return;
+	const range = document.createRange();
+	range.setStart(chip.nextSibling ?? chip, chip.nextSibling ? 1 : 0);
+	range.collapse(true);
+	select(range);
+}
+
+/**
+ * A plain command's lead chip: it APPENDS after any leads already staged —
+ * commands stack, one input can carry several, in the order they were staged.
+ */
+function insertLeadChip(
+	root: HTMLElement,
+	className: string,
+	mode: string | undefined,
+	icon: string,
+	label: string,
+	text: string,
+): void {
+	const chip = buildLeadChip(className, mode, icon, label, text);
+	appendLeadChip(root, chip);
+	focusAfterLead(root, chip);
 	refreshPlaceholderHint(root);
 }
 
@@ -568,7 +637,7 @@ export interface CommandLead {
  * command text, so the message the kernel receives is unchanged.
  */
 export function insertCommandLead(root: HTMLElement, lead: CommandLead): void {
-	insertLeadChip(root, COMMAND_LEAD_CLASS, undefined, lead.icon, lead.command, `${lead.command} `);
+	insertLeadChip(root, COMMAND_LEAD_CLASS, undefined, lead.icon, lead.command, lead.command);
 }
 
 /**

@@ -9,6 +9,8 @@ export interface TurnArtifact {
 	readonly path: string;
 	readonly label: string;
 	readonly kind: ArtifactKind;
+	/** The turn that delivered it: its page renders as this turn left the file. */
+	readonly turnId: string;
 	/**
 	 * This turn's recorded change of the file (the same entry its "Edited N files" card lists), so the
 	 * delivery can open that turn's diff. Absent when the turn only referenced the file.
@@ -44,7 +46,12 @@ export function turnArtifacts(
 	const found = new Map<string, TurnArtifact>();
 	const add = (path: string, label: string) => {
 		if (found.size >= 12 || artifactKind(path) === "file" || found.has(keyOf(path))) return;
-		found.set(keyOf(path), { path, label: label.slice(0, 160) || basename(path), kind: artifactKind(path) });
+		found.set(keyOf(path), {
+			path,
+			label: label.slice(0, 160) || basename(path),
+			kind: artifactKind(path),
+			turnId: footer.turnId,
+		});
 	};
 	const text = footer.messages
 		.filter((message) => !message.error)

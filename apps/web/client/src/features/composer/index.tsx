@@ -59,10 +59,12 @@ import { PlusMenu } from "./PlusMenu";
 import { PolicyMenu } from "./PolicyMenu";
 import { PromptInput } from "./PromptInput";
 import {
+	clearPromptBody,
 	insertLineBreak,
 	insertModeLead,
 	insertTextAtCaret,
 	placeCaretAtEnd,
+	promptBodyText,
 	promptFileQuery,
 	promptFiles,
 	promptText,
@@ -288,7 +290,8 @@ export function Composer({ workspaceControl, branchControl, variant = "full" }: 
 				if (value.trim()) setPreviewSource(value);
 				else closePreview();
 			}
-			const next = slashQuery(value);
+			// Commands stack: a `/word` typed after the staged lead chips opens the menu again.
+			const next = slashQuery(prompt.current ? promptBodyText(prompt.current) : value);
 			setQuery(next);
 			const view = getState().ui.slashMenu;
 			if (next !== null) setUi({ slashMenu: "commands", fileCompletionOpen: false });
@@ -360,8 +363,9 @@ export function Composer({ workspaceControl, branchControl, variant = "full" }: 
 			} else {
 				// The kernel runs `/<command> [args]` and expands `/skill:<name> [request]`
 				// into the skill's instructions on send. The pick becomes the prompt's
-				// lead chip — the same chip typing that command produces.
-				setPromptText(editor, "");
+				// lead chip — the same chip typing that command produces — appended after
+				// the leads already staged; only the typed `/word` goes.
+				clearPromptBody(editor);
 				stageCommandLead(editor, item.kind === "command" ? `/${item.key}` : `/skill:${item.key}`);
 				syncHasText();
 				setUi({ slashMenu: null });

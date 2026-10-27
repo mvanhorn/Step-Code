@@ -1,5 +1,6 @@
 /**
- * The composer's slash menu. Typing `/word` as the whole prompt lists, in two
+ * The composer's slash menu. Typing `/word` as the whole prompt — or after the
+ * command chips already staged, since commands stack — lists, in two
  * groups, the commands and the skills that fuzzy-match it, scored like the
  * CLI's autocomplete:
  *
@@ -52,9 +53,12 @@ function skillTitle(name: string): string {
 		.join(" ");
 }
 
-/** The word of a prompt that is a single `/word` (including a `skill:` prefix), or null. */
+/**
+ * The word of a prompt body that is a single `/word` (including a `skill:`
+ * prefix), or null. Leading spaces are the separators after staged lead chips.
+ */
 export function slashQuery(value: string): string | null {
-	const match = /^\/(\S*)$/.exec(value);
+	const match = /^\s*\/(\S*)$/.exec(value);
 	return match ? match[1] : null;
 }
 
@@ -236,7 +240,7 @@ export interface SlashMenuProps {
 	readonly handle: RefObject<SlashMenuHandle | null>;
 	/** The prompt: pressing in it does not dismiss the menu. */
 	readonly promptRef: RefObject<HTMLDivElement | null>;
-	/** The prompt's slash query, or null when the prompt is not a single `/word`. */
+	/** The prompt's slash query, or null when the text beside the lead chips is not a single `/word`. */
 	readonly query: string | null;
 	readonly onPick: (item: SlashItem) => void;
 }
