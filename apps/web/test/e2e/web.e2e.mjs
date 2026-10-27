@@ -24,7 +24,7 @@ import {
 } from "node:fs/promises"
 import { createServer as createHttpServer } from "node:http"
 import { createServer } from "node:net"
-import { tmpdir } from "node:os"
+import { homedir, tmpdir } from "node:os"
 import { delimiter, dirname, join } from "node:path"
 import { after, before, test } from "node:test"
 import { fileURLToPath } from "node:url"
@@ -2247,7 +2247,7 @@ test("workspaces with chats can be removed through the dialog, retained after re
     await until(() => !$("#removeWorkspaceConfirm").disabled && $("#errorToast").textContent.includes("removal fixture retry"), "retryable failure");
     const kept = !$("#removeWorkspaceModal").hidden;
     $("#removeWorkspaceConfirm").click(); $("#removeWorkspaceConfirm").click();
-    await until(() => $("#removeWorkspaceModal").hidden && !projects().length, "confirmed removal");
+    await until(() => $("#removeWorkspaceModal").hidden && !projects().includes(${JSON.stringify(workspace)}), "confirmed removal");
     window.fetch = original;
     return { calls, kept, session: $("#recentTasks .session-row.active")?.dataset.sessionId };
   `);
@@ -2255,9 +2255,18 @@ test("workspaces with chats can be removed through the dialog, retained after re
   await browser.goto(`${origin}/`);
   const reloaded = await browser.run(`
     await until(() => $("#recentTasks .session-row"), "retained chats after reload");
-    return { projects: projects(), session: (await (await fetch("/api/v1/sessions/${before.session}")).json()).id };
+    return {
+      projects: projects(),
+      name: $("#projectGroups .project-name").textContent,
+      session: (await (await fetch("/api/v1/sessions/${before.session}")).json()).id,
+    };
   `);
-  assert.deepEqual(reloaded, { projects: [], session: before.session });
+  // The workspace just removed was the launch folder, so new work falls back to
+  // the host's default folder. The page lists it as "默认项目" instead of leaving
+  // an empty project list: the user still needs a target for the next
+  // conversation, and it must not be the deleted folder.
+  const fallback = await realpath(homedir());
+  assert.deepEqual(reloaded, { projects: [fallback], name: "默认项目", session: before.session });
   assert.ok(existsSync(join(workspace, "README.md")));
   await browser.run(`
     await fetch("/api/v1/workspaces", { method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({path:${JSON.stringify(workspace)}}) });
@@ -2851,15 +2860,23 @@ test("a subagent or workflow call opens its child agents' transcripts read-only 
     const view = $("#childAgentView");
     await until(() => !view.hidden && view.textContent.includes("Wombat audit finished."), "child transcript");
     const usageStrip = $("#subagentUsage");
-    // A subagent is context the main agent wrote: the reader only looks, so the
-    // parent's prompt deck must be gone while this read-only record is open.
+    // A subagent is context the main agent wrote, but only the record is
+    // read-only: the parent conversation keeps its one prompt field while the
+    // panel is open, so typing, stop and queued messages stay reachable.
     const composer = $(".composer-zone");
+    const promptVisible = (() => {
+      const prompt = $("#prompt");
+      if (!prompt) return false;
+      const box = prompt.getBoundingClientRect();
+      return box.width > 0 && box.height > 0;
+    })();
     const single = {
       listedChildren,
       readOnlyBadge: Boolean(view.querySelector(".child-agent-badge")),
       actions: view.querySelectorAll(".message-actions, textarea, input").length,
       activeRow: $(".session-row.active")?.dataset.sessionId,
-      composerHidden: getComputedStyle(composer).display === "none",
+      composerVisible: getComputedStyle(composer).display !== "none",
+      promptVisible,
       // The child's input is a collapsed "message received" receipt, never a
       // bubble (which reads as an input field in this read-only panel).
       taskCopiesBeforeOpen: (view.textContent.match(/audit wombat/g) ?? []).length,
@@ -2888,7 +2905,7 @@ test("a subagent or workflow call opens its child agents' transcripts read-only 
     single.taskBlock = Boolean(view.querySelector(".subagent-input .subagent-task"));
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     await until(() => view.hidden, "child view closed by Escape");
-    single.composerRestored = getComputedStyle(composer).display !== "none";
+    single.composerAfterClose = getComputedStyle(composer).display !== "none";
 
     // A refused dispatch has no per-task result; it must still be a failed
     // record carrying the tool's own reason, not a nameless "status unknown" row.
@@ -2912,7 +2929,7 @@ test("a subagent or workflow call opens its child agents' transcripts read-only 
       empty: view.querySelector(".subagent-execution .child-agent-empty")?.textContent ?? "",
       inputs: view.querySelectorAll("input, textarea, [contenteditable='true']").length,
       userBubbles: view.querySelectorAll(".message.user").length,
-      composerHidden: getComputedStyle(composer).display === "none",
+      composerVisible: getComputedStyle(composer).display !== "none",
     };
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     await until(() => view.hidden, "rejected view closed by Escape");
@@ -2935,8 +2952,9 @@ test("a subagent or workflow call opens its child agents' transcripts read-only 
     await until(() => view.hidden, "rail closes the panel");
     return { ...single, rejected, tabs: agentTabs, tabHints, railOpened };
   `)
-  assert.equal(seen.composerHidden, true, "the parent composer still shows beside the read-only subagent record")
-  assert.equal(seen.composerRestored, true, "closing the record does not restore the parent composer")
+  assert.equal(seen.composerVisible, true, "opening a subagent record took the parent composer away")
+  assert.equal(seen.promptVisible, true, "the parent prompt field is not usable beside the read-only subagent record")
+  assert.equal(seen.composerAfterClose, true, "closing the record broke the parent composer")
   assert.equal(seen.taskCopiesBeforeOpen, 0, "the task is printed before its receipt is opened")
   assert.match(seen.inputRow?.label ?? "", /^收到任务消息/, "the receipt is not labelled")
   assert.equal(seen.inputRow?.expanded, "false", "the task receipt starts closed")
@@ -2955,7 +2973,7 @@ test("a subagent or workflow call opens its child agents' transcripts read-only 
     empty: "派发失败，子会话未创建",
     inputs: 0,
     userBubbles: 0,
-    composerHidden: true,
+    composerVisible: true,
   })
   assert.deepEqual(seen.usage, {
     input: "输入 1k",
@@ -2972,8 +2990,9 @@ test("a subagent or workflow call opens its child agents' transcripts read-only 
     sections: _sections,
     rejected: _rejected,
     inputRow: _inputRow,
-    composerHidden: _composerHidden,
-    composerRestored: _composerRestored,
+    composerVisible: _composerVisible,
+    promptVisible: _promptVisible,
+    composerAfterClose: _composerAfterClose,
     ...rest
   } = seen
   assert.deepEqual(rest, {
