@@ -152,16 +152,16 @@ test("removing the folder an unlisted draft sits in starts no row", async (t) =>
 
 test("removing a workspace while another pane is open leaves that pane in place", async (t) => {
 	// The reroute starts a draft, which normally replaces the pane; here the user
-	// is reading the cron list and only the draft's folder changed.
+	// is reading the plugin market and only the draft's folder changed.
 	setState({
 		bootstrapCwd: "/work/other",
 		draftCwd: "/work/project",
 		workspaces: [workspace("/work/project"), workspace("/work/other")],
 	});
-	setUi({ workspaceRemoval: { path: "/work/project", pending: false }, draftRow: null, midView: "cron" });
+	setUi({ workspaceRemoval: { path: "/work/project", pending: false }, draftRow: null, midView: "market" });
 	stubFetch(t, [workspace("/work/project", { hidden: true }), workspace("/work/other")]);
 	await removeWorkspace();
 	await settle();
 	assert.equal(getState().draftCwd, "/work/other");
-	assert.equal(getState().ui.midView, "cron", "the pane the user was reading stays open");
+	assert.equal(getState().ui.midView, "market", "the pane the user was reading stays open");
 });

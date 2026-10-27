@@ -135,6 +135,7 @@ const zhCN = {
 	searchIndexDegraded: "搜索索引不可用，只按会话匹配",
 	revealNotFound: "匹配内容不在当前对话分支上（该轮已被撤回或重试），已回到会话末尾",
 	recentFolders: "最近的文件夹",
+	noWorkspaces: "无工作空间",
 	chooseFolder: "选择文件夹…",
 	addWorkspace: "添加工作区",
 	addWorkspaceEllipsis: "添加工作区…",
@@ -1081,6 +1082,7 @@ const enUS: Record<MessageKey, string> = {
 	revealNotFound:
 		"That match is not on this conversation's current branch (the turn was reverted or retried); showing the end instead",
 	recentFolders: "Recent folders",
+	noWorkspaces: "No workspace",
 	chooseFolder: "Choose folder…",
 	addWorkspace: "Add workspace",
 	addWorkspaceEllipsis: "Add workspace…",
