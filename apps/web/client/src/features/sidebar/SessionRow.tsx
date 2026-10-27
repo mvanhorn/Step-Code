@@ -52,6 +52,7 @@ export function SessionRow({ session, grouped = false, filteredOut = false, list
 			unread: status === "completed" && !active && state.unreadById.get(session.id) === true,
 			active,
 			pinned: state.pinnedSessions.includes(session.id),
+			pinnedIds: state.pinnedSessions,
 			tag,
 			tagName: tag ? groupName(state.groups, tag) : "",
 			view: state.currentView,
@@ -61,11 +62,13 @@ export function SessionRow({ session, grouped = false, filteredOut = false, list
 		};
 	}, shallowEqual);
 	const { status, tag } = row;
-	// The keyboard neighbour comes from the drawn rows: a filtered-out row is not
-	// a place the reader can see themselves land beside.
-	const index = drawnIds.indexOf(session.id);
-	const previousId = index > 0 ? drawnIds[index - 1] : null;
-	const nextId = index >= 0 && index < drawnIds.length - 1 ? drawnIds[index + 1] : null;
+	// The keyboard neighbour comes from the unpinned rows the reader can see: the
+	// pinned block is fixed, and a filtered-out row is not a place they can land
+	// beside.
+	const movableIds = drawnIds.filter((id) => !row.pinnedIds.includes(id));
+	const index = movableIds.indexOf(session.id);
+	const previousId = index > 0 ? movableIds[index - 1] : null;
+	const nextId = index >= 0 && index < movableIds.length - 1 ? movableIds[index + 1] : null;
 
 	const [dragging, setDragging] = useState(false);
 	const [dropPlace, setDropPlace] = useState<"before" | "after" | null>(null);
@@ -87,7 +90,8 @@ export function SessionRow({ session, grouped = false, filteredOut = false, list
 		if (event.altKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
 			// Alt+↑/↓ is a browser shortcut elsewhere; the row owns it even at the ends.
 			event.preventDefault();
-			const targetId = event.key === "ArrowUp" ? previousId : nextId;
+			// A pinned row is not movable: the pinned block keeps the pin order.
+			const targetId = row.pinned ? null : event.key === "ArrowUp" ? previousId : nextId;
 			if (!targetId) return;
 			const element = event.currentTarget;
 			reorderSession(session.id, targetId, event.key === "ArrowUp" ? "before" : "after", drawnIds);
@@ -123,7 +127,7 @@ export function SessionRow({ session, grouped = false, filteredOut = false, list
 		endSessionDrag();
 		event.dataTransfer.setData(SESSION_DRAG_TYPE, session.id);
 		event.dataTransfer.effectAllowed = "move";
-		beginSessionDrag(session.id, listId);
+		beginSessionDrag(session.id, listId, row.pinned);
 		setDragging(true);
 	};
 	const onDragEnd = () => {
@@ -138,7 +142,7 @@ export function SessionRow({ session, grouped = false, filteredOut = false, list
 		const source = draggedSession();
 		// Another list's row: leave the event to the section (retag) and to the
 		// other view, rather than pretending this row can take it.
-		if (!canReorder(source, listId, session.id)) return;
+		if (!canReorder(source, listId, session.id, row.pinned)) return;
 		event.preventDefault();
 		event.stopPropagation();
 		event.dataTransfer.dropEffect = "move";
@@ -154,7 +158,7 @@ export function SessionRow({ session, grouped = false, filteredOut = false, list
 		// Same fence as dragover: a payload dragged in from outside is never a drop.
 		if (!event.dataTransfer.types.includes(SESSION_DRAG_TYPE)) return;
 		const source = draggedSession();
-		if (!canReorder(source, listId, session.id)) return;
+		if (!canReorder(source, listId, session.id, row.pinned)) return;
 		event.preventDefault();
 		event.stopPropagation();
 		// Read the pointer here: React may not have committed the last `dragover`,
@@ -180,8 +184,9 @@ export function SessionRow({ session, grouped = false, filteredOut = false, list
 			data-session-id={session.id}
 			data-pinned={row.pinned ? "true" : undefined}
 			style={filteredOut ? { display: "none" } : undefined}
-			draggable
-			onDragStart={onDragStart}
+			// The pinned block is fixed: its rows cannot be grabbed at all.
+			draggable={row.pinned ? undefined : true}
+			onDragStart={row.pinned ? undefined : onDragStart}
 			onDragEnd={onDragEnd}
 			onDragOver={onDragOver}
 			onDragLeave={onDragLeave}

@@ -444,18 +444,18 @@ Alt+Cmd+O / Ctrl+Alt+O shortcut stays global: it opens the same chooser from
 either view.
 
 Each reader's own arrangement of that list is local, like the theme. The row's  
-more menu pins a conversation (or unpins it), and a pinned row leads the list it  
-already belongs to instead of moving out of it; the row pinned last is the one  
-nearest the top. Dragging a row reorders it inside the same list (a row dropped  
-on another project or tag section is not a reorder), and Alt+↑ / Alt+↓ moves the  
-focused row past its drawn neighbour, keeping focus on it for the next press.  
-The drop target decides which part of the list the row joins: released beside a  
-pinned row it is pinned there (so a row can be dragged into the pinned block),  
-released beside an unpinned row it is unpinned there. A pin never rewrites the  
-unpinned order, so a row that had a place keeps it while pinned and returns to  
-it when unpinned from the menu; a row pinned before it was ever arranged has no  
-place to return to and leads the unpinned rows once unpinned, like a  
-conversation the Host lists for the first time.
+more menu pins a conversation (or unpins it), and pinned rows are a fixed block  
+at the top of the list they belong to — they do not move into a separate  
+section, and the row pinned last is the one nearest the top. Dragging only  
+rearranges the unpinned rows inside the same list: a row dropped on another  
+project or tag section, and a row dropped on a pinned row, does nothing, so a  
+drag can never enter the pinned block or push a row above it. Alt+↑ / Alt+↓  
+moves the focused row past its visible neighbour and keeps focus on it for the  
+next press. Pinning never rewrites the unpinned order, so a row that had a place  
+keeps it while pinned and returns to it when unpinned from the menu; a row  
+pinned before it was ever arranged has no place to return to and leads the  
+unpinned rows once unpinned, like a conversation the Host lists for the first  
+time.
 
 Both preferences live in browser local storage (`state/session-order.ts`,  
 `stepcode.pinnedSessions` / `stepcode.sessionOrder`), not in Host metadata, and a  

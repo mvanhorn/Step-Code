@@ -95,30 +95,21 @@ test("a dragged row lands on the side it was dropped", () => {
 	assert.deepEqual(moveSession(list, prefs(), "a", "c", "after").sessionOrder, ["b", "c", "a"]);
 });
 
-test("a row dropped inside the pinned block is pinned there, in pin order", () => {
-	// The bug this covers: an earlier design refused drops across the pin
-	// boundary, so nothing could be dragged onto a pinned row at all.
-	const list = ["b", "c", "a"];
-	const dropped = moveSession(list, prefs(["b", "c"]), "a", "c", "after");
-	assert.deepEqual(dropped.pinnedSessions, ["b", "c", "a"], "it joins the pinned block where it was dropped");
-	assert.deepEqual(dropped.sessionOrder, [], "and it takes no unpinned place");
-
-	// Dragging one pinned row past another reorders pins only.
-	const reordered = moveSession(list, prefs(["b", "c"]), "c", "b", "before");
-	assert.deepEqual(reordered.pinnedSessions, ["c", "b"]);
-	assert.deepEqual(reordered.sessionOrder, []);
-});
-
-test("a pinned row dropped below the pinned block is unpinned where it lands", () => {
-	const list = ["p", "u1", "u2"];
-	const dropped = moveSession(list, prefs(["p", "x"]), "p", "u1", "before");
-	assert.deepEqual(dropped.pinnedSessions, ["x"], "the drag out of the block unpins the row");
-	assert.deepEqual(dropped.sessionOrder, ["p", "u1", "u2"]);
+test("the pinned block is fixed: a drag onto a pinned row changes nothing", () => {
+	// The reported bug: dropping a row on a pinned row used to pin it there, so a
+	// dragged row ended up above the pinned ones. The block is not a drop target.
+	const before = prefs(["b", "c"], ["a"]);
+	for (const place of ["before", "after"] as const) {
+		assert.equal(moveSession(["b", "c", "a"], before, "a", "c", place), before, `dropped ${place} a pin`);
+	}
+	// And a pinned row cannot be dragged out either: its order is the pin order.
+	assert.equal(moveSession(["b", "c", "a"], before, "b", "a", "after"), before);
+	assert.equal(moveSession(["b", "c", "a"], before, "c", "b", "before"), before);
 });
 
 test("a drag that changes nothing keeps the same arrangement object", () => {
 	// Dropped where it already sat inside the unpinned rows: same reference, so
-	// nothing repaints (a drop onto a pinned row is a pin, which is a change).
+	// nothing repaints (so does any drop on the fixed pinned block, above).
 	const before = prefs(["b"], ["b", "a", "c"]);
 	assert.equal(
 		moveSession(["b", "a", "c"], before, "c", "a", "after"),
@@ -153,19 +144,28 @@ test("a conversation the host lists for the first time arrives on top", () => {
 	assert.deepEqual(ids(orderedSessions(withNew, [], ["b", "a"])), ["fresh", "b", "a"]);
 });
 
-test("only rows of the same list take a drag, and never themselves", () => {
+test("a drag needs one unpinned row of the same list on both ends", () => {
 	setState({ sessions: [session("a"), session("b")] });
-	drag.beginSessionDrag("a", "/work/project");
+	drag.beginSessionDrag("a", "/work/project", false);
 	try {
 		const source = drag.draggedSession();
-		assert.equal(drag.canReorder(source, "/work/project", "b"), true);
-		assert.equal(drag.canReorder(source, "/work/project", "a"), false, "a row cannot be dropped on itself");
-		assert.equal(drag.canReorder(source, "/work/other", "b"), false, "another project's rows do not reorder");
-		assert.equal(drag.canReorder(null, "/work/project", "b"), false);
+		assert.equal(drag.canReorder(source, "/work/project", "b", false), true);
+		assert.equal(drag.canReorder(source, "/work/project", "a", false), false, "a row cannot be dropped on itself");
+		assert.equal(drag.canReorder(source, "/work/other", "b", false), false, "another project's rows do not reorder");
+		assert.equal(drag.canReorder(source, "/work/project", "b", true), false, "the pinned block is not a drop target");
+		assert.equal(drag.canReorder(null, "/work/project", "b", false), false);
 	} finally {
 		drag.endSessionDrag();
 	}
 	assert.equal(drag.draggedSession(), null);
+
+	// A pinned row is never grabbed, and a stale state from one cannot land either.
+	drag.beginSessionDrag("b", "/work/project", true);
+	try {
+		assert.equal(drag.canReorder(drag.draggedSession(), "/work/project", "a", false), false);
+	} finally {
+		drag.endSessionDrag();
+	}
 });
 
 test("a drop asks for the half of the row the pointer is over", () => {
@@ -191,9 +191,9 @@ test("pinning through the sidebar actions put the newest pin first", () => {
 
 	reorderSession("a", "a", "before", ["c", "b", "a"]);
 	assert.deepEqual(getState().sessionOrder, [], "dropping a row on itself changes nothing");
-	reorderSession("a", "b", "before", ["c", "b", "a"]);
-	assert.deepEqual(getState().sessionOrder, ["a", "b"], "a row from the pinned block joins the unpinned rows");
-	assert.deepEqual(getState().pinnedSessions, ["c"]);
+	reorderSession("a", "c", "before", ["c", "b", "a"]);
+	assert.deepEqual(getState().sessionOrder, [], "a pinned row is not a drop target");
+	assert.deepEqual(getState().pinnedSessions, ["c"], "and a drag never pins");
 });
 
 test("pinning and dragging reach localStorage, not just the store", () => {

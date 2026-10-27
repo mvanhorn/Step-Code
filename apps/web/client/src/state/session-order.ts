@@ -7,27 +7,24 @@
  * them, kept in local storage like the theme (last writer wins; two pages of
  * the same profile share the file but do not watch each other).
  *
- * The list has two parts, and one drag moves a row through both:
+ * The list has two parts, and they are kept apart on purpose:
  *
- * - Pinned rows lead their list, newest pin first: pinning a conversation from
- *   the menu puts it on top, so the row pinned last is the row nearest the top.
- *   The pin order is the stored `pinnedSessions` array, so dragging one pinned
- *   row past another reorders that part and nothing else.
+ * - Pinned rows are a fixed block at the top, newest pin first: pinning a
+ *   conversation from the menu puts it on top, so the row pinned last is the row
+ *   nearest the top. The pin order is the stored `pinnedSessions` array.
  * - Everything else follows the stored `sessionOrder` (the order drags gave it)
  *   and, for a row no drag has placed, the host's order (newest first). A new
  *   conversation therefore lands on top of the unpinned rows instead of below
  *   everything the reader has touched.
  *
- * A drop decides membership: released beside a pinned row the row is pinned
- * there, released beside an unpinned row it is unpinned there. That is the
- * whole reason a drag can reach the pinned block at all — an earlier design
- * refused those drops and made a pinned row impossible to move into.
- *
- * A pin never writes the unpinned order, so dragging and pinning cannot lose
- * each other's work. A row that already had a place keeps it while pinned (so
- * unpinning through the menu returns it there); a row pinned before it was ever
- * arranged has no place to return to and leads the unpinned rows once unpinned,
- * exactly like a conversation the host lists for the first time.
+ * Dragging only rearranges the unpinned rows. The pinned block is not a drop
+ * target and a pinned row is not draggable: a drag can neither enter the block
+ * nor push a row above it, so "pinned" always reads as "these are the fixed ones
+ * on top". Membership changes only through the row menu, and pinning never
+ * writes the unpinned order — a row that had a place keeps it while pinned, so
+ * unpinning returns it there. A row pinned before it was ever arranged has no
+ * place to return to and leads the unpinned rows once unpinned, exactly like a
+ * conversation the host lists for the first time.
  *
  * Arranging one list writes that list's ids only, so another project keeps
  * following the host. A place belongs to the session, not to the list:
@@ -128,11 +125,11 @@ function sameIds(left: readonly string[], right: readonly string[]): boolean {
  * The arrangement after dragging `draggedId` before or after `targetId` in
  * `listIds` (one list, in drawn order).
  *
- * The drop target decides the part of the list: beside a pinned row the dragged
- * row becomes pinned at that spot, beside an unpinned row it becomes unpinned
- * and the list's stored order places it. A drag that cannot move anything — the
- * same row, a row from another list, a row the list no longer has — returns the
- * arrangement unchanged.
+ * Only unpinned rows move. A drag that starts on a pinned row, or is dropped on
+ * one, changes nothing: the pinned block stays the fixed area at the top and its
+ * order stays the pin order. A drag that cannot move anything — the same row, a
+ * row from another list, a row the list no longer has — returns the arrangement
+ * unchanged.
  */
 export function moveSession(
 	listIds: readonly string[],
@@ -143,30 +140,20 @@ export function moveSession(
 ): SessionPreferences {
 	if (draggedId === targetId) return preferences;
 	if (!listIds.includes(draggedId) || !listIds.includes(targetId)) return preferences;
-
-	const targetPinned = preferences.pinnedSessions.includes(targetId);
-	const pinnedSessions = targetPinned
-		? insertBeside(preferences.pinnedSessions, targetId, draggedId, place)
-		: preferences.pinnedSessions.filter((id) => id !== draggedId);
-
-	let sessionOrder = preferences.sessionOrder;
-	if (!targetPinned) {
-		// Rewrite the unpinned rows of this list and keep every other stored rank
-		// (another list's rows, and the pinned rows' remembered places, so
-		// unpinning one later returns it where a drag left it).
-		const unpinned = listIds.filter((id) => id !== draggedId && !pinnedSessions.includes(id));
-		const arranged = insertBeside(listOrder(unpinned, preferences.sessionOrder), targetId, draggedId, place);
-		const rewritten = new Set([...unpinned, draggedId]);
-		sessionOrder = [...preferences.sessionOrder.filter((id) => !rewritten.has(id)), ...arranged];
+	// The pinned block is fixed: neither its rows nor drops onto it reorder.
+	if (preferences.pinnedSessions.includes(draggedId) || preferences.pinnedSessions.includes(targetId)) {
+		return preferences;
 	}
 
-	const pinnedChanged = !sameIds(pinnedSessions, preferences.pinnedSessions);
-	const orderChanged = sessionOrder !== preferences.sessionOrder && !sameIds(sessionOrder, preferences.sessionOrder);
-	if (!pinnedChanged && !orderChanged) return preferences;
-	return {
-		pinnedSessions: pinnedChanged ? pinnedSessions : preferences.pinnedSessions,
-		sessionOrder: orderChanged ? sessionOrder : preferences.sessionOrder,
-	};
+	// Rewrite this list's unpinned rows and keep every other stored rank (another
+	// list's rows, and the pinned rows' remembered places, so unpinning one later
+	// returns it where a drag left it).
+	const unpinned = listIds.filter((id) => !preferences.pinnedSessions.includes(id));
+	const arranged = insertBeside(listOrder(unpinned, preferences.sessionOrder), targetId, draggedId, place);
+	const rewritten = new Set(unpinned);
+	const sessionOrder = [...preferences.sessionOrder.filter((id) => !rewritten.has(id)), ...arranged];
+	if (sameIds(sessionOrder, preferences.sessionOrder)) return preferences;
+	return { pinnedSessions: preferences.pinnedSessions, sessionOrder };
 }
 
 /**

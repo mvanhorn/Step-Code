@@ -3624,51 +3624,61 @@ test(
 			order: stored("stepcode.sessionOrder"),
 		};
 
-		// A row dragged onto the pinned row's upper half joins the pinned block, and
-		// the newest drop decides the pin order: it lands above "second".
+		// The pinned block is fixed: dropping a row on a pinned row changes nothing —
+		// no indicator, no pin, no position above the block.
 		const upper = rowFor(${JSON.stringify(arrange)}, "e2e-arrange-second").getBoundingClientRect();
-		const intoPins = dragTo(
+		const ontoPinned = dragTo(
 			rowFor(${JSON.stringify(arrange)}, "e2e-arrange-third"),
 			rowFor(${JSON.stringify(arrange)}, "e2e-arrange-second"),
 			upper.top + 2,
 		);
-		const intoIndicator = await until(
-			() => rowFor(${JSON.stringify(arrange)}, "e2e-arrange-second").classList.contains("drop-before") && "drop-before",
-			"the upper-half drop indicator",
-		);
-		intoPins.drop();
-		await until(
-			() => rows(${JSON.stringify(arrange)})[0] === "e2e-arrange-third",
-			"the dragged row to join the pinned block above",
-		);
-		const pinnedDrop = {
+		const ontoIndicator = rowFor(${JSON.stringify(arrange)}, "e2e-arrange-second").className.includes("drop-")
+			? "indicator"
+			: "none";
+		ontoPinned.drop();
+		await until(() => $("#errorToast").hidden, "the toast to stay quiet");
+		const fixedBlock = {
 			rows: rows(${JSON.stringify(arrange)}),
 			pins: stored("stepcode.pinnedSessions"),
 			order: stored("stepcode.sessionOrder"),
+			grabbable: rowFor(${JSON.stringify(arrange)}, "e2e-arrange-second").draggable,
 		};
 
-		// The lower half lands below: dragging a pinned row out of the block unpins
-		// it where it was dropped.
-		const lower = rowFor(${JSON.stringify(arrange)}, "e2e-arrange-first").getBoundingClientRect();
-		const outOfPins = dragTo(
-			rowFor(${JSON.stringify(arrange)}, "e2e-arrange-second"),
+		// Dropping on the upper half of an unpinned row lands above it.
+		const thirdTop = rowFor(${JSON.stringify(arrange)}, "e2e-arrange-third").getBoundingClientRect();
+		const reorder = dragTo(
 			rowFor(${JSON.stringify(arrange)}, "e2e-arrange-first"),
-			lower.bottom - 2,
+			rowFor(${JSON.stringify(arrange)}, "e2e-arrange-third"),
+			thirdTop.top + 2,
 		);
-		const outIndicator = await until(
-			() => rowFor(${JSON.stringify(arrange)}, "e2e-arrange-first").classList.contains("drop-after") && "drop-after",
+		const reorderIndicator = await until(
+			() => rowFor(${JSON.stringify(arrange)}, "e2e-arrange-third").classList.contains("drop-before") && "drop-before",
+			"the upper-half drop indicator",
+		);
+		reorder.drop();
+		await until(
+			() => rows(${JSON.stringify(arrange)}).indexOf("e2e-arrange-first") < rows(${JSON.stringify(arrange)}).indexOf("e2e-arrange-third"),
+			"the dragged row to land above",
+		);
+		const moved = { rows: rows(${JSON.stringify(arrange)}), order: stored("stepcode.sessionOrder") };
+
+		// And the lower half lands below, so the pointer's side is what decides.
+		const thirdBox = rowFor(${JSON.stringify(arrange)}, "e2e-arrange-third").getBoundingClientRect();
+		const lowerDrag = dragTo(
+			rowFor(${JSON.stringify(arrange)}, "e2e-arrange-first"),
+			rowFor(${JSON.stringify(arrange)}, "e2e-arrange-third"),
+			thirdBox.bottom - 2,
+		);
+		const lowerIndicator = await until(
+			() => rowFor(${JSON.stringify(arrange)}, "e2e-arrange-third").classList.contains("drop-after") && "drop-after",
 			"the lower-half drop indicator",
 		);
-		outOfPins.drop();
+		lowerDrag.drop();
 		await until(
-			() => rowFor(${JSON.stringify(arrange)}, "e2e-arrange-second").dataset.pinned !== "true",
-			"the dragged row to leave the pinned block",
+			() => rows(${JSON.stringify(arrange)}).indexOf("e2e-arrange-first") > rows(${JSON.stringify(arrange)}).indexOf("e2e-arrange-third"),
+			"the dragged row to land below",
 		);
-		const unpinnedDrop = {
-			rows: rows(${JSON.stringify(arrange)}),
-			pins: stored("stepcode.pinnedSessions"),
-			order: stored("stepcode.sessionOrder"),
-		};
+		const movedAgain = { rows: rows(${JSON.stringify(arrange)}), order: stored("stepcode.sessionOrder") };
 
 		// Another project's list is untouched by that drag: it still follows the host.
 		const other = rows(${JSON.stringify(neighbour)});
@@ -3682,7 +3692,19 @@ test(
 		foreign.drop();
 		const crossed = { arrange: rows(${JSON.stringify(arrange)}), neighbour: rows(${JSON.stringify(neighbour)}) };
 
-		return { initial, labels, pinned, intoIndicator, pinnedDrop, outIndicator, unpinnedDrop, other, crossed };
+		return {
+			initial,
+			labels,
+			pinned,
+			ontoIndicator,
+			fixedBlock,
+			reorderIndicator,
+			moved,
+			lowerIndicator,
+			movedAgain,
+			other,
+			crossed,
+		};
 	`)
       assert.deepEqual(seen.initial, ["e2e-arrange-third", "e2e-arrange-second", "e2e-arrange-first"])
       assert.ok(seen.labels.includes("置顶会话"), seen.labels.join(" | "))
@@ -3691,21 +3713,26 @@ test(
       assert.equal(seen.pinned.marked, "true")
       assert.equal(seen.pinned.label, "已置顶")
       assert.equal((seen.pinned.order ?? []).length, 0, "a pin must not arrange anything")
-      assert.equal(seen.intoIndicator, "drop-before")
-      assert.deepEqual(seen.pinnedDrop, {
-        rows: ["e2e-arrange-third", "e2e-arrange-second", "e2e-arrange-first"],
-        pins: ["e2e-arrange-third", "e2e-arrange-second"],
+      assert.equal(seen.ontoIndicator, "none", "a pinned row shows no drop indicator")
+      assert.deepEqual(seen.fixedBlock, {
+        rows: ["e2e-arrange-second", "e2e-arrange-third", "e2e-arrange-first"],
+        pins: ["e2e-arrange-second"],
         order: [],
+        grabbable: false,
       })
-      assert.equal(seen.outIndicator, "drop-after")
-      assert.deepEqual(seen.unpinnedDrop, {
-        rows: ["e2e-arrange-third", "e2e-arrange-first", "e2e-arrange-second"],
-        pins: ["e2e-arrange-third"],
-        order: ["e2e-arrange-first", "e2e-arrange-second"],
+      assert.equal(seen.reorderIndicator, "drop-before")
+      assert.deepEqual(seen.moved, {
+        rows: ["e2e-arrange-second", "e2e-arrange-first", "e2e-arrange-third"],
+        order: ["e2e-arrange-first", "e2e-arrange-third"],
+      })
+      assert.equal(seen.lowerIndicator, "drop-after")
+      assert.deepEqual(seen.movedAgain, {
+        rows: ["e2e-arrange-second", "e2e-arrange-third", "e2e-arrange-first"],
+        order: ["e2e-arrange-third", "e2e-arrange-first"],
       })
       assert.deepEqual(seen.other, ["e2e-neighbour-only"])
       assert.deepEqual(seen.crossed, {
-        arrange: ["e2e-arrange-third", "e2e-arrange-first", "e2e-arrange-second"],
+        arrange: ["e2e-arrange-second", "e2e-arrange-third", "e2e-arrange-first"],
         neighbour: ["e2e-neighbour-only"],
       })
 
@@ -3721,23 +3748,24 @@ test(
 		const shown = (node) => node.getClientRects().length > 0;
 		await until(() => rows(${JSON.stringify(arrange)}).length === 3, "the arranged rows after reload");
 		const kept = rows(${JSON.stringify(arrange)});
-		const pinMarked = rowFor(${JSON.stringify(arrange)}, "e2e-arrange-third").dataset.pinned;
+		const pinMarked = rowFor(${JSON.stringify(arrange)}, "e2e-arrange-second").dataset.pinned;
 
 		// Unpinning through the menu drops only the pin and keeps the arrangement.
-		rowFor(${JSON.stringify(arrange)}, "e2e-arrange-third").querySelector(".session-menu-button").click();
+		rowFor(${JSON.stringify(arrange)}, "e2e-arrange-second").querySelector(".session-menu-button").click();
 		const menu = await until(() => $("#sessionMenu"), "the session menu after reload");
 		menu.querySelector("[data-action='pin']").click();
-		await until(() => !rowFor(${JSON.stringify(arrange)}, "e2e-arrange-third").dataset.pinned, "the pin to clear");
+		await until(() => !rowFor(${JSON.stringify(arrange)}, "e2e-arrange-second").dataset.pinned, "the pin to clear");
 		const unpinned = {
 			pins: JSON.parse(localStorage.getItem("stepcode.pinnedSessions") ?? "null"),
 			rows: rows(${JSON.stringify(arrange)}),
+			grabbable: rowFor(${JSON.stringify(arrange)}, "e2e-arrange-second").draggable,
 		};
 
-		// The same arrangement is available without a pointer: Alt+↑ moves the
+		// The same arrangement is available without a pointer: Alt+↓ moves the
 		// focused row past its drawn neighbour, and focus survives the move.
-		const lastRow = rowFor(${JSON.stringify(arrange)}, "e2e-arrange-second");
-		lastRow.focus();
-		lastRow.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", altKey: true, bubbles: true }));
+		const moved = rowFor(${JSON.stringify(arrange)}, "e2e-arrange-second");
+		moved.focus();
+		moved.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", altKey: true, bubbles: true }));
 		await until(
 			() => rows(${JSON.stringify(arrange)})[1] === "e2e-arrange-second",
 			"the keyboard reorder",
@@ -3746,11 +3774,12 @@ test(
 			() => document.activeElement?.dataset.sessionId === "e2e-arrange-second",
 			"focus to stay on the moved row",
 		);
+		const oneStep = rows(${JSON.stringify(arrange)});
 		document.activeElement.dispatchEvent(
-			new KeyboardEvent("keydown", { key: "ArrowDown", altKey: true, bubbles: true }),
+			new KeyboardEvent("keydown", { key: "ArrowUp", altKey: true, bubbles: true }),
 		);
 		await until(
-			() => rows(${JSON.stringify(arrange)})[2] === "e2e-arrange-second",
+			() => rows(${JSON.stringify(arrange)})[0] === "e2e-arrange-second",
 			"the second keyboard step",
 		);
 		const keyboard = rows(${JSON.stringify(arrange)});
@@ -3766,22 +3795,20 @@ test(
 		await until(() => $("#groupedView").hidden, "the project view");
 		const project = { add: shown($("#addWorkspace")), archive: shown($("#archiveToggle")) };
 
-		return { kept, pinMarked, unpinned, keyboard, grouped, project };
+		return { kept, pinMarked, unpinned, oneStep, keyboard, grouped, project };
 	`)
-      assert.deepEqual(reloaded.kept, ["e2e-arrange-third", "e2e-arrange-first", "e2e-arrange-second"])
+      assert.deepEqual(reloaded.kept, ["e2e-arrange-second", "e2e-arrange-third", "e2e-arrange-first"])
       assert.equal(reloaded.pinMarked, "true")
-      // "third" was pinned before it was ever arranged, so it has no unpinned
-      // place to return to and now leads the unpinned rows (see session-order.ts).
+      // "second" was pinned before it was ever arranged, so it has no unpinned
+      // place to return to and leads the unpinned rows once unpinned; it is
+      // draggable again now that the pin is gone.
       assert.deepEqual(reloaded.unpinned, {
         pins: [],
-        rows: ["e2e-arrange-third", "e2e-arrange-first", "e2e-arrange-second"],
+        rows: ["e2e-arrange-second", "e2e-arrange-third", "e2e-arrange-first"],
+        grabbable: true,
       })
-      assert.deepEqual(reloaded.keyboard, [
-        "e2e-arrange-third",
-        "e2e-arrange-first",
-        "e2e-arrange-second",
-      ])
-      assert.deepEqual(reloaded.grouped, { add: false, archive: false })
+      assert.deepEqual(reloaded.oneStep, ["e2e-arrange-third", "e2e-arrange-second", "e2e-arrange-first"])
+      assert.deepEqual(reloaded.keyboard, ["e2e-arrange-second", "e2e-arrange-third", "e2e-arrange-first"])
       assert.deepEqual(reloaded.project, { add: true, archive: true })
     } finally {
       // This case owns fixture sessions and a shared browser profile: leave both
