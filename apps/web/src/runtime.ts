@@ -103,7 +103,7 @@ import {
 } from "./prompt-commands.ts";
 import { RetryTracker } from "./retry-state.ts";
 import { SelectionBroker, type SelectionEvent, type SelectionRequest, selectionSelect } from "./selection.ts";
-import { generateSessionTitle, sessionTitleInput } from "./session-title.ts";
+import { generateSessionTitle, type SlashCommandKind, sessionTitleInput } from "./session-title.ts";
 import { type WebSkill, webSkills } from "./skills.ts";
 import { resolveSubagentCliPath } from "./subagent-cli.ts";
 import { projectSubagentNotification } from "./subagent-notification.ts";
@@ -612,6 +612,9 @@ export function commandEchoText(text: string): string | null {
 function isReservedCommandName(name: string): boolean {
 	return ECHOED_COMMANDS.has(name) || name === "mcp" || name === "btw" || name === "feedback";
 }
+
+/** Commands `AgentSession` handles itself, before any extension command (`_handleLiveContextCommand`). */
+const LIVE_CONTEXT_COMMANDS: ReadonlySet<string> = new Set(["clm", "clm-compact"]);
 
 /** Same provider and model id, which is all a resolved model needs to match. */
 function modelsMatch(left: { provider: string; id: string }, right: { provider: string; id: string }): boolean {
@@ -1416,18 +1419,18 @@ export class WebSession {
 	}
 
 	/**
-	 * Name the session after its first prompt, with a fire-and-forget sidecar
-	 * call on the session's own model. The sidebar already titles a nameless
-	 * session by its first message, so the generated title only has to beat
-	 * that raw prefix; a failure is dropped and the fallback stays. One
-	 * attempt per open session, and a name set while it runs (the user
-	 * renamed) always wins.
+	 * Name the session after its first input, whatever that input triggers (a
+	 * plain prompt, a `/goal` objective, a skill), with a fire-and-forget
+	 * sidecar call on the session's own model. A goal session journals no user
+	 * message, so without this its sidebar row has no title at all. A failure
+	 * is dropped. One attempt per open session, and a name set while it runs
+	 * (the user renamed) always wins.
 	 */
 	private maybeGenerateSessionTitle(text: string): void {
 		if (this.sessionTitleGenerated || this.session.sessionName) return;
 		// A user message already on the branch means this send is not the first prompt.
 		if (this.session.sessionManager.getBranch().some(isUserEntry)) return;
-		const input = sessionTitleInput(text);
+		const input = sessionTitleInput(text, (name) => this.slashCommandKind(name));
 		if (!input) return;
 		const model = this.session.model;
 		if (!model) return;
@@ -1443,6 +1446,19 @@ export class WebSession {
 			.catch(() => {
 				// Decoration only: a failed sidecar must not surface as a session error.
 			});
+	}
+
+	/**
+	 * What the kernel does with a leading `/name`, in its own dispatch order:
+	 * a registered command (extension commands, the kernel's built-in
+	 * live-context commands, and the reserved names the composer reaches) runs
+	 * first, then a prompt template expands; anything else is plain prompt text.
+	 */
+	private slashCommandKind(name: string): SlashCommandKind {
+		if (LIVE_CONTEXT_COMMANDS.has(name) || isReservedCommandName(name)) return "command";
+		if (this.session.extensionRunner.getCommand(name)) return "command";
+		if (this.session.promptTemplates.some((template) => template.name === name)) return "template";
+		return undefined;
 	}
 
 	/** Hand `text` to the running turn, read before its next model call; refused for extension commands. */
@@ -1967,6 +1983,8 @@ export class WebSession {
 					: enabled
 						? `/goal ${(goal ?? "").trim()}`
 						: "/goal clear";
+		// Starting a goal is user input; the other toggles carry no text to title.
+		if (mode === "goal" && enabled) this.maybeGenerateSessionTitle(prompt);
 		await this.session.prompt(prompt, { source: "rpc", streamingBehavior: "followUp" });
 	}
 
@@ -1992,6 +2010,7 @@ export class WebSession {
 						: action === "resume"
 							? "/goal resume"
 							: "/goal clear";
+		if (action === "start") this.maybeGenerateSessionTitle(prompt);
 		await this.session.prompt(prompt, { source: "rpc", streamingBehavior: "followUp" });
 	}
 
