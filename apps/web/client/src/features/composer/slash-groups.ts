@@ -2,8 +2,7 @@
  * What the composer's slash menu lists, without React: the built-in commands,
  * the prompt commands and the skills matching a query, and the groups the
  * menu renders. A group with nothing in it is not rendered at all, so a
- * workspace without prompt commands shows no "plugin & custom commands"
- * heading.
+ * workspace without prompt commands shows no "plugin commands" heading.
  */
 
 import type { MessageKey, TranslateFn } from "../../i18n";

@@ -1,5 +1,5 @@
 /**
- * The slash menu's groups: the "plugin & custom commands" heading appears only
+ * The slash menu's groups: the "plugin commands" heading appears only
  * when there is at least one prompt command to show under it.
  */
 
@@ -9,7 +9,7 @@ import { slashGroups, slashSections } from "../client/src/features/composer/slas
 import type { TranslateFn } from "../client/src/i18n/index.ts";
 
 const t = ((key: string) => key) as TranslateFn;
-const LABELS = { commands: "命令", prompts: "插件与自定义命令", skills: "技能" };
+const LABELS = { commands: "命令", prompts: "插件命令", skills: "技能" };
 const SKILLS = [{ name: "pdf", description: "PDF tools" }];
 
 test("with no prompt commands the group is not rendered", () => {
@@ -38,7 +38,7 @@ test("prompt commands get their own group between commands and skills", () => {
 		sections.map((section) => [section.id, section.label]),
 		[
 			["commands", "命令"],
-			["prompts", "插件与自定义命令"],
+			["prompts", "插件命令"],
 			["skills", "技能"],
 		],
 	);
