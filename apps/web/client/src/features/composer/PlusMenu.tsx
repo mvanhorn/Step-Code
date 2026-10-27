@@ -1,8 +1,9 @@
 /**
  * `#plusMenu`: the composer's add menu behind one `+` trigger. Holds everything
  * that used to sit in the control row or only in Settings: staging attachments,
- * the session modes (goal / plan / ultracode, single-select, moved here from
- * `#modeMenu`), and three entries with ZCode-style secondary panels — plugins,
+ * the session modes (goal / plan, single-select, moved here from `#modeMenu`;
+ * see `PICKABLE_MODES` for why a mode may be hidden), and three entries with
+ * ZCode-style secondary panels — plugins,
  * skills and other sessions' context. The permission preset stays a sibling
  * button, not an entry here.
  *
@@ -17,7 +18,7 @@ import { useT } from "../../i18n";
 import { type ModeId, useAppStore } from "../../state/store";
 import { Icon, IconButton, type IconName, Popover } from "../../ui";
 import { ControlOption, PopoverGroupLabel } from "./ControlOption";
-import { MODES } from "./modes";
+import { PICKABLE_MODES } from "./modes";
 import { PluginsPanel, SessionsPanel, SkillsPanel } from "./PlusSubPanels";
 import type { ComposerMenuProps } from "./PolicyMenu";
 
@@ -139,7 +140,7 @@ export function PlusMenu({
 									}}
 								/>
 								<PopoverGroupLabel>{t("modes")}</PopoverGroupLabel>
-								{MODES.map((mode) => (
+								{PICKABLE_MODES.map((mode) => (
 									<ControlOption
 										key={mode.id}
 										id={mode.id}

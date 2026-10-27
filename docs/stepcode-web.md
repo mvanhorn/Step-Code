@@ -436,6 +436,11 @@ idempotent so a failed refresh after a successful removal can be retried. Remova
 does not close or interrupt the active conversation, modify its history, or  
 change access to the cwd of an existing session.
 
+Ultracode (the `ultraloop` mode) is hidden from the composer's ＋ mode picker in  
+Web and Desktop while its interaction is unfinished. Nothing behind it was  
+removed: typing `ultracode:` or `/ultraloop` still stages the same lead chip and  
+kernel prefix, and recorded messages keep their badge.
+
 File browsing is keyed by folder, not by session, so an empty workspace can be  
 browsed. `GET /api/v1/workspace/{files,file,raw,search,completions}` take a `cwd` and answer  
 403 unless it is the launch folder, a registered workspace, or the cwd of an  

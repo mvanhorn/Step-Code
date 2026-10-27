@@ -334,6 +334,9 @@ When to add or change one:
   (`state/tag-groups.ts`). Deleting a session or untagging its last member removes the group from the grouped view
   and the row's picker together, and frees its colour; clearing the filter when its group disappears keeps the
   sidebar from going blank. Never keep an empty group record for the picker to re-offer.
+- Ultracode (`ultraloop`) is hidden from the composer's ＋ mode picker in Web and Desktop while its interaction is
+  unfinished (`features/composer/modes.ts`, `PICKABLE_MODES`). Keep the mode, its `ultracode:` keyword and `/ultraloop`
+  alias, its lead chip and its message badge: hiding the picker row is not removing the feature.
 - `GET /api/v1/bootstrap` reports the running build's identity: `version` always, and `buildTime` when the
   installer staged a release envelope (`STEPCODE_BUILD_TIME`, set by `apps/desktop/src/release-envelope.ts`).
   Settings › General shows it as "当前版本", so a window can be told apart from a stale install or a source

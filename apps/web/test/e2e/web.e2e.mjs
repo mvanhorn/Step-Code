@@ -3535,3 +3535,20 @@ test("forking from the middle of a conversation branches there and leaves the pa
   const after = await readFile(join(base, "agent", "sessions", "--e2e-fork-here--", sessionId + ".jsonl"), "utf8")
   assert.ok(after.startsWith(before), "the parent's transcript kept every original record")
 })
+
+test("the ＋ menu offers goal and plan, but not ultracode", { skip }, async () => {
+  // Ultracode is hidden in Web and Desktop until its interaction is finished. The
+  // mode itself stays wired (its keyword, lead chip and message badge), so the
+  // picker row is the only thing that must be gone.
+  const seen = await browser.run(`
+		$("#plusTrigger").click();
+		const plus = await until(() => $("#plusPopover"), "the add menu");
+		const modes = [...plus.querySelectorAll(".control-option--mode")].map((row) =>
+			[...row.classList].find((name) => name.startsWith("control-option--") && name !== "control-option--mode"),
+		);
+		document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+		await until(() => !$("#plusPopover"), "the add menu to close");
+		return { modes, ultracode: Boolean(plus.querySelector(".control-option--ultraloop")) };
+	`)
+  assert.deepEqual(seen, { modes: ["control-option--goal", "control-option--plan"], ultracode: false })
+})
