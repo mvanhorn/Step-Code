@@ -7,6 +7,26 @@
 	padding: 2px 12px 8px;
 	line-height: 20px;
 }
+/* "Show the rest" under a long workspace group: a muted row aligned with the titles above it. */
+.project-more-sessions {
+	display: flex;
+	align-items: center;
+	width: 100%;
+	min-height: var(--control-h-md);
+	padding: 6px 8px 6px 34px;
+	border-radius: var(--radius-row);
+	color: var(--ink-3);
+	font: inherit;
+	font-size: 12px;
+	text-align: left;
+	transition:
+		background-color var(--fast),
+		color var(--fast);
+}
+.project-more-sessions:hover {
+	background: var(--hover);
+	color: var(--ink-2);
+}
 .project-header {
 	position: relative;
 	display: flex;

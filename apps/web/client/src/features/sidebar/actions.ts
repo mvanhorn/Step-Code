@@ -118,6 +118,11 @@ export function toggleProjectFolded(cwd: string): void {
 	setState((state) => ({ foldedProjects: setToggled(state.foldedProjects, cwd) }));
 }
 
+/** Show every conversation of a workspace group, or only its first few again. */
+export function toggleProjectExpanded(cwd: string): void {
+	setState((state) => ({ expandedProjects: setToggled(state.expandedProjects, cwd) }));
+}
+
 /** Collapse or show the sidebar (legacy `#sidebarToggle`, 3383-3385). */
 export function toggleSidebar(): void {
 	setUi((ui) => ({ sidebarHidden: !ui.sidebarHidden }));

@@ -347,6 +347,11 @@ When to add or change one:
   newest-first position ahead of arranged rows, and a deleted session's pin and place are pruned on refresh and
   delete. Add-workspace and the archive toggle belong to the project view; the grouped view hides them and has no
   workspace sections of its own (the Alt+Cmd+O shortcut stays global).
+- A project-view workspace group longer than five rows shows only its first rows in drawn order — so the pinned block
+  always shows, every pin even past five — plus the open conversation in its place, and a
+  `.project-more-sessions` button ("展开其余 N 个会话" / "收起会话") toggles the rest (`features/sidebar/collapse.ts`,
+  page-load `expandedProjects`). Rows past the fold are not drawn, but a drag or Alt+↑/↓ still reorders against the
+  whole list (`SessionRow` `listIds`) so they keep their places. Recent and the grouped view are not collapsed.
 - Ultracode (`ultraloop`) is hidden from the composer's ＋ mode picker in Web and Desktop while its interaction is
   unfinished (`features/composer/modes.ts`, `PICKABLE_MODES`). Keep the mode, its `ultracode:` keyword and `/ultraloop`
   alias, its lead chip and its message badge: hiding the picker row is not removing the feature.

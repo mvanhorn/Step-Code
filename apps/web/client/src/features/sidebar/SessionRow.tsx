@@ -32,10 +32,23 @@ export interface SessionRowProps {
 	readonly listId: string;
 	/** The ids of the rows the reader can actually see, in drawn order (pins first, filtered rows out). */
 	readonly drawnIds: readonly string[];
+	/**
+	 * The whole list a reorder rewrites, in drawn order, when it is longer than
+	 * `drawnIds`: a collapsed workspace group draws only its first rows, yet a
+	 * drag among them must keep the rows past the fold in their places.
+	 */
+	readonly listIds?: readonly string[];
 }
 
 /** One conversation row (legacy `buildSessionRow`, 760-819). */
-export function SessionRow({ session, grouped = false, filteredOut = false, listId, drawnIds }: SessionRowProps) {
+export function SessionRow({
+	session,
+	grouped = false,
+	filteredOut = false,
+	listId,
+	drawnIds,
+	listIds = drawnIds,
+}: SessionRowProps) {
 	const t = useT();
 	useRelativeTimeClock();
 	const row = useAppStore((state) => {
@@ -94,7 +107,7 @@ export function SessionRow({ session, grouped = false, filteredOut = false, list
 			const targetId = row.pinned ? null : event.key === "ArrowUp" ? previousId : nextId;
 			if (!targetId) return;
 			const element = event.currentTarget;
-			reorderSession(session.id, targetId, event.key === "ArrowUp" ? "before" : "after", drawnIds);
+			reorderSession(session.id, targetId, event.key === "ArrowUp" ? "before" : "after", listIds);
 			// React moves the existing row nodes; Chrome drops focus from a node it
 			// re-inserts, so the next keypress would go nowhere.
 			requestAnimationFrame(() => (rowRef.current ?? element).focus({ preventScroll: true }));
@@ -163,7 +176,7 @@ export function SessionRow({ session, grouped = false, filteredOut = false, list
 		event.stopPropagation();
 		// Read the pointer here: React may not have committed the last `dragover`,
 		// and a drop that lands on the other half must not fall back to "before".
-		reorderSession(source.sessionId, session.id, dropPlaceAt(event.currentTarget, event.clientY), drawnIds);
+		reorderSession(source.sessionId, session.id, dropPlaceAt(event.currentTarget, event.clientY), listIds);
 		endSessionDrag();
 	};
 

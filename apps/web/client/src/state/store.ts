@@ -353,6 +353,8 @@ export interface AppState {
 	readonly statusById: ReadonlyMap<string, SessionStatus>;
 	readonly unreadById: ReadonlyMap<string, boolean>;
 	readonly foldedProjects: ReadonlySet<string>;
+	/** Workspace groups showing every conversation instead of the first few (`features/sidebar/collapse.ts`). */
+	readonly expandedProjects: ReadonlySet<string>;
 	readonly groups: readonly TagGroup[];
 	/** session id -> tag colour */
 	readonly tags: ReadonlyMap<string, TagColor>;
@@ -447,6 +449,7 @@ export function createInitialState(): AppState {
 		statusById: new Map(),
 		unreadById: new Map(),
 		foldedProjects: new Set(),
+		expandedProjects: new Set(),
 		groups: [],
 		tags: new Map(),
 		pinnedSessions: arrangement.pinnedSessions,
