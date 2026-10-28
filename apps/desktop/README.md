@@ -63,7 +63,7 @@ The packages the server imports (`@step-harness/coding-agent` and below) must be
 
 | Variable | Effect |
 | --- | --- |
-| `STEPCODE_WEB_CWD` | Default workspace. Otherwise the last folder picked with the native picker, else the home directory. |
+| `STEPCODE_WEB_CWD` | Default workspace. Otherwise the last folder picked with the native picker, else the home directory — except on first use (below). |
 | `STEPCODE_DESKTOP_NODE` | Run the server with this Node.js executable instead of Electron's (e.g. for a native-module ABI mismatch). |
 | `STEPCODE_DESKTOP_SERVER_ENTRY` | Use another `server.js` build instead of `@step-harness/web/server`. |
 | `STEPCODE_WEB_PUBLIC_DIR` | Passed through to the server: serve the client from another directory. |
@@ -74,6 +74,12 @@ The packages the server imports (`@step-harness/coding-agent` and below) must be
 | `STEPCODE_DESKTOP_SHELL_ENV_TIMEOUT_MS` | Deadline for that read (default 8000). |
 | `STEPCODE_DESKTOP_USER_DATA_DIR` | Isolated Electron profile (window state, logs, single-instance lock). |
 | `STEPCODE_DESKTOP_SMOKE` | `1`: load the app hidden, print `STEPCODE_DESKTOP_SMOKE {json}` (bridge, auth, `/healthz`), exit 0/1. |
+
+**First-use workspace.** With neither `STEPCODE_WEB_CWD` nor a picked folder, the desktop passes
+`STEPCODE_WEB_DOCUMENTS_DIR=<Documents>` to the server, which on a blank installation (no workspace and no session
+yet) creates `<Documents>/StepCode/default-workspace`, registers it and launches in it. It is created once: later
+launches reuse it, and removing it from the sidebar keeps it from being created again. With a launch folder the desktop
+drops any inherited `STEPCODE_WEB_DOCUMENTS_DIR`.
 
 Packaging reads the release identity and the feedback endpoints from these. An unpackaged run has no envelope, so it
 keeps whatever identity the login shell exported — which is how a source checkout reports something other than the

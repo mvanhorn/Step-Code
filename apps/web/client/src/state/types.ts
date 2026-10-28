@@ -645,6 +645,8 @@ export interface WebWorkspace {
 	readonly available: boolean;
 	/** Removed from workspace navigation without deleting sessions. */
 	readonly hidden?: boolean;
+	/** The first-use workspace the host created; shown as "默认工作区" instead of its folder name. */
+	readonly default?: boolean;
 }
 
 export interface LoginReport {

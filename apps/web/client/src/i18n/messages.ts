@@ -138,6 +138,8 @@ const zhCN = {
 	noWorkspaces: "无工作空间",
 	/** The implicit project new work falls back to when no workspace is on offer. */
 	defaultProject: "默认项目",
+	/** The first-use workspace the host created under Documents (`StepCode/default-workspace`). */
+	defaultWorkspace: "默认工作区",
 	chooseFolder: "选择文件夹…",
 	addWorkspace: "添加工作区",
 	addWorkspaceEllipsis: "添加工作区…",
@@ -1100,6 +1102,8 @@ const enUS: Record<MessageKey, string> = {
 	noWorkspaces: "No workspace",
 	/** The implicit project new work falls back to when no workspace is on offer. */
 	defaultProject: "Default project",
+	/** The first-use workspace the host created under Documents (`StepCode/default-workspace`). */
+	defaultWorkspace: "Default workspace",
 	chooseFolder: "Choose folder…",
 	addWorkspace: "Add workspace",
 	addWorkspaceEllipsis: "Add workspace…",

@@ -45,6 +45,16 @@ function positiveInteger(value: string | undefined): number | undefined {
 	return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
+/** The account's Documents folder, or undefined where the OS reports none. */
+function documentsDirectory(): string | undefined {
+	try {
+		return app.getPath("documents");
+	} catch (error) {
+		console.warn(`[desktop] Documents folder unavailable (${message(error)})`);
+		return undefined;
+	}
+}
+
 async function main(): Promise<void> {
 	const here = dirname(fileURLToPath(import.meta.url));
 	const preload = join(here, "preload.cjs");
@@ -124,7 +134,15 @@ async function main(): Promise<void> {
 			// if neither a system Node nor the private fallback is available.
 			console.warn(`[desktop] bundled Node fallback unavailable (${message(error)})`);
 		}
-		const workspace = process.env.STEPCODE_WEB_CWD?.trim() || state.lastWorkspace() || homedir();
+		const launchFolder = process.env.STEPCODE_WEB_CWD?.trim() || state.lastWorkspace();
+		const workspace = launchFolder || homedir();
+		// With no folder to launch in, the host prepares the first-use workspace under
+		// Documents (<Documents>/StepCode/default-workspace) instead of using home.
+		// A chosen folder must never be replaced by it, so an inherited value is dropped.
+		serverEnvironment = { ...serverEnvironment };
+		const documents = launchFolder ? undefined : documentsDirectory();
+		if (documents) serverEnvironment.STEPCODE_WEB_DOCUMENTS_DIR = documents;
+		else delete serverEnvironment.STEPCODE_WEB_DOCUMENTS_DIR;
 		const options = {
 			entry,
 			node,

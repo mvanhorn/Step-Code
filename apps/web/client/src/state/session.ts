@@ -280,12 +280,24 @@ export function isDefaultProject(state: AppState, path: string | undefined): boo
 }
 
 /**
+ * Whether `path` is the first-use workspace the host created under Documents.
+ * Its folder name is the fixed, language-neutral `default-workspace`, so the
+ * page shows it in the reader's language instead.
+ */
+export function isDefaultWorkspace(state: AppState, path: string | undefined): boolean {
+	if (!path) return false;
+	return state.workspaces.some((workspace) => workspace.default === true && workspace.path === path);
+}
+
+/**
  * The name to show for a workspace folder: "默认项目" for the fallback folder,
- * otherwise the folder's own name. Without this the fallback was presented under
- * the last user name, which named neither a workspace nor a project.
+ * "默认工作区" for the first-use workspace, otherwise the folder's own name.
+ * Without this the fallback was presented under the last user name, which named
+ * neither a workspace nor a project.
  */
 export function workspaceLabel(state: AppState, path: string): string {
-	return isDefaultProject(state, path) ? t("defaultProject") : basename(path);
+	if (isDefaultProject(state, path)) return t("defaultProject");
+	return isDefaultWorkspace(state, path) ? t("defaultWorkspace") : basename(path);
 }
 
 /**

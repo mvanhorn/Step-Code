@@ -1,7 +1,7 @@
 import type { MouseEvent } from "react";
 import { useT } from "../../i18n";
 import { basename, cx } from "../../lib/format";
-import { startDraft } from "../../state/session";
+import { isDefaultWorkspace, startDraft } from "../../state/session";
 import { useAppStore } from "../../state/store";
 import type { SessionSummary } from "../../state/types";
 import { EmptyState, Icon, IconButton, LEGACY_ICONS, Popover, Tooltip } from "../../ui";
@@ -45,6 +45,7 @@ export function ProjectGroup({
 }: ProjectGroupProps) {
 	const t = useT();
 	const menuOpen = useAppStore((state) => state.ui.workspaceMenu?.cwd === cwd);
+	const defaultWorkspace = useAppStore((state) => isDefaultWorkspace(state, cwd));
 	const action = (run: () => void) => (event: MouseEvent<HTMLButtonElement>) => {
 		event.stopPropagation();
 		closeWorkspaceMenu();
@@ -61,7 +62,9 @@ export function ProjectGroup({
 			{/* biome-ignore lint/a11y/useKeyWithClickEvents: see above. */}
 			<div className="project-header" onClick={() => toggleProjectFolded(cwd)}>
 				<Icon {...LEGACY_ICONS.folder} />
-				<span className="project-name">{defaultProject ? t("defaultProject") : basename(cwd)}</span>
+				<span className="project-name">
+					{defaultProject ? t("defaultProject") : defaultWorkspace ? t("defaultWorkspace") : basename(cwd)}
+				</span>
 				<span className={cx("project-actions", menuOpen && "menu-open")}>
 					{/* Escape belongs to the shell's chain, which also refocuses this button. */}
 					{/* The fallback folder is not a registered workspace, so there is nothing

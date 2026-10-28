@@ -2700,6 +2700,18 @@ export class WebSessionStore {
 	}
 }
 
+/** The first-use workspace, when the host prepared one in place of Desktop's home-folder fallback. */
+let launchWorkspaceOverride: string | undefined;
+
+/**
+ * Make `path` the launch folder. Called once at startup with the first-use
+ * workspace (see `WorkspaceRegistry.initializeDefault`), which only exists when
+ * Desktop had no folder of its own to launch in.
+ */
+export function setLaunchWorkspace(path: string): void {
+	launchWorkspaceOverride = path;
+}
+
 export function defaultWorkspace(): string {
-	return process.env.STEPCODE_WEB_CWD?.trim() || process.cwd();
+	return launchWorkspaceOverride ?? (process.env.STEPCODE_WEB_CWD?.trim() || process.cwd());
 }

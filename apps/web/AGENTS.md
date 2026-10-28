@@ -355,6 +355,9 @@ When to add or change one:
   Settings › General shows it as "当前版本", so a window can be told apart from a stale install or a source
   checkout. Keep it a report of what the host runs; never synthesize a build time in the client.
 - Environment variables: `STEPCODE_WEB_PORT` (default 3077), `STEPCODE_WEB_CWD` (default workspace),
+  `STEPCODE_WEB_DOCUMENTS_DIR` (Documents folder; when set, a blank installation gets the first-use workspace
+  `<Documents>/StepCode/default-workspace` as its launch folder — Desktop sets it only when it has no folder to launch
+  in; see `WorkspaceRegistry.initializeDefault`),
   `STEPCODE_WEB_PUBLIC_DIR` (client directory), `STEPCODE_WEB_AUTH_SECRET`, `STEPCODE_WEB_OPEN` (below),
   `STEPCODE_WEB_CLIENT_PORT` (the launch URL points at this port instead of the host's; `web:watch` sets it to the
   Vite dev server, default 5173).
