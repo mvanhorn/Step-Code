@@ -1023,13 +1023,23 @@ test("idle keep-alive children are stopped after the TTL and a reply resumes qui
 		 * details from disk, so waiting on 1ms of virtual time is a race against
 		 * file I/O that a loaded CI runner loses. Advance in steps for a bounded
 		 * virtual budget instead, and report what did arrive.
+		 *
+		 * Virtual time cannot advance real I/O, and `advanceTimersByTimeAsync`
+		 * only yields microtasks, so 500 fast iterations can finish before the
+		 * file read resolves. Hold a real deadline too and hand the loop back to
+		 * the event loop between ticks; the assertion is still "it must arrive".
 		 */
+		const reached = (count: number): boolean =>
+			sent.filter((m) => m.details?.event === "background_done").length >= count;
 		const settle = async (count: number): Promise<boolean> => {
+			const deadline = Date.now() + 20_000;
 			for (let i = 0; i < 500; i += 1) {
-				if (sent.filter((m) => m.details?.event === "background_done").length >= count) return true;
+				if (reached(count)) return true;
 				await vi.advanceTimersByTimeAsync(10);
+				await new Promise((resolve) => setImmediate(resolve));
+				if (Date.now() > deadline) return reached(count);
 			}
-			return false;
+			return reached(count);
 		};
 		const notifications = () => sent.map((m) => m.details?.event ?? "?").join(", ") || "none";
 		expect(await settle(1), `notifications after the first lane: ${notifications()}`).toBe(true);

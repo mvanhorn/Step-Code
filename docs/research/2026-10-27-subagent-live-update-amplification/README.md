@@ -197,14 +197,15 @@ parallel 批量（200 任务）回归：发布次数 < 60，单条 < 128 KiB，�
 
 ### 4.3 测试与验证
 
-新增（21 个用例）：
+新增（22 个用例）：
 
 - `test/subagent-live-update-rpc.test.ts` —— **端到端**：真起 `--mode rpc` 子进程，走真实 rpc-adapter → parseJsonEvent → 编排 → Agent Loop → toJsonEvent。断言整条父日志 < 1 MiB、update 数 < 60、无一条 update 携带 messages、终态 messages ≤ 64 KiB；并用 300 KB 最终答复验证展示投影有界而模型可见 `content` 仍完整。
 - `test/subagent-live-update-budget.test.ts`
   - 400 次携带增长 transcript 的 update：live 一律 `messages: []`、单条 < 32 KiB、总量 < 2 MiB；
   - chain 把上一步 500 KB 输出插入下一步 task，所有 update 仍 < 32 KiB、`task` ≤ 600 字符；
   - 200 次 delta 只产生 ≤ 6 次发布；
-  - 200 个并行任务的批量调用：发布 < 60 次、单条 < 128 KiB、总量 < 2 MiB、出现 `omittedResults`；
+  - 200 个并行任务的批量调用：发布次数 ≤ `耗时/100ms + 10`（按速率而非绝对次数断言，慢机器上合理的更多 tick 不算失败）、单条 < 128 KiB、出现 `omittedResults`；
+  - 200 个瞬时完成的并行任务：发布 ≤ 10 次（这条与墙钟无关，是 O(N²) 的直接守卫）；
   - 后台 lane 运行 200 任务：每次发布的头部都报告真实总数（`/200 complete`），省略项显示为「not shown」而不是 failed；
   - `rosterFields` 单测：完整 roster 收到一个「1 条 + 省略 2」的裁剪更新后，合并结果仍是 3 条且省略数归零（历史 bug：会报 5）；
   - 终态预算：保留最新消息、序列化数组 ≤ 64 KiB、`messagesTruncated: true`；
@@ -220,7 +221,7 @@ parallel 批量（200 任务）回归：发布次数 < 60，单条 < 128 KiB，�
 
 回归：
 
-- `packages/coding-agent` 全量：5003 passed / 58 skipped。唯一稳定失败是 6 个 `completion-check-cli` 用例，**在未改动的 `main` 上以完全相同的方式失败**（本机 git worktree 前置条件问题，与本改动无关）；`subagent-invocation` 的 CLI 启动用例偶发超时，单跑必过（该文件注释已记录此既有偶发）。
+- `packages/coding-agent` 全量（Node 22，与 CI 一致）：5004 passed / 58 skipped。唯一稳定失败是 6 个 `completion-check-cli` 用例，**在未改动的 `main` 上以完全相同的方式失败**（本机 git worktree 前置条件问题，与本改动无关）；`subagent-invocation` 的 CLI 启动用例偶发超时，单跑必过（该文件注释已记录此既有偶发）。
 - `pnpm run check` 全绿（biome / 边界检查 / `tsgo --noEmit` / browser smoke）。
 - `git diff --check` 干净。
 
