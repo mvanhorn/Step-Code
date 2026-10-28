@@ -322,6 +322,9 @@ export class TuiMainScreen extends TuiBase implements TUI {
 
 	protected doRender(): void {
 		if (this.stopped) return;
+		// Keep the hardware cursor hidden while repainting changed rows. Moving it through
+		// transcript lines during a render can make IME candidate windows jump.
+		this.terminal.hideCursor();
 		const width = this.terminal.columns;
 		const height = this.terminal.rows;
 		const widthChanged = this.previousWidth !== 0 && this.previousWidth !== width;

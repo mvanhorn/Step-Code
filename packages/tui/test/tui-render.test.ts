@@ -13,7 +13,7 @@ import {
 	setCapabilities,
 	setCellDimensions,
 } from "../src/terminal-image.ts";
-import type { Component, TUI } from "../src/tui.ts";
+import { type Component, CURSOR_MARKER, type TUI } from "../src/tui.ts";
 import { TuiMainScreen } from "../src/tui-main-screen.ts";
 import { VirtualTerminal } from "./virtual-terminal.ts";
 
@@ -64,18 +64,35 @@ class BoundedWriteTerminal implements Terminal {
 
 class LoggingVirtualTerminal extends VirtualTerminal {
 	private writes: string[] = [];
+	private events: string[] = [];
 
 	override write(data: string): void {
 		this.writes.push(data);
+		this.events.push(data);
 		super.write(data);
+	}
+
+	override hideCursor(): void {
+		this.events.push("\x1b[?25l");
+		super.hideCursor();
+	}
+
+	override showCursor(): void {
+		this.events.push("\x1b[?25h");
+		super.showCursor();
 	}
 
 	getWrites(): string {
 		return this.writes.join("");
 	}
 
+	getEvents(): string {
+		return this.events.join("");
+	}
+
 	clearWrites(): void {
 		this.writes = [];
+		this.events = [];
 	}
 }
 
@@ -616,6 +633,103 @@ describe("TUI content shrinkage", () => {
 });
 
 describe("TUI differential rendering", () => {
+	it("hides the hardware cursor until differential repaint and final positioning complete", async () => {
+		const terminal = new LoggingVirtualTerminal(40, 10);
+		const tui: TUI = new TuiMainScreen(terminal, true);
+		const component = new TestComponent();
+		tui.addChild(component);
+
+		component.lines = ["before", `composer${CURSOR_MARKER}`];
+		tui.renderNow();
+		terminal.clearWrites();
+
+		component.lines = ["changed", `composer${CURSOR_MARKER}`];
+		tui.renderNow();
+
+		const writes = terminal.getEvents();
+		const hideIndex = writes.indexOf("\x1b[?25l");
+		const repaintIndex = writes.indexOf("changed");
+		const positionIndex = writes.indexOf("\x1b[1B\x1b[9G");
+		const showIndex = writes.indexOf("\x1b[?25h");
+		assert.ok(hideIndex !== -1, "render should hide the cursor before repainting");
+		assert.ok(repaintIndex > hideIndex, "repaint should happen after hiding the cursor");
+		assert.ok(positionIndex > repaintIndex, "final cursor positioning should follow repaint");
+		assert.ok(showIndex > positionIndex, "cursor should be shown only after final positioning");
+
+		// Keep the marker so positioning still runs and hits the disabled-cursor branch.
+		tui.setShowHardwareCursor(false);
+		terminal.clearWrites();
+		component.lines = ["changed again", `composer${CURSOR_MARKER}`];
+		tui.renderNow();
+		const hiddenWrites = terminal.getEvents();
+		const hiddenHideIndex = hiddenWrites.indexOf("\x1b[?25l");
+		const hiddenRepaintIndex = hiddenWrites.indexOf("changed again");
+		const hiddenAnchorIndex = hiddenWrites.indexOf("\x1b[1B\x1b[9G");
+		assert.ok(
+			hiddenHideIndex !== -1 && hiddenRepaintIndex > hiddenHideIndex,
+			"disabled cursor render hides before repainting",
+		);
+		assert.ok(hiddenAnchorIndex > hiddenRepaintIndex, "disabled cursor still anchors at the composer");
+		assert.ok(
+			hiddenWrites.indexOf("\x1b[?25l", hiddenAnchorIndex + 1) > hiddenAnchorIndex,
+			"disabled cursor branch hides after positioning",
+		);
+		assert.ok(!hiddenWrites.includes("\x1b[?25h"), "disabled hardware cursor should remain hidden");
+
+		terminal.resize(32, 10);
+		terminal.clearWrites();
+		component.lines = ["full redraw", `composer${CURSOR_MARKER}`];
+		tui.renderNow();
+		const fullWrites = terminal.getEvents();
+		const fullHideIndex = fullWrites.indexOf("\x1b[?25l");
+		const fullRepaintIndex = fullWrites.indexOf("full redraw");
+		const fullAnchorIndex = fullWrites.lastIndexOf("\x1b[9G");
+		assert.ok(
+			fullHideIndex !== -1 && fullRepaintIndex > fullHideIndex,
+			"full render hides the cursor before repainting",
+		);
+		assert.ok(fullAnchorIndex > fullRepaintIndex, "full render finishes at the composer anchor");
+		assert.ok(
+			fullWrites.indexOf("\x1b[?25l", fullAnchorIndex + 1) > fullAnchorIndex,
+			"full render keeps a disabled cursor hidden after positioning",
+		);
+		assert.ok(!fullWrites.includes("\x1b[?25h"), "full render should not show a disabled cursor");
+
+		terminal.clearWrites();
+		component.lines = ["markerless", "composer"];
+		tui.renderNow();
+		const markerlessWrites = terminal.getEvents();
+		assert.ok(markerlessWrites.includes("\x1b[?25l"), "marker-less frame should still hide the cursor");
+		assert.ok(markerlessWrites.includes("markerless"), "marker-less frame should still repaint");
+		assert.ok(!/\x1b\[\d+G/.test(markerlessWrites), "marker-less frame should skip cursor positioning");
+		assert.ok(!markerlessWrites.includes("\x1b[?25h"), "marker-less frame should not show the cursor");
+		await terminal.flush();
+		assert.notDeepStrictEqual(
+			terminal.getCursorPosition(),
+			{ x: 8, y: 1 },
+			"marker-less frame should not move the cursor to the composer anchor",
+		);
+
+		terminal.clearWrites();
+		component.lines = ["later", `composer${CURSOR_MARKER}`];
+		tui.renderNow();
+		const laterWrites = terminal.getEvents();
+		const laterHideIndex = laterWrites.indexOf("\x1b[?25l");
+		const laterRepaintIndex = laterWrites.indexOf("later");
+		const laterAnchorIndex = laterWrites.indexOf("\x1b[1B\x1b[9G");
+		assert.ok(
+			laterHideIndex !== -1 && laterRepaintIndex > laterHideIndex,
+			"a later frame should hide before repainting",
+		);
+		assert.ok(laterAnchorIndex > laterRepaintIndex, "a later frame should position the composer anchor");
+		assert.ok(!laterWrites.includes("\x1b[?25h"), "a later frame should keep a disabled cursor hidden");
+		await terminal.flush();
+		const viewport = terminal.getViewport();
+		assert.ok(viewport[0]?.includes("later"), `later frame viewport: ${viewport[0]}`);
+		assert.ok(viewport[1]?.includes("composer"), `composer viewport: ${viewport[1]}`);
+		assert.deepStrictEqual(terminal.getCursorPosition(), { x: 8, y: 1 });
+	});
+
 	it("tracks cursor correctly when content shrinks with unchanged remaining lines", async () => {
 		const terminal = new VirtualTerminal(40, 10);
 		const tui: TUI = new TuiMainScreen(terminal);
