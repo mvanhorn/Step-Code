@@ -1221,28 +1221,89 @@ function getCliHighlightTheme(t: Theme): CliHighlightTheme {
 }
 
 /**
+ * The concrete `Theme` behind the exported proxy.
+ *
+ * `theme` is a proxy whose identity never changes, so keying a cache on it would
+ * survive a theme switch and serve colours from the previous theme. Every
+ * replacement path funnels through `setGlobalTheme`, and the backing instance is
+ * stored under a `Symbol.for` key, so resolving it here also keeps separate module
+ * instances (tsx + jiti) agreeing on the same cache key.
+ */
+function resolveThemeInstance(t: Theme): Theme {
+	if ((t as unknown) !== (theme as unknown)) return t;
+	const store = globalThis as Record<symbol, Theme>;
+	return store[THEME_KEY_NEW] ?? store[THEME_KEY] ?? store[THEME_KEY_OLD] ?? t;
+}
+
+/**
+ * Highlighted lines per theme, memoized on language and source.
+ *
+ * Both the streaming renderer and the tool-output path ask for the same fenced
+ * block repeatedly: a block is highlighted while it is being written, and any
+ * document that still re-renders whole (block math, reference definitions, a
+ * message that has not settled) re-highlights every finished block on every
+ * frame. The renderer cannot deduplicate that by itself because the work happens
+ * inside this theme object, which it treats as a set of pure functions.
+ *
+ * The result is always a copy. `core/tools/write.ts` keeps the returned array and
+ * appends to or overwrites its elements while a file streams, so handing out the
+ * cached array would corrupt the cache.
+ */
+const highlightCache = new WeakMap<Theme, Map<string, string[]>>();
+/** Distinct finished blocks in one message; a long answer stays well inside this. */
+const HIGHLIGHT_CACHE_ENTRIES = 256;
+/** Whole-file callers (read/write tools) must not pin megabytes per entry. */
+const HIGHLIGHT_CACHE_SOURCE_LIMIT = 64 * 1024;
+
+function cachedHighlight(t: Theme, code: string, lang: string, compute: () => string[]): string[] {
+	const instance = resolveThemeInstance(t);
+	let perTheme = highlightCache.get(instance);
+	if (!perTheme) {
+		perTheme = new Map();
+		highlightCache.set(instance, perTheme);
+	}
+
+	const key = `${lang}\u0000${code}`;
+	const hit = perTheme.get(key);
+	if (hit) return [...hit];
+
+	const lines = compute();
+	if (code.length <= HIGHLIGHT_CACHE_SOURCE_LIMIT) {
+		if (perTheme.size >= HIGHLIGHT_CACHE_ENTRIES) {
+			// Drop the oldest insertion; re-setting an existing key keeps its position,
+			// so this is a sound FIFO.
+			const oldest = perTheme.keys().next().value;
+			if (oldest !== undefined) perTheme.delete(oldest);
+		}
+		perTheme.set(key, lines);
+	}
+	return [...lines];
+}
+
+/**
  * Highlight code with syntax coloring based on file extension or language.
  * Returns array of highlighted lines.
  */
 export function highlightCode(code: string, lang?: string): string[] {
 	// Validate language before highlighting to avoid stderr spam from cli-highlight
 	const validLang = lang && supportsLanguage(lang) ? lang : undefined;
-	// Skip highlighting when no valid language is specified. cli-highlight's
-	// auto-detection is unreliable and can misidentify prose as AppleScript,
-	// LiveCodeServer, etc., coloring random English words as keywords.
-	if (!validLang) {
-		return code.split("\n").map((line) => theme.fg("mdCodeBlock", line));
-	}
-	const opts = {
-		language: validLang,
-		ignoreIllegals: true,
-		theme: getCliHighlightTheme(theme),
-	};
-	try {
-		return highlight(code, opts).split("\n");
-	} catch {
-		return code.split("\n");
-	}
+	// No language means no highlighting at all, so the memo covers plain fences too:
+	// an unlabelled block is the most common kind, and it is restyled line by line.
+	return cachedHighlight(theme, code, validLang ?? "", () => {
+		if (!validLang) {
+			return code.split("\n").map((line) => theme.fg("mdCodeBlock", line));
+		}
+		const opts = {
+			language: validLang,
+			ignoreIllegals: true,
+			theme: getCliHighlightTheme(theme),
+		};
+		try {
+			return highlight(code, opts).split("\n");
+		} catch {
+			return code.split("\n");
+		}
+	});
 }
 
 /**
@@ -1350,22 +1411,24 @@ export function getMarkdownTheme(activeTheme: Theme = theme): MarkdownTheme {
 		highlightCode: (code: string, lang?: string): string[] => {
 			// Validate language before highlighting to avoid stderr spam from cli-highlight
 			const validLang = lang && supportsLanguage(lang) ? lang : undefined;
-			// Skip highlighting when no valid language is specified. cli-highlight's
-			// auto-detection is unreliable and can misidentify prose as AppleScript,
-			// LiveCodeServer, etc., coloring random English words as keywords.
-			if (!validLang) {
-				return code.split("\n").map((line) => activeTheme.fg("mdCodeBlock", line));
-			}
-			const opts = {
-				language: validLang,
-				ignoreIllegals: true,
-				theme: getCliHighlightTheme(activeTheme),
-			};
-			try {
-				return highlight(code, opts).split("\n");
-			} catch {
-				return code.split("\n").map((line) => activeTheme.fg("mdCodeBlock", line));
-			}
+			// No language means no highlighting at all, so the memo covers plain fences
+			// too. Both paths share one cache because the cache is keyed on the resolved
+			// theme instance, not on the closure that produced the lines.
+			return cachedHighlight(activeTheme, code, validLang ?? "", () => {
+				if (!validLang) {
+					return code.split("\n").map((line) => activeTheme.fg("mdCodeBlock", line));
+				}
+				const opts = {
+					language: validLang,
+					ignoreIllegals: true,
+					theme: getCliHighlightTheme(activeTheme),
+				};
+				try {
+					return highlight(code, opts).split("\n");
+				} catch {
+					return code.split("\n").map((line) => activeTheme.fg("mdCodeBlock", line));
+				}
+			});
 		},
 	};
 }
