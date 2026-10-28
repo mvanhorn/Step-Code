@@ -4,13 +4,14 @@ import { cx } from "../../lib/format";
 import { openSession, sessionTitle, taskStatus } from "../../state/session";
 import { mapWith, setState, shallowEqual, useAppStore } from "../../state/store";
 import type { SessionSummary } from "../../state/types";
-import { Icon, LEGACY_ICONS, Popover } from "../../ui";
+import { Icon, LEGACY_ICONS, Popover, Tooltip } from "../../ui";
 import {
 	applyTagFilter,
 	closeSessionMenu,
 	closeTagPicker,
 	reorderSession,
 	toggleSessionMenu,
+	toggleSessionPin,
 	toggleTagPicker,
 } from "./actions";
 import { beginSessionDrag, canReorder, draggedSession, dropPlaceAt, endSessionDrag } from "./drag";
@@ -93,7 +94,12 @@ export function SessionRow({
 		void openSession(session.id);
 	};
 	const onClick = (event: MouseEvent<HTMLDivElement>) => {
-		if ((event.target as Element).closest(".session-menu-button,.session-tag-button,.session-tag")) return;
+		if (
+			(event.target as Element).closest(
+				".session-menu-button,.session-tag-button,.session-tag,.session-pin,.session-pin-action",
+			)
+		)
+			return;
 		open();
 	};
 	const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -125,6 +131,10 @@ export function SessionRow({
 	const onTagButtonClick = (event: MouseEvent<HTMLButtonElement>) => {
 		event.stopPropagation();
 		toggleTagPicker(session.id);
+	};
+	const onPinClick = (event: MouseEvent<HTMLButtonElement>) => {
+		event.stopPropagation();
+		toggleSessionPin(session.id);
 	};
 	const onTagClick = (event: MouseEvent<HTMLButtonElement>) => {
 		event.stopPropagation();
@@ -210,19 +220,37 @@ export function SessionRow({
 			<i className="session-dot" aria-hidden="true" />
 			<span className="session-title-wrap">
 				<span className="session-title">{sessionTitle(session)}</span>
-				{row.pinned ? (
-					// The glyph is decorative; the label is what the row reads as, and it
-					// is also the only sign of the pin before the menu is opened.
-					<span className="session-pin" role="img" aria-label={t("pinnedLabel")}>
-						<Icon name="pin" size="2xs" />
-					</span>
-				) : null}
 			</span>
 			<span className="session-meta">
 				{status === "running" || status === "waiting" || status === "failed" ? (
 					<span className={cx("session-badge", status)}>{t(status)}</span>
 				) : null}
 				<time className="session-time">{formatRelativeTime(session.modified)}</time>
+				{/* Escape belongs to the shell's chain. */}
+				<Popover
+					bare
+					className="sidebar-menu session-menu"
+					id="sessionMenu"
+					placement="bottom-end"
+					open={row.menuOpen}
+					onClose={closeSessionMenu}
+					dismissOn="click"
+					closeOnEscape={false}
+					content={<SessionMenu session={session} />}
+				>
+					<button
+						className="session-menu-button"
+						type="button"
+						title={t("moreActions")}
+						aria-label={t("moreActions")}
+						aria-haspopup="menu"
+						aria-expanded={row.menuOpen}
+						aria-controls="sessionMenu"
+						onClick={onMenuClick}
+					>
+						<Icon {...LEGACY_ICONS.more} />
+					</button>
+				</Popover>
 				{grouped ? null : (
 					// Escape belongs to the shell's chain (the group name field closes the picker itself).
 					<Popover
@@ -250,31 +278,6 @@ export function SessionRow({
 						</button>
 					</Popover>
 				)}
-				{/* Escape belongs to the shell's chain. */}
-				<Popover
-					bare
-					className="sidebar-menu session-menu"
-					id="sessionMenu"
-					placement="bottom-end"
-					open={row.menuOpen}
-					onClose={closeSessionMenu}
-					dismissOn="click"
-					closeOnEscape={false}
-					content={<SessionMenu session={session} />}
-				>
-					<button
-						className="session-menu-button"
-						type="button"
-						title={t("moreActions")}
-						aria-label={t("moreActions")}
-						aria-haspopup="menu"
-						aria-expanded={row.menuOpen}
-						aria-controls="sessionMenu"
-						onClick={onMenuClick}
-					>
-						<Icon {...LEGACY_ICONS.more} />
-					</button>
-				</Popover>
 				{tag ? (
 					<button
 						className="tag-diamond session-tag"
@@ -285,6 +288,22 @@ export function SessionRow({
 						onClick={onTagClick}
 					/>
 				) : null}
+				{/* The row's last slot, after the hover actions, so every pin lines up at the
+				    same right edge. A pinned row always shows its solid pin, so hovering the row
+				    adds "…" and the tag button to its left without moving it; an unpinned row
+				    shows the outline pin only on hover. Each icon swaps for the other while the
+				    button itself is hovered, previewing the state a click leads to. */}
+				<Tooltip content={row.pinned ? t("unpinSession") : t("pinSession")}>
+					<button
+						className={row.pinned ? "session-pin" : "session-pin-action"}
+						type="button"
+						aria-label={row.pinned ? t("unpinSession") : t("pinSession")}
+						onClick={onPinClick}
+					>
+						<Icon name="pinFilled" size="xs" className="session-pin-filled" />
+						<Icon name="pin" size="xs" className="session-pin-outline" />
+					</button>
+				</Tooltip>
 			</span>
 		</div>
 	);

@@ -352,6 +352,10 @@ When to add or change one:
   `.project-more-sessions` button ("展开其余 N 个会话" / "收起会话") toggles the rest (`features/sidebar/collapse.ts`,
   page-load `expandedProjects`). Rows past the fold are not drawn, but a drag or Alt+↑/↓ still reorders against the
   whole list (`SessionRow` `listIds`) so they keep their places. Recent and the grouped view are not collapsed.
+- A session row's right end is fixed: hover actions are "…" then the tag button, and the pin slot is always last.
+  A pinned row always shows its solid pin (`.session-pin`, click unpins); an unpinned row shows an outline pin
+  (`.session-pin-action`, click pins) only on hover. While either row menu is open the whole cluster stays shown, so
+  the pointer moving onto the menu never slides "…" or the menu anchored to it.
 - Ultracode (`ultraloop`) is hidden from the composer's ＋ mode picker in Web and Desktop while its interaction is
   unfinished (`features/composer/modes.ts`, `PICKABLE_MODES`). Keep the mode, its `ultracode:` keyword and `/ultraloop`
   alias, its lead chip and its message badge: hiding the picker row is not removing the feature.

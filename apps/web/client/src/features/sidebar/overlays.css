@@ -200,6 +200,8 @@
 	width: 100%;
 	min-height: var(--control-h-md);
 	align-items: center;
+	/* Each action leads with its icon, like the tag picker's rows. */
+	gap: 9px;
 	padding: 0 9px;
 	border-radius: var(--radius-input);
 	text-align: left;

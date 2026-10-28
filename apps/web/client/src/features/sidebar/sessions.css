@@ -175,7 +175,14 @@
 	border-radius: var(--radius-chip);
 	color: var(--ink-3);
 }
+/*
+ * While either of the row's menus is open, the whole hover cluster stays as it
+ * was when the menu opened: the pointer moving onto the menu leaves the row, and
+ * hiding the button beside "…" would slide "…" — and the menu anchored to it —
+ * sideways.
+ */
 .session-row:hover .session-tag-button,
+.session-row:has(.session-menu-button[aria-expanded="true"]) .session-tag-button,
 .session-tag-button[aria-expanded="true"],
 .session-tag-button:focus-visible {
 	display: grid;
@@ -250,6 +257,7 @@
 }
 /* A button whose menu is open stays shown: the menu is anchored to it. */
 .session-row:hover .session-menu-button,
+.session-row:has(.session-tag-button[aria-expanded="true"]) .session-menu-button,
 .session-menu-button[aria-expanded="true"],
 .session-menu-button:focus-visible {
 	display: inline-grid;
@@ -355,11 +363,48 @@
 .session-row.drop-after::after {
 	bottom: -1px;
 }
-/* A pinned row leads its list; the marker is a quiet glyph, the row's own name still leads. */
-.session-pin {
-	display: inline-flex;
+/*
+ * A pinned row leads its list. Its pin is the row's last slot, always shown,
+ * after the hover actions: hovering swaps the time for "…" and the tag button
+ * on its left, so the pin keeps its place and every pinned row's pin shares the
+ * same right edge. Clicking it unpins. An unpinned row offers the same slot as
+ * a hover action (`.session-pin-action`) that pins it.
+ */
+.session-pin,
+.session-pin-action {
+	display: inline-grid;
 	flex: none;
+	place-items: center;
+	width: 22px;
+	height: var(--control-h-xs);
+	border-radius: var(--radius-chip);
 	color: var(--ink-3);
+}
+.session-pin-action {
+	display: none;
+}
+/* Shown like the other hover actions, and kept while a menu anchored to the row is open. */
+.session-row:hover .session-pin-action,
+.session-row:has(.session-menu-button[aria-expanded="true"]) .session-pin-action,
+.session-row:has(.session-tag-button[aria-expanded="true"]) .session-pin-action,
+.session-pin-action:focus-visible {
+	display: inline-grid;
+}
+.session-pin:hover,
+.session-pin-action:hover {
+	background: var(--selected);
+	color: var(--ink);
+}
+/* Pinned shows the solid pin, unpinned the outline; hovering the button previews the other. */
+.session-pin .session-pin-outline,
+.session-pin:is(:hover, :focus-visible) .session-pin-filled,
+.session-pin-action .session-pin-filled,
+.session-pin-action:is(:hover, :focus-visible) .session-pin-outline {
+	display: none;
+}
+.session-pin:is(:hover, :focus-visible) .session-pin-outline,
+.session-pin-action:is(:hover, :focus-visible) .session-pin-filled {
+	display: block;
 }
 .group-section.drop-target .group-heading {
 	background: color-mix(in srgb, var(--group-color) 14%, transparent);
@@ -376,6 +421,13 @@
 }
 .grouped-view .session-row:is(.running, .waiting, .failed, .unread) .session-time {
 	display: none;
+}
+/* A pinned row's pin keeps the right edge, so its status dot sits just left of the pin, in room the pin leaves. */
+.grouped-view .session-row[data-pinned="true"] .session-dot {
+	right: 36px;
+}
+.grouped-view .session-row[data-pinned="true"]:is(.running, .waiting, .failed, .unread) .session-pin {
+	margin-left: 13px;
 }
 /* The hover menu takes the dot's corner; the status badge still tells the state. */
 .grouped-view .session-row:hover .session-dot {

@@ -134,7 +134,7 @@ export function ProjectGroup({
 							aria-label={t("newConversationInWorkspace")}
 							onClick={action(() => startDraft(cwd, { listed: true }))}
 						>
-							<Icon {...LEGACY_ICONS.plus} />
+							<Icon name="newChat" size="sm" />
 						</IconButton>
 					</Tooltip>
 				</span>

@@ -3711,7 +3711,7 @@ test(
       assert.deepEqual(seen.pinned.rows, ["e2e-arrange-second", "e2e-arrange-third", "e2e-arrange-first"])
       assert.deepEqual(seen.pinned.pins, ["e2e-arrange-second"])
       assert.equal(seen.pinned.marked, "true")
-      assert.equal(seen.pinned.label, "已置顶")
+      assert.equal(seen.pinned.label, "取消置顶")
       assert.equal((seen.pinned.order ?? []).length, 0, "a pin must not arrange anything")
       assert.equal(seen.ontoIndicator, "none", "a pinned row shows no drop indicator")
       assert.deepEqual(seen.fixedBlock, {

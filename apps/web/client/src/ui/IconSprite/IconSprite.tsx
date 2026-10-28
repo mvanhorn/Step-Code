@@ -9,7 +9,7 @@ import styles from "./IconSprite.module.css";
  *
  * The artwork comes from the design team's icon library (icon-library.html):
  * a 24x24 canvas, no colour of its own, every stroke and fill `currentColor`.
- * 90 of the 111 names below are drawn from it.
+ * 92 of the 112 names below are drawn from it.
  *
  * ICON_NAMES is a DOM contract, so the names never move with the artwork. The
  * Names below without a library counterpart retain their existing in-house,
@@ -36,7 +36,6 @@ export const MISSING_FROM_LIBRARY = [
 	"browserFirefox",
 	"finder",
 	"folderWindows",
-	"pin",
 ] as const;
 
 /*
@@ -58,7 +57,6 @@ export const MISSING_FROM_LIBRARY = [
  * - browserChrome / browserSafari / browserEdge / browserFirefox: 系统浏览器标识（"在 X 中打开"），
  *   多色简化品牌图形，颜色固定、不随主题变化
  * - finder: macOS 访达（双色笑脸），folderWindows: Windows 文件资源管理器黄色文件夹；"打开工作区目录"按钮用
- * - pin: 图钉（侧边栏置顶会话的标记）。线性风格，与相邻图标同粗细
  */
 
 export const ICON_NAMES = [
@@ -117,6 +115,7 @@ export const ICON_NAMES = [
 	"check",
 	"star",
 	"pin",
+	"pinFilled",
 	"eye",
 	"zap",
 	"loop",
@@ -997,15 +996,19 @@ export function IconSprite() {
 					strokeLinejoin="round"
 				/>
 			</symbol>
-			{/* In-house: a pin, drawn in the neighbouring icons' line weight (the sidebar's pinned sessions). */}
+			{/* icon-library.html: Pin */}
 			<symbol id="i-pin" viewBox="0 0 24 24" fill="none">
 				<path
-					d="M9.4 3.5h5.2l-.9 5.1 2.9 2.9v1.8H7.4v-1.8l2.9-2.9-.9-5.1Z"
-					stroke="currentColor"
-					strokeWidth="1.8"
-					strokeLinejoin="round"
+					d="M12.8636 3.26026C13.9444 1.74705 16.1254 1.56655 17.4403 2.88148L21.1185 6.55971C22.4335 7.87464 22.2529 10.0556 20.7397 11.1364L16.4786 14.1801C16.1638 14.405 16 14.7305 16 15V17.5C16 18.9069 15.0409 19.9513 13.976 20.4104C12.9046 20.8724 11.4792 20.8468 10.4568 19.8243L8.02332 17.3909L3.70711 21.7071C3.31658 22.0976 2.68342 22.0976 2.29289 21.7071C1.90237 21.3166 1.90237 20.6834 2.29289 20.2929L6.60911 15.9767L4.17567 13.5432C3.1532 12.5208 3.12762 11.0954 3.58957 10.024C4.04871 8.95908 5.09306 8 6.5 8H9C9.26948 8 9.59505 7.8362 9.81994 7.52136L12.8636 3.26026ZM8.73001 15.2692C8.73015 15.2693 8.73029 15.2694 8.73043 15.2696C8.73057 15.2697 8.73071 15.2698 8.73084 15.27L11.871 18.4101C12.1769 18.716 12.6696 18.7957 13.1842 18.5739C13.7052 18.3492 14 17.9208 14 17.5V15C14 13.9717 14.5749 13.0821 15.3162 12.5526L19.5773 9.50895C20.0848 9.14643 20.1453 8.41495 19.7043 7.97392L16.0261 4.29569C15.5851 3.85467 14.8536 3.9152 14.491 4.42273L11.4474 8.68383C10.9179 9.42507 10.0283 10 9 10H6.5C6.07925 10 5.65079 10.2948 5.42615 10.8158C5.20431 11.3304 5.28397 11.8231 5.58988 12.129L8.73001 15.2692Z"
+					fill="currentColor"
 				/>
-				<path d="M12 13.3V20.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+			</symbol>
+			{/* icon-library.html: PinFilled */}
+			<symbol id="i-pinFilled" viewBox="0 0 24 24" fill="none">
+				<path
+					d="M12.8636 3.26029C13.9444 1.74708 16.1254 1.56658 17.4403 2.88151L21.1185 6.55974C22.4335 7.87467 22.2529 10.0556 20.7397 11.1364L16.4786 14.1801C16.1638 14.405 16 14.7306 16 15V17.5C16 18.907 15.0409 19.9513 13.976 20.4105C12.9046 20.8724 11.4792 20.8468 10.4568 19.8244L8.02332 17.3909L3.70711 21.7071C3.31658 22.0977 2.68342 22.0977 2.29289 21.7071C1.90237 21.3166 1.90237 20.6835 2.29289 20.2929L6.60911 15.9767L4.17567 13.5433C3.1532 12.5208 3.12762 11.0955 3.58957 10.024C4.04871 8.95911 5.09306 8.00003 6.5 8.00003H9C9.26948 8.00003 9.59505 7.83624 9.81994 7.52139L12.8636 3.26029Z"
+					fill="currentColor"
+				/>
 			</symbol>
 			{/* icon-library.html: View */}
 			<symbol id="i-eye" viewBox="0 0 24 24" fill="none">
